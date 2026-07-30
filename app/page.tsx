@@ -253,21 +253,18 @@ export default function Home() {
     const queue = markets.map((market) => async () => {
       const key = anchorKey(market);
       try {
-        const params = new URLSearchParams({ venue: market.venue, symbol: market.symbol, at: String(anchorAt) });
-        const response = await fetch(`/api/anchor?${params}`);
-        if (!response.ok) {
-          if (market.venue !== "Binance") throw new Error();
-          const params = new URLSearchParams({
+        if (market.venue === "Binance") {
+          const targetMinute = Math.floor(anchorAt / 60_000) * 60_000;
+          const directParams = new URLSearchParams({
             symbol: market.symbol,
             interval: "1m",
-            startTime: String(anchorAt - 3 * 24 * 3600_000),
-            endTime: String(anchorAt + 60_000),
-            limit: "1500",
+            startTime: String(targetMinute),
+            endTime: String(targetMinute + 60_000),
+            limit: "2",
           });
-          const direct = await fetch(`https://fapi.binance.com/fapi/v1/klines?${params}`);
+          const direct = await fetch(`https://fapi.binance.com/fapi/v1/markPriceKlines?${directParams}`);
           if (!direct.ok) throw new Error();
           const candles = await direct.json() as Array<[number, string, string, string, string]>;
-          const targetMinute = Math.floor(anchorAt / 60_000) * 60_000;
           const candle = candles.find((item) => item[0] === targetMinute);
           if (anchorGeneration.current === generation) {
             setAnchors((previous) => ({
@@ -277,6 +274,9 @@ export default function Home() {
           }
           return;
         }
+        const params = new URLSearchParams({ venue: market.venue, symbol: market.symbol, at: String(anchorAt) });
+        const response = await fetch(`/api/anchor?${params}`);
+        if (!response.ok) throw new Error();
         const value = (await response.json()) as Anchor;
         if (anchorGeneration.current === generation) {
           setAnchors((previous) => ({ ...previous, [key]: value }));

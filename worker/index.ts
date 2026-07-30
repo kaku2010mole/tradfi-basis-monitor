@@ -182,16 +182,16 @@ async function getAnchor(url: URL) {
     }
 
     if (venue === "Binance") {
+      const targetMinute = Math.floor(at / 60_000) * 60_000;
       const params = new URLSearchParams({
         symbol,
         interval: "1m",
-        startTime: String(at - 3 * 24 * 3600_000),
-        endTime: String(at + 60_000),
-        limit: "1500",
+        startTime: String(targetMinute),
+        endTime: String(targetMinute + 60_000),
+        limit: "2",
       });
-      const response = await fetch(`https://fapi.binance.com/fapi/v1/klines?${params}`);
+      const response = await fetch(`https://fapi.binance.com/fapi/v1/markPriceKlines?${params}`);
       const candles = await response.json() as Array<[number, string, string, string, string]>;
-      const targetMinute = Math.floor(at / 60_000) * 60_000;
       const candle = candles.find((item) => item[0] === targetMinute);
       return json({ price: candle ? Number(candle[4]) : null, timestamp: candle?.[0] ?? null }, 200, "public, max-age=3600");
     }
