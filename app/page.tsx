@@ -378,10 +378,15 @@ export default function Home() {
             <span>Cross-venue market pulse</span>
           </div>
         </div>
-        <div className={`connection ${status}`}>
-          <i />
-          {status === "live" ? "LIVE" : status === "connecting" ? "CONNECTING" : "RECONNECTING"}
-          <span>{lastRefresh ? formatBeijing(lastRefresh, false) : "—"} BJT</span>
+        <div className="topbar-actions">
+          <div className={`connection ${status}`}>
+            <i />
+            {status === "live" ? "LIVE" : status === "connecting" ? "CONNECTING" : "RECONNECTING"}
+            <span>{lastRefresh ? formatBeijing(lastRefresh, false) : "—"} BJT</span>
+          </div>
+          <form className="sign-out" action="/logout" method="post">
+            <button type="submit">Lock</button>
+          </form>
         </div>
       </header>
 

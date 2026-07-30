@@ -5,6 +5,7 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  SITE_PASSWORD?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -26,8 +27,36 @@ interface ExecutionContext {
 // const imageConfig: ImageConfig = { dangerouslyAllowSVG: true };
 
 const worker = {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env | undefined, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const sitePassword =
+      env?.SITE_PASSWORD ??
+      (globalThis as typeof globalThis & { process?: { env?: Record<string, string | undefined> } })
+        .process?.env?.SITE_PASSWORD;
+
+    if (sitePassword) {
+      if (url.pathname === "/login") {
+        return handleLogin(request, sitePassword);
+      }
+
+      if (url.pathname === "/logout" && request.method === "POST") {
+        return new Response(null, {
+          status: 303,
+          headers: {
+            location: "/login",
+            "set-cookie": `${AUTH_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
+            "cache-control": "no-store",
+          },
+        });
+      }
+
+      if (!(await isAuthorized(request, sitePassword))) {
+        if (url.pathname.startsWith("/api/")) {
+          return json({ error: "Authentication required", login: "/login" }, 401);
+        }
+        return Response.redirect(new URL("/login", request.url), 302);
+      }
+    }
 
     if (url.pathname === "/api/markets") {
       return getMarkets();
@@ -38,6 +67,9 @@ const worker = {
     }
 
     if (url.pathname === "/_vinext/image") {
+      if (!env?.ASSETS || !env.IMAGES) {
+        return new Response("Image optimization unavailable", { status: 503 });
+      }
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
       return handleImageOptimization(request, {
         fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
@@ -48,11 +80,123 @@ const worker = {
       }, allowedWidths);
     }
 
-    return handler.fetch(request, env, ctx);
+    return handler.fetch(request, env as Env, ctx);
   },
 };
 
 export default worker;
+
+const AUTH_COOKIE = "tradfi_access";
+const AUTH_MESSAGE = "tradfi-basis-monitor-access-v1";
+const encoder = new TextEncoder();
+
+async function digest(value: string) {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(value)));
+}
+
+async function valuesMatch(value: string, expected: string) {
+  const [left, right] = await Promise.all([digest(value), digest(expected)]);
+  let difference = left.length ^ right.length;
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  }
+  return difference === 0;
+}
+
+async function accessToken(password: string) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(password),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(AUTH_MESSAGE)));
+  return Array.from(signature, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function cookieValue(request: Request, name: string) {
+  const cookies = request.headers.get("cookie") ?? "";
+  for (const part of cookies.split(";")) {
+    const [key, ...value] = part.trim().split("=");
+    if (key === name) return value.join("=");
+  }
+  return null;
+}
+
+async function isAuthorized(request: Request, password: string) {
+  const token = cookieValue(request, AUTH_COOKIE);
+  return token ? valuesMatch(token, await accessToken(password)) : false;
+}
+
+async function handleLogin(request: Request, password: string) {
+  if (request.method === "GET" && await isAuthorized(request, password)) {
+    return Response.redirect(new URL("/", request.url), 302);
+  }
+
+  let invalid = false;
+  if (request.method === "POST") {
+    const form = await request.formData();
+    const submitted = String(form.get("password") ?? "");
+    if (submitted.length <= 256 && await valuesMatch(submitted, password)) {
+      return new Response(null, {
+        status: 303,
+        headers: {
+          location: "/",
+          "set-cookie": `${AUTH_COOKIE}=${await accessToken(password)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800`,
+          "cache-control": "no-store",
+        },
+      });
+    }
+    invalid = true;
+  }
+
+  return new Response(loginPage(invalid), {
+    status: invalid ? 401 : 200,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    },
+  });
+}
+
+function loginPage(invalid: boolean) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Access · TradFi Basis Monitor</title>
+  <style>
+    :root{color-scheme:light;--ink:#17231e;--paper:#f4f6f1;--line:#dfe6e0;--acid:#dfff45;--muted:#6c7771}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 80% 0%,rgba(223,255,69,.18),transparent 32rem),var(--paper);color:var(--ink);font-family:Arial,sans-serif}
+    main{width:min(430px,100%);padding:34px;background:#fbfcf8;border:1px solid var(--line);border-radius:6px 24px 6px 6px;box-shadow:0 24px 70px rgba(23,35,30,.12)}
+    .mark{width:44px;height:44px;display:grid;place-items:center;margin-bottom:30px;background:var(--ink);color:var(--acid);border-radius:4px 14px 4px 4px;font:900 20px monospace}
+    .eyebrow{color:#0d8d63;font:800 10px monospace;letter-spacing:.16em}h1{margin:10px 0 8px;font-size:34px;letter-spacing:-.04em}p{margin:0 0 26px;color:var(--muted);font-size:13px;line-height:1.6}
+    label{display:block;margin-bottom:8px;font:800 10px monospace;letter-spacing:.08em;text-transform:uppercase}input{width:100%;height:48px;padding:0 14px;border:1px solid var(--line);border-radius:5px;background:white;color:var(--ink);font-size:16px;outline:none}input:focus{border-color:#0d8d63;box-shadow:0 0 0 3px rgba(13,141,99,.1)}
+    button{width:100%;height:48px;margin-top:12px;border:0;border-radius:5px;background:var(--ink);color:white;font-weight:800;cursor:pointer}button:hover{background:#24382f}.error{margin:0 0 14px;padding:10px 12px;border:1px solid #efc7c2;border-radius:4px;background:#fff0ee;color:#a3332d;font-size:12px}
+    footer{margin-top:24px;padding-top:18px;border-top:1px solid var(--line);color:#9aa49e;font:9px monospace;text-transform:uppercase;letter-spacing:.1em}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark">M</div>
+    <div class="eyebrow">PROTECTED MARKET INTELLIGENCE</div>
+    <h1>Enter access password</h1>
+    <p>This dashboard is private. Enter the shared password to continue to live market monitoring.</p>
+    ${invalid ? '<div class="error" role="alert">Incorrect password. Please try again.</div>' : ""}
+    <form method="post" action="/login">
+      <label for="password">Access password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+      <button type="submit">Unlock dashboard</button>
+    </form>
+    <footer>TradFi Basis Monitor · Secure access</footer>
+  </main>
+</body>
+</html>`;
+}
 
 const json = (body: unknown, status = 200, cache = "no-store") =>
   new Response(JSON.stringify(body), {
