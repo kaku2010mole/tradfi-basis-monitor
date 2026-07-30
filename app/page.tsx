@@ -66,6 +66,49 @@ const toDateInput = (timestamp: number) => {
 
 const anchorKey = (market: Market) => `${market.venue}:${market.symbol}`;
 
+async function loadBinanceDirect(): Promise<Market[]> {
+  const [exchangeResponse, bookResponse, premiumResponse, fundingResponse] = await Promise.all([
+    fetch("https://fapi.binance.com/fapi/v1/exchangeInfo"),
+    fetch("https://fapi.binance.com/fapi/v1/ticker/bookTicker"),
+    fetch("https://fapi.binance.com/fapi/v1/premiumIndex"),
+    fetch("https://fapi.binance.com/fapi/v1/fundingInfo").catch(() => null),
+  ]);
+  if (!exchangeResponse.ok || !bookResponse.ok || !premiumResponse.ok) throw new Error("Binance unavailable");
+  const exchangeInfo = await exchangeResponse.json() as {
+    symbols: Array<{ symbol: string; status: string; underlyingType?: string; underlyingSubType?: string[] }>;
+  };
+  const bookTicker = await bookResponse.json() as Array<{ symbol: string; bidPrice: string; askPrice: string; time: number }>;
+  const premiumIndex = await premiumResponse.json() as Array<{ symbol: string; lastFundingRate: string; time: number }>;
+  const fundingInfo = fundingResponse?.ok
+    ? await fundingResponse.json() as Array<{ symbol: string; fundingIntervalHours: number }>
+    : [];
+  const books = new Map(bookTicker.map((item) => [item.symbol, item]));
+  const premiums = new Map(premiumIndex.map((item) => [item.symbol, item]));
+  const intervals = new Map(fundingInfo.map((item) => [item.symbol, item.fundingIntervalHours]));
+  const now = Date.now();
+
+  return exchangeInfo.symbols
+    .filter((item) => item.status === "TRADING" && item.underlyingSubType?.some((tag) => tag.toLowerCase() === "tradfi"))
+    .map((item) => {
+      const book = books.get(item.symbol);
+      const premium = premiums.get(item.symbol);
+      const bid = Number(book?.bidPrice);
+      const ask = Number(book?.askPrice);
+      return {
+        venue: "Binance" as const,
+        symbol: item.symbol,
+        displaySymbol: item.symbol,
+        category: `${item.underlyingType ?? "TradFi"} · TradFi`,
+        bid: Number.isFinite(bid) && bid > 0 ? bid : null,
+        ask: Number.isFinite(ask) && ask > 0 ? ask : null,
+        mid: Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0 ? (bid + ask) / 2 : null,
+        funding: Number.isFinite(Number(premium?.lastFundingRate)) ? Number(premium?.lastFundingRate) : null,
+        fundingHours: intervals.get(item.symbol) ?? 8,
+        updatedAt: book?.time ?? premium?.time ?? now,
+      };
+    });
+}
+
 export default function Home() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [anchors, setAnchors] = useState<Record<string, Anchor>>({});
@@ -84,8 +127,18 @@ export default function Home() {
     try {
       const response = await fetch("/api/markets", { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = (await response.json()) as { markets: Market[]; timestamp: number };
-      setMarkets(data.markets);
+      const data = (await response.json()) as { markets: Market[]; timestamp: number; sources?: { binance?: boolean } };
+      let nextMarkets = data.markets;
+      if (!data.sources?.binance) {
+        try {
+          const binance = await loadBinanceDirect();
+          nextMarkets = [...data.markets.filter((item) => item.venue !== "Binance"), ...binance];
+        } catch {
+          // Keep Hyperliquid live when Binance is unavailable from both routes.
+        }
+      }
+      if (!nextMarkets.length) throw new Error("No market data");
+      setMarkets(nextMarkets);
       setLastRefresh(data.timestamp);
       setStatus("live");
       setError("");
@@ -113,7 +166,27 @@ export default function Home() {
       try {
         const params = new URLSearchParams({ venue: market.venue, symbol: market.symbol, at: String(anchorAt) });
         const response = await fetch(`/api/anchor?${params}`);
-        if (!response.ok) throw new Error();
+        if (!response.ok) {
+          if (market.venue !== "Binance") throw new Error();
+          const params = new URLSearchParams({
+            symbol: market.symbol,
+            interval: "1m",
+            startTime: String(anchorAt - 3 * 24 * 3600_000),
+            endTime: String(anchorAt + 60_000),
+            limit: "1500",
+          });
+          const direct = await fetch(`https://fapi.binance.com/fapi/v1/klines?${params}`);
+          if (!direct.ok) throw new Error();
+          const candles = await direct.json() as Array<[number, string, string, string, string]>;
+          const candle = candles.filter((item) => item[0] <= anchorAt).at(-1);
+          if (anchorGeneration.current === generation) {
+            setAnchors((previous) => ({
+              ...previous,
+              [key]: { price: candle ? Number(candle[4]) : null, timestamp: candle?.[0] ?? null },
+            }));
+          }
+          return;
+        }
         const value = (await response.json()) as Anchor;
         if (anchorGeneration.current === generation) {
           setAnchors((previous) => ({ ...previous, [key]: value }));

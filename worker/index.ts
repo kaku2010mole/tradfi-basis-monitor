@@ -64,54 +64,66 @@ const json = (body: unknown, status = 200, cache = "no-store") =>
   });
 
 async function getMarkets() {
+  const markets: Array<Record<string, unknown>> = [];
+  const sources = { hyperliquid: false, binance: false };
+  const errors: string[] = [];
+
   try {
-    const hyperRequest = fetch("https://api.hyperliquid.xyz/info", {
+    const hyper = await fetch("https://api.hyperliquid.xyz/info", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ type: "metaAndAssetCtxs", dex: "xyz" }),
-    }).then((response) => response.json() as Promise<[{
+    }).then(async (response) => {
+      if (!response.ok) throw new Error(`Hyperliquid HTTP ${response.status}`);
+      return response.json() as Promise<[{
       universe: Array<{ name: string; isDelisted?: boolean }>;
-    }, Array<{ midPx?: string; funding?: string }>] | null>);
+      }, Array<{ midPx?: string; funding?: string }>]>;
+    });
+    const now = Date.now();
+    hyper[0].universe.forEach((asset, index) => {
+      if (asset.isDelisted) return;
+      const context = hyper[1][index] ?? {};
+      const mid = Number(context.midPx);
+      markets.push({
+        venue: "Hyperliquid",
+        symbol: asset.name,
+        displaySymbol: asset.name.replace(/^xyz:/, ""),
+        category: "xyz perpetual",
+        mid: Number.isFinite(mid) ? mid : null,
+        bid: null,
+        ask: null,
+        funding: Number.isFinite(Number(context.funding)) ? Number(context.funding) : null,
+        fundingHours: 1,
+        updatedAt: now,
+      });
+    });
+    sources.hyperliquid = true;
+  } catch (error) {
+    errors.push(String(error));
+  }
 
-    const [hyper, exchangeInfo, bookTicker, premiumIndex, fundingInfo] = await Promise.all([
-      hyperRequest,
-      fetch("https://fapi.binance.com/fapi/v1/exchangeInfo").then((response) => response.json() as Promise<{
+  try {
+    const requireJson = async <T,>(url: string): Promise<T> => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Binance HTTP ${response.status}`);
+      return response.json() as Promise<T>;
+    };
+    const [exchangeInfo, bookTicker, premiumIndex, fundingInfo] = await Promise.all([
+      requireJson<{
         symbols: Array<{ symbol: string; status: string; underlyingType?: string; underlyingSubType?: string[] }>;
-      }>),
-      fetch("https://fapi.binance.com/fapi/v1/ticker/bookTicker").then((response) => response.json() as Promise<Array<{
+      }>("https://fapi.binance.com/fapi/v1/exchangeInfo"),
+      requireJson<Array<{
         symbol: string; bidPrice: string; askPrice: string; time: number;
-      }>>),
-      fetch("https://fapi.binance.com/fapi/v1/premiumIndex").then((response) => response.json() as Promise<Array<{
+      }>>("https://fapi.binance.com/fapi/v1/ticker/bookTicker"),
+      requireJson<Array<{
         symbol: string; lastFundingRate: string; time: number;
-      }>>),
-      fetch("https://fapi.binance.com/fapi/v1/fundingInfo").then((response) => response.json() as Promise<Array<{
+      }>>("https://fapi.binance.com/fapi/v1/premiumIndex"),
+      requireJson<Array<{
         symbol: string; fundingIntervalHours: number;
-      }>>).catch(() => []),
+      }>>("https://fapi.binance.com/fapi/v1/fundingInfo").catch(() => []),
     ]);
 
     const now = Date.now();
-    const markets: Array<Record<string, unknown>> = [];
-
-    if (hyper) {
-      hyper[0].universe.forEach((asset, index) => {
-        if (asset.isDelisted) return;
-        const context = hyper[1][index] ?? {};
-        const mid = Number(context.midPx);
-        markets.push({
-          venue: "Hyperliquid",
-          symbol: asset.name,
-          displaySymbol: asset.name.replace(/^xyz:/, ""),
-          category: "xyz perpetual",
-          mid: Number.isFinite(mid) ? mid : null,
-          bid: null,
-          ask: null,
-          funding: Number.isFinite(Number(context.funding)) ? Number(context.funding) : null,
-          fundingHours: 1,
-          updatedAt: now,
-        });
-      });
-    }
-
     const books = new Map(bookTicker.map((item) => [item.symbol, item]));
     const premiums = new Map(premiumIndex.map((item) => [item.symbol, item]));
     const intervals = new Map(fundingInfo.map((item) => [item.symbol, item.fundingIntervalHours]));
@@ -138,11 +150,13 @@ async function getMarkets() {
           updatedAt: book?.time ?? premium?.time ?? now,
         });
       });
-
-    return json({ markets, timestamp: now }, 200, "public, max-age=2, s-maxage=2");
+    sources.binance = true;
   } catch (error) {
-    return json({ error: "Market data source unavailable", detail: String(error) }, 502);
+    errors.push(String(error));
   }
+
+  if (!markets.length) return json({ error: "Market data sources unavailable", errors }, 502);
+  return json({ markets, timestamp: Date.now(), sources }, 200, "public, max-age=2, s-maxage=2");
 }
 
 async function getAnchor(url: URL) {
