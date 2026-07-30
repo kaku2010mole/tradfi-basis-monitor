@@ -147,7 +147,7 @@ async function getMarkets() {
           mid: Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0 ? (bid + ask) / 2 : null,
           funding: Number.isFinite(Number(premium?.lastFundingRate)) ? Number(premium?.lastFundingRate) : null,
           fundingHours: intervals.get(symbol.symbol) ?? 8,
-          updatedAt: book?.time ?? premium?.time ?? now,
+          updatedAt: book ? now : 0,
         });
       });
     sources.binance = true;

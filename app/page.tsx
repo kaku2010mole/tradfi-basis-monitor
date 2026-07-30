@@ -105,7 +105,7 @@ async function loadBinanceDirect(): Promise<Market[]> {
         mid: Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0 ? (bid + ask) / 2 : null,
         funding: Number.isFinite(Number(premium?.lastFundingRate)) ? Number(premium?.lastFundingRate) : null,
         fundingHours: intervals.get(item.symbol) ?? 8,
-        updatedAt: book?.time ?? premium?.time ?? now,
+        updatedAt: book ? now : 0,
       };
     });
 }
@@ -485,7 +485,7 @@ export default function Home() {
         </div>
         <footer className="panel-footer">
           <span>显示 {rows.length} 个实时且具备精确锚点的合约 · 已检查 {stats.anchorsReady}/{markets.length}</span>
-          <span><i className="dot" /> WebSocket 实时报价 · 陈旧超过 30 秒自动隐藏</span>
+          <span><i className="dot" /> 5 秒全量盘口快照 + WebSocket 增量更新</span>
         </footer>
       </section>}
     </main>
