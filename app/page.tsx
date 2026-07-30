@@ -17,7 +17,7 @@ type Market = {
 };
 
 type Anchor = { price: number | null; timestamp: number | null; loading?: boolean; error?: boolean };
-type SortKey = "symbol" | "mid" | "deviation" | "funding";
+type LinkHealth = { online: boolean; lastActivity: number | null };
 
 const REFRESH_MS = 5000;
 const LIVE_QUOTE_MAX_AGE_MS = 30_000;
@@ -115,8 +115,7 @@ export default function Home() {
   const [anchors, setAnchors] = useState<Record<string, Anchor>>({});
   const [venue, setVenue] = useState<"All" | Venue>("All");
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<SortKey>("deviation");
-  const [descending, setDescending] = useState(true);
+  const [threshold, setThreshold] = useState(1);
   const [anchorAt, setAnchorAt] = useState(mostRecentSaturdayNine);
   const [anchorDraft, setAnchorDraft] = useState(() => toDateInput(mostRecentSaturdayNine()));
   const [anchorRevision, setAnchorRevision] = useState(0);
@@ -124,6 +123,11 @@ export default function Home() {
   const [status, setStatus] = useState<"connecting" | "live" | "stale">("connecting");
   const [lastRefresh, setLastRefresh] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [links, setLinks] = useState<Record<"snapshot" | "hyperliquid" | "binance", LinkHealth>>({
+    snapshot: { online: false, lastActivity: null },
+    hyperliquid: { online: false, lastActivity: null },
+    binance: { online: false, lastActivity: null },
+  });
   const anchorGeneration = useRef(0);
 
   const loadCurrent = useCallback(async () => {
@@ -153,9 +157,11 @@ export default function Home() {
       setLastRefresh(data.timestamp);
       setStatus("live");
       setError("");
+      setLinks((previous) => ({ ...previous, snapshot: { online: true, lastActivity: Date.now() } }));
     } catch {
       setStatus("stale");
-      setError("实时行情暂时不可用，正在自动重连");
+      setError("Market snapshot unavailable. Reconnecting automatically.");
+      setLinks((previous) => ({ ...previous, snapshot: { ...previous.snapshot, online: false } }));
     }
   }, []);
 
@@ -192,6 +198,7 @@ export default function Home() {
       if (stopped) return;
       hyperSocket = new WebSocket("wss://api.hyperliquid.xyz/ws");
       hyperSocket.onopen = () => {
+        setLinks((previous) => ({ ...previous, hyperliquid: { online: true, lastActivity: Date.now() } }));
         hyperSymbols.forEach((coin) => {
           hyperSocket?.send(JSON.stringify({ method: "subscribe", subscription: { type: "l2Book", coin } }));
         });
@@ -206,10 +213,14 @@ export default function Home() {
           const bid = Number(message.data.levels?.[0]?.[0]?.px);
           const ask = Number(message.data.levels?.[1]?.[0]?.px);
           applyQuote("Hyperliquid", message.data.coin, bid, ask, message.data.time ?? Date.now());
+          setLinks((previous) => ({ ...previous, hyperliquid: { online: true, lastActivity: Date.now() } }));
         } catch { /* ignore malformed frames */ }
       };
 
       binanceSocket = new WebSocket("wss://fstream.binance.com/ws/!bookTicker");
+      binanceSocket.onopen = () => {
+        setLinks((previous) => ({ ...previous, binance: { online: true, lastActivity: Date.now() } }));
+      };
       binanceSocket.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data as string) as
@@ -219,6 +230,7 @@ export default function Home() {
           updates.forEach((item) => {
             if (item.s) applyQuote("Binance", item.s, Number(item.b), Number(item.a), item.E ?? item.T ?? Date.now());
           });
+          setLinks((previous) => ({ ...previous, binance: { online: true, lastActivity: Date.now() } }));
         } catch { /* ignore malformed frames */ }
       };
 
@@ -230,8 +242,14 @@ export default function Home() {
           }, 2500);
         }
       };
-      hyperSocket.onclose = reconnect;
-      binanceSocket.onclose = reconnect;
+      hyperSocket.onclose = () => {
+        setLinks((previous) => ({ ...previous, hyperliquid: { ...previous.hyperliquid, online: false } }));
+        reconnect();
+      };
+      binanceSocket.onclose = () => {
+        setLinks((previous) => ({ ...previous, binance: { ...previous.binance, online: false } }));
+        reconnect();
+      };
     };
 
     connect();
@@ -317,26 +335,28 @@ export default function Home() {
         (venue === "All" || row.venue === venue) &&
         (!query || `${row.displaySymbol} ${row.category}`.toLowerCase().includes(query.toLowerCase())),
     );
-    return filtered.sort((a, b) => {
-      const av = sort === "symbol" ? a.displaySymbol : sort === "deviation" ? a.deviation : a[sort];
-      const bv = sort === "symbol" ? b.displaySymbol : sort === "deviation" ? b.deviation : b[sort];
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      const compared = typeof av === "string" ? av.localeCompare(String(bv)) : Number(av) - Number(bv);
-      return descending ? -compared : compared;
-    });
-  }, [markets, anchors, venue, query, sort, descending]);
+    return filtered.sort((a, b) => Math.abs(b.deviation ?? 0) - Math.abs(a.deviation ?? 0));
+  }, [markets, anchors, venue, query]);
+
+  const positiveAlerts = useMemo(
+    () => rows.filter((row) => (row.deviation ?? 0) >= threshold),
+    [rows, threshold],
+  );
+  const negativeAlerts = useMemo(
+    () => rows.filter((row) => (row.deviation ?? 0) <= -threshold),
+    [rows, threshold],
+  );
 
   const stats = useMemo(() => {
     const deviations = rows.map((row) => row.deviation).filter((value): value is number => value != null);
     return {
       total: rows.length,
-      up: deviations.filter((value) => value > 0).length,
-      down: deviations.filter((value) => value < 0).length,
+      up: positiveAlerts.length,
+      down: negativeAlerts.length,
       extreme: deviations.length ? Math.max(...deviations.map(Math.abs)) : null,
       anchorsReady: Object.values(anchors).filter((value) => !value.loading).length,
     };
-  }, [rows, anchors]);
+  }, [rows, anchors, positiveAlerts.length, negativeAlerts.length]);
 
   const applyAnchor = () => {
     const parsed = Date.parse(`${anchorDraft}:00+08:00`);
@@ -345,14 +365,6 @@ export default function Home() {
       setAnchorRevision((value) => value + 1);
       setStarted(true);
       setStatus("connecting");
-    }
-  };
-
-  const setSortKey = (key: SortKey) => {
-    if (key === sort) setDescending((value) => !value);
-    else {
-      setSort(key);
-      setDescending(key !== "symbol");
     }
   };
 
@@ -376,47 +388,53 @@ export default function Home() {
       <section className={`hero ${started ? "compact" : ""}`}>
         <div>
           <div className="eyebrow">REAL-TIME DERIVATIVES MONITOR</div>
-          <h1>{started ? "市场偏航监测" : "先锚定，再观察。"}</h1>
+          <h1>{started ? "Deviation alert board" : "Set the anchor. Then watch the drift."}</h1>
           <p>{started
-            ? `当前锚点：${formatBeijing(anchorAt)} BJT · 中间价、偏离与资金费率每 5 秒更新`
-            : "选择一个北京时间锚点。点击开始前不会请求或刷新任何行情数据。"}
+            ? `Anchor: ${formatBeijing(anchorAt)} BJT · Live midpoint, deviation and funding monitoring`
+            : "Choose a Beijing-time anchor. No market data is requested until monitoring starts."}
           </p>
         </div>
         <div className={`anchor-card ${!started ? "attention" : ""}`}>
-          <label>价格锚点 <span>北京时间</span></label>
+          <label>Price anchor <span>BEIJING TIME</span></label>
           <div className="anchor-control">
             <input
-              aria-label="价格锚点，北京时间"
+              aria-label="Price anchor in Beijing time"
               type="datetime-local"
               value={anchorDraft}
               onChange={(event) => setAnchorDraft(event.target.value)}
             />
-            <button onClick={applyAnchor}>{started ? "重新锚定" : "开始监测"}</button>
+            <button onClick={applyAnchor}>{started ? "Re-anchor" : "Start monitoring"}</button>
           </div>
-          <small>{started ? "修改后将重新加载全部锚点" : "已预填最近一个周六 09:00；可直接修改"}</small>
+          <small>{started ? "Changing the anchor reloads every reference price" : "Preset to the latest Saturday at 09:00 BJT"}</small>
         </div>
       </section>
 
       {!started && (
         <section className="preflight">
           <div className="preflight-number">01</div>
-          <div><strong>选择锚点时间</strong><span>所有偏离均以此时间为基准</span></div>
+          <div><strong>Choose an anchor</strong><span>Every deviation uses this exact minute</span></div>
           <div className="preflight-arrow">→</div>
           <div className="preflight-number">02</div>
-          <div><strong>开始实时监测</strong><span>启动后每 5 秒刷新行情</span></div>
+          <div><strong>Start live monitoring</strong><span>Snapshots refresh every five seconds</span></div>
         </section>
       )}
 
       {started && <section className="stat-strip">
-        <div><span>监测合约</span><strong>{stats.total}</strong><small>当前筛选</small></div>
-        <div><span>锚点上方</span><strong className="positive">{stats.up}</strong><small>偏离 &gt; 0</small></div>
-        <div><span>锚点下方</span><strong className="negative">{stats.down}</strong><small>偏离 &lt; 0</small></div>
-        <div><span>最大绝对偏离</span><strong>{formatPct(stats.extreme)}</strong><small>当前视图</small></div>
+        <div><span>Eligible contracts</span><strong>{stats.total}</strong><small>LIVE + EXACT ANCHOR</small></div>
+        <div><span>Positive alerts</span><strong className="positive">{stats.up}</strong><small>AT OR ABOVE +{threshold.toFixed(2)}%</small></div>
+        <div><span>Negative alerts</span><strong className="negative">{stats.down}</strong><small>AT OR BELOW −{threshold.toFixed(2)}%</small></div>
+        <div><span>Largest absolute drift</span><strong>{formatPct(stats.extreme)}</strong><small>CURRENT FILTER</small></div>
       </section>}
 
       {started && <section className="market-panel">
+        <div className="link-monitor">
+          <div className="link-monitor-title"><span>LINK STATUS</span><small>Independent feed health</small></div>
+          <LinkBadge name="Snapshot API" state={links.snapshot} />
+          <LinkBadge name="Hyperliquid WS" state={links.hyperliquid} />
+          <LinkBadge name="Binance WS" state={links.binance} />
+        </div>
         <div className="toolbar">
-          <div className="tabs" role="tablist" aria-label="交易所筛选">
+          <div className="tabs" role="tablist" aria-label="Venue filter">
             {(["All", "Hyperliquid", "Binance"] as const).map((item) => (
               <button
                 key={item}
@@ -425,73 +443,92 @@ export default function Home() {
                 className={venue === item ? "active" : ""}
                 onClick={() => setVenue(item)}
               >
-                {item === "All" ? "全部市场" : item}
+                {item === "All" ? "All venues" : item}
                 <span>{item === "All" ? markets.length : markets.filter((m) => m.venue === item).length}</span>
               </button>
             ))}
           </div>
+          <label className="threshold-control">
+            <span>Alert threshold</span>
+            <div>
+              <input
+                aria-label="Deviation alert threshold"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                value={threshold}
+                onChange={(event) => setThreshold(Math.max(0, Number(event.target.value) || 0))}
+              />
+              <b>%</b>
+            </div>
+          </label>
           <div className="search">
             <span>⌕</span>
-            <input aria-label="搜索合约" placeholder="搜索合约…" value={query} onChange={(event) => setQuery(event.target.value)} />
+            <input aria-label="Search contracts" placeholder="Search contracts…" value={query} onChange={(event) => setQuery(event.target.value)} />
             <kbd>/</kbd>
           </div>
         </div>
 
         {error && <div className="notice">{error}</div>}
 
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th onClick={() => setSortKey("symbol")}>合约 <SortMark active={sort === "symbol"} desc={descending} /></th>
-                <th>市场</th>
-                <th className="number">买一 / 卖一</th>
-                <th className="number" onClick={() => setSortKey("mid")}>中间价 <SortMark active={sort === "mid"} desc={descending} /></th>
-                <th className="number anchor-heading">锚点价格 <small>{formatBeijing(anchorAt)} BJT</small></th>
-                <th className="number" onClick={() => setSortKey("deviation")}>偏离 <SortMark active={sort === "deviation"} desc={descending} /></th>
-                <th className="number" onClick={() => setSortKey("funding")}>Funding <SortMark active={sort === "funding"} desc={descending} /></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={anchorKey(row)}>
-                  <td>
-                    <div className="symbol">
-                      <span className={row.venue === "Hyperliquid" ? "hl" : "bn"}>{row.displaySymbol.slice(0, 2)}</span>
-                      <div><strong>{row.displaySymbol}</strong><small>{row.category}</small></div>
-                    </div>
-                  </td>
-                  <td><span className={`venue-pill ${row.venue === "Hyperliquid" ? "hl" : "bn"}`}>{row.venue}</span></td>
-                  <td className="number quote-pair">
-                    <span>{formatPrice(row.bid)}</span><em>/</em><span>{formatPrice(row.ask)}</span>
-                  </td>
-                  <td className="number mid">{formatPrice(row.mid)}</td>
-                  <td className="number anchor-price">
-                    {row.anchor?.loading ? <span className="shimmer" /> : formatPrice(row.anchor?.price ?? null)}
-                  </td>
-                  <td className={`number deviation ${(row.deviation ?? 0) > 0 ? "positive" : (row.deviation ?? 0) < 0 ? "negative" : ""}`}>
-                    {formatPct(row.deviation)}
-                    {row.deviation != null && <span className="bar"><i style={{ width: `${Math.min(Math.abs(row.deviation) * 5, 100)}%` }} /></span>}
-                  </td>
-                  <td className={`number funding ${(row.funding ?? 0) > 0 ? "positive" : (row.funding ?? 0) < 0 ? "negative" : ""}`}>
-                    {formatPct(row.funding == null ? null : row.funding * 100, 4)}
-                    <small>{row.fundingHours}h</small>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!rows.length && <div className="empty">{markets.length ? "没有匹配的合约" : "正在连接交易所行情…"}</div>}
+        <div className="deviation-board">
+          <section className="deviation-side positive-side">
+            <header>
+              <div><span className="side-arrow">↗</span><strong>Positive deviation</strong></div>
+              <b>{positiveAlerts.length}</b>
+            </header>
+            <div className="alert-list">
+              {positiveAlerts.map((row) => <DeviationCard key={anchorKey(row)} row={row} />)}
+              {!positiveAlerts.length && <div className="side-empty">No contract exceeds +{threshold.toFixed(2)}%</div>}
+            </div>
+          </section>
+          <section className="deviation-side negative-side">
+            <header>
+              <div><span className="side-arrow">↘</span><strong>Negative deviation</strong></div>
+              <b>{negativeAlerts.length}</b>
+            </header>
+            <div className="alert-list">
+              {negativeAlerts.map((row) => <DeviationCard key={anchorKey(row)} row={row} />)}
+              {!negativeAlerts.length && <div className="side-empty">No contract exceeds −{threshold.toFixed(2)}%</div>}
+            </div>
+          </section>
         </div>
         <footer className="panel-footer">
-          <span>显示 {rows.length} 个实时且具备精确锚点的合约 · 已检查 {stats.anchorsReady}/{markets.length}</span>
-          <span><i className="dot" /> 5 秒全量盘口快照 + WebSocket 增量更新</span>
+          <span>{rows.length} live contracts with exact anchors · {stats.anchorsReady}/{markets.length} checked</span>
+          <span><i className="dot" /> 5-second snapshots + WebSocket increments</span>
         </footer>
       </section>}
     </main>
   );
 }
 
-function SortMark({ active, desc }: { active: boolean; desc: boolean }) {
-  return <span className={`sort-mark ${active ? "active" : ""}`}>{active ? (desc ? "↓" : "↑") : "↕"}</span>;
+type AlertRow = Market & { anchor?: Anchor; deviation: number | null };
+
+function DeviationCard({ row }: { row: AlertRow }) {
+  const isPositive = (row.deviation ?? 0) >= 0;
+  return (
+    <article className={`alert-card ${isPositive ? "is-positive" : "is-negative"}`}>
+      <div className="alert-identity">
+        <span className={row.venue === "Hyperliquid" ? "hl" : "bn"}>{row.displaySymbol.slice(0, 2)}</span>
+        <div><strong>{row.displaySymbol}</strong><small>{row.venue} · {row.category}</small></div>
+      </div>
+      <div className="alert-deviation">{formatPct(row.deviation)}</div>
+      <dl>
+        <div><dt>Midpoint</dt><dd>{formatPrice(row.mid)}</dd></div>
+        <div><dt>Anchor</dt><dd>{formatPrice(row.anchor?.price ?? null)}</dd></div>
+        <div><dt>Funding / {row.fundingHours}h</dt><dd className={(row.funding ?? 0) >= 0 ? "positive" : "negative"}>{formatPct(row.funding == null ? null : row.funding * 100, 4)}</dd></div>
+      </dl>
+      <div className="alert-quote"><span>Bid {formatPrice(row.bid)}</span><span>Ask {formatPrice(row.ask)}</span></div>
+    </article>
+  );
+}
+
+function LinkBadge({ name, state }: { name: string; state: LinkHealth }) {
+  return (
+    <div className={`link-badge ${state.online ? "online" : "offline"}`}>
+      <i />
+      <div><strong>{name}</strong><small>{state.online ? "ONLINE" : "OFFLINE"} · {state.lastActivity ? `${formatBeijing(state.lastActivity, false)} BJT` : "No activity"}</small></div>
+    </div>
+  );
 }

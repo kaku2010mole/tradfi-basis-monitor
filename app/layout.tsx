@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "TradFi Basis Monitor",
-  description: "Hyperliquid xyz 与 Binance TradFi 合约实时中间价、锚点偏离及资金费率监测。",
+  description: "Live midpoint, anchor deviation and funding monitoring for Hyperliquid xyz and Binance TradFi contracts.",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
   openGraph: {
     title: "TradFi Basis Monitor",
