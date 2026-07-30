@@ -118,6 +118,8 @@ export default function Home() {
   const [descending, setDescending] = useState(true);
   const [anchorAt, setAnchorAt] = useState(mostRecentSaturdayNine);
   const [anchorDraft, setAnchorDraft] = useState(() => toDateInput(mostRecentSaturdayNine()));
+  const [anchorRevision, setAnchorRevision] = useState(0);
+  const [started, setStarted] = useState(false);
   const [status, setStatus] = useState<"connecting" | "live" | "stale">("connecting");
   const [lastRefresh, setLastRefresh] = useState<number | null>(null);
   const [error, setError] = useState("");
@@ -149,13 +151,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!started) return;
     loadCurrent();
     const timer = window.setInterval(loadCurrent, REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [loadCurrent]);
+  }, [loadCurrent, started]);
 
   useEffect(() => {
-    if (!markets.length) return;
+    if (!started || !markets.length) return;
     const generation = ++anchorGeneration.current;
     const next: Record<string, Anchor> = {};
     for (const market of markets) next[anchorKey(market)] = { price: null, timestamp: null, loading: true };
@@ -206,7 +209,7 @@ export default function Home() {
       }
     };
     Promise.all(Array.from({ length: 8 }, worker));
-  }, [anchorAt, markets.length]);
+  }, [anchorAt, anchorRevision, markets.length, started]);
 
   const rows = useMemo(() => {
     const enriched = markets.map((market) => {
@@ -245,7 +248,12 @@ export default function Home() {
 
   const applyAnchor = () => {
     const parsed = Date.parse(`${anchorDraft}:00+08:00`);
-    if (Number.isFinite(parsed)) setAnchorAt(parsed);
+    if (Number.isFinite(parsed)) {
+      setAnchorAt(parsed);
+      setAnchorRevision((value) => value + 1);
+      setStarted(true);
+      setStatus("connecting");
+    }
   };
 
   const setSortKey = (key: SortKey) => {
@@ -273,13 +281,16 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="hero">
+      <section className={`hero ${started ? "compact" : ""}`}>
         <div>
           <div className="eyebrow">REAL-TIME DERIVATIVES MONITOR</div>
-          <h1>锚定一个时刻，观察市场偏航。</h1>
-          <p>覆盖 Hyperliquid xyz 全部活跃合约与 Binance TradFi 标签合约；中间价、锚点偏离与资金费率同步更新。</p>
+          <h1>{started ? "市场偏航监测" : "先锚定，再观察。"}</h1>
+          <p>{started
+            ? `当前锚点：${formatBeijing(anchorAt)} BJT · 中间价、偏离与资金费率每 5 秒更新`
+            : "选择一个北京时间锚点。点击开始前不会请求或刷新任何行情数据。"}
+          </p>
         </div>
-        <div className="anchor-card">
+        <div className={`anchor-card ${!started ? "attention" : ""}`}>
           <label>价格锚点 <span>北京时间</span></label>
           <div className="anchor-control">
             <input
@@ -288,20 +299,30 @@ export default function Home() {
               value={anchorDraft}
               onChange={(event) => setAnchorDraft(event.target.value)}
             />
-            <button onClick={applyAnchor}>应用</button>
+            <button onClick={applyAnchor}>{started ? "重新锚定" : "开始监测"}</button>
           </div>
-          <small>默认：最近一个周六 09:00 · 休市时取此前最近成交价</small>
+          <small>{started ? "修改后将重新加载全部锚点" : "已预填最近一个周六 09:00；可直接修改"}</small>
         </div>
       </section>
 
-      <section className="stat-strip">
+      {!started && (
+        <section className="preflight">
+          <div className="preflight-number">01</div>
+          <div><strong>选择锚点时间</strong><span>所有偏离均以此时间为基准</span></div>
+          <div className="preflight-arrow">→</div>
+          <div className="preflight-number">02</div>
+          <div><strong>开始实时监测</strong><span>启动后每 5 秒刷新行情</span></div>
+        </section>
+      )}
+
+      {started && <section className="stat-strip">
         <div><span>监测合约</span><strong>{stats.total}</strong><small>当前筛选</small></div>
         <div><span>锚点上方</span><strong className="positive">{stats.up}</strong><small>偏离 &gt; 0</small></div>
         <div><span>锚点下方</span><strong className="negative">{stats.down}</strong><small>偏离 &lt; 0</small></div>
         <div><span>最大绝对偏离</span><strong>{formatPct(stats.extreme)}</strong><small>当前视图</small></div>
-      </section>
+      </section>}
 
-      <section className="market-panel">
+      {started && <section className="market-panel">
         <div className="toolbar">
           <div className="tabs" role="tablist" aria-label="交易所筛选">
             {(["All", "Hyperliquid", "Binance"] as const).map((item) => (
@@ -334,7 +355,7 @@ export default function Home() {
                 <th>市场</th>
                 <th className="number">买一 / 卖一</th>
                 <th className="number" onClick={() => setSortKey("mid")}>中间价 <SortMark active={sort === "mid"} desc={descending} /></th>
-                <th className="number">锚点价格</th>
+                <th className="number anchor-heading">锚点价格 <small>{formatBeijing(anchorAt)} BJT</small></th>
                 <th className="number" onClick={() => setSortKey("deviation")}>偏离 <SortMark active={sort === "deviation"} desc={descending} /></th>
                 <th className="number" onClick={() => setSortKey("funding")}>Funding <SortMark active={sort === "funding"} desc={descending} /></th>
               </tr>
@@ -355,7 +376,9 @@ export default function Home() {
                   <td className="number mid">{formatPrice(row.mid)}</td>
                   <td className="number anchor-price">
                     {row.anchor?.loading ? <span className="shimmer" /> : formatPrice(row.anchor?.price ?? null)}
-                    {row.anchor?.timestamp && <small>{formatBeijing(row.anchor.timestamp)} BJT</small>}
+                    {row.anchor?.timestamp && Math.abs(row.anchor.timestamp - anchorAt) > 61_000 && (
+                      <small className="prior-price">前值 {formatBeijing(row.anchor.timestamp)} BJT</small>
+                    )}
                   </td>
                   <td className={`number deviation ${(row.deviation ?? 0) > 0 ? "positive" : (row.deviation ?? 0) < 0 ? "negative" : ""}`}>
                     {formatPct(row.deviation)}
@@ -375,7 +398,7 @@ export default function Home() {
           <span>显示 {rows.length} 个合约 · 锚点已加载 {stats.anchorsReady}/{markets.length}</span>
           <span><i className="dot" /> 每 5 秒更新 · 数据源：Hyperliquid / Binance Futures</span>
         </footer>
-      </section>
+      </section>}
     </main>
   );
 }
