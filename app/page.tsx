@@ -20,6 +20,7 @@ type Anchor = { price: number | null; timestamp: number | null; loading?: boolea
 type SortKey = "symbol" | "mid" | "deviation" | "funding";
 
 const REFRESH_MS = 5000;
+const LIVE_QUOTE_MAX_AGE_MS = 30_000;
 
 function mostRecentSaturdayNine() {
   const now = new Date();
@@ -140,7 +141,15 @@ export default function Home() {
         }
       }
       if (!nextMarkets.length) throw new Error("No market data");
-      setMarkets(nextMarkets);
+      setMarkets((previous) => {
+        const previousMap = new Map(previous.map((item) => [anchorKey(item), item]));
+        return nextMarkets.map((item) => {
+          const old = previousMap.get(anchorKey(item));
+          return old && old.updatedAt > item.updatedAt
+            ? { ...item, bid: old.bid, ask: old.ask, mid: old.mid, updatedAt: old.updatedAt }
+            : item;
+        });
+      });
       setLastRefresh(data.timestamp);
       setStatus("live");
       setError("");
@@ -156,6 +165,83 @@ export default function Home() {
     const timer = window.setInterval(loadCurrent, REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [loadCurrent, started]);
+
+  const marketSignature = useMemo(
+    () => markets.map((item) => `${item.venue}:${item.symbol}`).sort().join("|"),
+    [markets],
+  );
+
+  useEffect(() => {
+    if (!started || !marketSignature) return;
+    const hyperSymbols = markets.filter((item) => item.venue === "Hyperliquid").map((item) => item.symbol);
+    let hyperSocket: WebSocket | null = null;
+    let binanceSocket: WebSocket | null = null;
+    let stopped = false;
+    let reconnectTimer: number | undefined;
+
+    const applyQuote = (venueName: Venue, symbol: string, bid: number, ask: number, timestamp: number) => {
+      if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) return;
+      setMarkets((previous) => previous.map((item) =>
+        item.venue === venueName && item.symbol === symbol
+          ? { ...item, bid, ask, mid: (bid + ask) / 2, updatedAt: timestamp }
+          : item,
+      ));
+    };
+
+    const connect = () => {
+      if (stopped) return;
+      hyperSocket = new WebSocket("wss://api.hyperliquid.xyz/ws");
+      hyperSocket.onopen = () => {
+        hyperSymbols.forEach((coin) => {
+          hyperSocket?.send(JSON.stringify({ method: "subscribe", subscription: { type: "l2Book", coin } }));
+        });
+      };
+      hyperSocket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data as string) as {
+            channel?: string;
+            data?: { coin?: string; time?: number; levels?: Array<Array<{ px: string }>> };
+          };
+          if (message.channel !== "l2Book" || !message.data?.coin) return;
+          const bid = Number(message.data.levels?.[0]?.[0]?.px);
+          const ask = Number(message.data.levels?.[1]?.[0]?.px);
+          applyQuote("Hyperliquid", message.data.coin, bid, ask, message.data.time ?? Date.now());
+        } catch { /* ignore malformed frames */ }
+      };
+
+      binanceSocket = new WebSocket("wss://fstream.binance.com/ws/!bookTicker");
+      binanceSocket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data as string) as
+            | { s?: string; b?: string; a?: string; E?: number; T?: number }
+            | Array<{ s?: string; b?: string; a?: string; E?: number; T?: number }>;
+          const updates = Array.isArray(payload) ? payload : [payload];
+          updates.forEach((item) => {
+            if (item.s) applyQuote("Binance", item.s, Number(item.b), Number(item.a), item.E ?? item.T ?? Date.now());
+          });
+        } catch { /* ignore malformed frames */ }
+      };
+
+      const reconnect = () => {
+        if (!stopped && !reconnectTimer) {
+          reconnectTimer = window.setTimeout(() => {
+            reconnectTimer = undefined;
+            connect();
+          }, 2500);
+        }
+      };
+      hyperSocket.onclose = reconnect;
+      binanceSocket.onclose = reconnect;
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      hyperSocket?.close();
+      binanceSocket?.close();
+    };
+  }, [started, marketSignature]);
 
   useEffect(() => {
     if (!started || !markets.length) return;
@@ -181,7 +267,8 @@ export default function Home() {
           const direct = await fetch(`https://fapi.binance.com/fapi/v1/klines?${params}`);
           if (!direct.ok) throw new Error();
           const candles = await direct.json() as Array<[number, string, string, string, string]>;
-          const candle = candles.filter((item) => item[0] <= anchorAt).at(-1);
+          const targetMinute = Math.floor(anchorAt / 60_000) * 60_000;
+          const candle = candles.find((item) => item[0] === targetMinute);
           if (anchorGeneration.current === generation) {
             setAnchors((previous) => ({
               ...previous,
@@ -212,6 +299,7 @@ export default function Home() {
   }, [anchorAt, anchorRevision, markets.length, started]);
 
   const rows = useMemo(() => {
+    const now = Date.now();
     const enriched = markets.map((market) => {
       const anchor = anchors[anchorKey(market)];
       const deviation =
@@ -222,6 +310,10 @@ export default function Home() {
     });
     const filtered = enriched.filter(
       (row) =>
+        row.mid != null &&
+        now - row.updatedAt <= LIVE_QUOTE_MAX_AGE_MS &&
+        !row.anchor?.loading &&
+        row.anchor?.price != null &&
         (venue === "All" || row.venue === venue) &&
         (!query || `${row.displaySymbol} ${row.category}`.toLowerCase().includes(query.toLowerCase())),
     );
@@ -376,9 +468,6 @@ export default function Home() {
                   <td className="number mid">{formatPrice(row.mid)}</td>
                   <td className="number anchor-price">
                     {row.anchor?.loading ? <span className="shimmer" /> : formatPrice(row.anchor?.price ?? null)}
-                    {row.anchor?.timestamp && Math.abs(row.anchor.timestamp - anchorAt) > 61_000 && (
-                      <small className="prior-price">前值 {formatBeijing(row.anchor.timestamp)} BJT</small>
-                    )}
                   </td>
                   <td className={`number deviation ${(row.deviation ?? 0) > 0 ? "positive" : (row.deviation ?? 0) < 0 ? "negative" : ""}`}>
                     {formatPct(row.deviation)}
@@ -395,8 +484,8 @@ export default function Home() {
           {!rows.length && <div className="empty">{markets.length ? "没有匹配的合约" : "正在连接交易所行情…"}</div>}
         </div>
         <footer className="panel-footer">
-          <span>显示 {rows.length} 个合约 · 锚点已加载 {stats.anchorsReady}/{markets.length}</span>
-          <span><i className="dot" /> 每 5 秒更新 · 数据源：Hyperliquid / Binance Futures</span>
+          <span>显示 {rows.length} 个实时且具备精确锚点的合约 · 已检查 {stats.anchorsReady}/{markets.length}</span>
+          <span><i className="dot" /> WebSocket 实时报价 · 陈旧超过 30 秒自动隐藏</span>
         </footer>
       </section>}
     </main>

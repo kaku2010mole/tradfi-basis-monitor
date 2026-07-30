@@ -94,7 +94,7 @@ async function getMarkets() {
         ask: null,
         funding: Number.isFinite(Number(context.funding)) ? Number(context.funding) : null,
         fundingHours: 1,
-        updatedAt: now,
+        updatedAt: 0,
       });
     });
     sources.hyperliquid = true;
@@ -176,7 +176,8 @@ async function getAnchor(url: URL) {
         }),
       });
       const candles = await response.json() as Array<{ t: number; c: string }>;
-      const candle = candles.filter((item) => item.t <= at).at(-1);
+      const targetMinute = Math.floor(at / 60_000) * 60_000;
+      const candle = candles.find((item) => item.t === targetMinute);
       return json({ price: candle ? Number(candle.c) : null, timestamp: candle?.t ?? null }, 200, "public, max-age=3600");
     }
 
@@ -190,7 +191,8 @@ async function getAnchor(url: URL) {
       });
       const response = await fetch(`https://fapi.binance.com/fapi/v1/klines?${params}`);
       const candles = await response.json() as Array<[number, string, string, string, string]>;
-      const candle = candles.filter((item) => item[0] <= at).at(-1);
+      const targetMinute = Math.floor(at / 60_000) * 60_000;
+      const candle = candles.find((item) => item[0] === targetMinute);
       return json({ price: candle ? Number(candle[4]) : null, timestamp: candle?.[0] ?? null }, 200, "public, max-age=3600");
     }
 
