@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import PageSwitcher from "./components/PageSwitcher";
 
 type Venue = "Hyperliquid" | "Binance";
 type Market = {
@@ -380,6 +381,7 @@ export default function Home() {
           </div>
         </div>
         <div className="topbar-actions">
+          <PageSwitcher active="basis" />
           <div className={`connection ${status}`}>
             <i />
             {status === "live" ? "LIVE" : status === "connecting" ? "CONNECTING" : "RECONNECTING"}
