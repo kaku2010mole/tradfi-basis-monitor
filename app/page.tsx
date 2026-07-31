@@ -116,6 +116,7 @@ export default function Home() {
   const [venue, setVenue] = useState<"All" | Venue>("All");
   const [query, setQuery] = useState("");
   const [threshold, setThreshold] = useState(1);
+  const [mobileSide, setMobileSide] = useState<"positive" | "negative">("positive");
   const [anchorAt, setAnchorAt] = useState(mostRecentSaturdayNine);
   const [anchorDraft, setAnchorDraft] = useState(() => toDateInput(mostRecentSaturdayNine()));
   const [anchorRevision, setAnchorRevision] = useState(0);
@@ -477,8 +478,27 @@ export default function Home() {
 
         {error && <div className="notice">{error}</div>}
 
+        <div className="mobile-board-switch" role="group" aria-label="Deviation direction">
+          <button
+            type="button"
+            aria-pressed={mobileSide === "positive"}
+            className={mobileSide === "positive" ? "active positive-tab" : ""}
+            onClick={() => setMobileSide("positive")}
+          >
+            <span>↗ Positive</span><b>{positiveAlerts.length}</b>
+          </button>
+          <button
+            type="button"
+            aria-pressed={mobileSide === "negative"}
+            className={mobileSide === "negative" ? "active negative-tab" : ""}
+            onClick={() => setMobileSide("negative")}
+          >
+            <span>↘ Negative</span><b>{negativeAlerts.length}</b>
+          </button>
+        </div>
+
         <div className="deviation-board">
-          <section className="deviation-side positive-side">
+          <section className={`deviation-side positive-side ${mobileSide === "positive" ? "mobile-active" : ""}`}>
             <header>
               <div><span className="side-arrow">↗</span><strong>Positive deviation</strong></div>
               <b>{positiveAlerts.length}</b>
@@ -488,7 +508,7 @@ export default function Home() {
               {!positiveAlerts.length && <div className="side-empty">No contract exceeds +{threshold.toFixed(2)}%</div>}
             </div>
           </section>
-          <section className="deviation-side negative-side">
+          <section className={`deviation-side negative-side ${mobileSide === "negative" ? "mobile-active" : ""}`}>
             <header>
               <div><span className="side-arrow">↘</span><strong>Negative deviation</strong></div>
               <b>{negativeAlerts.length}</b>
