@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import PosleyOAuthCallback from "./components/PosleyOAuthCallback";
 
 export const metadata: Metadata = {
   title: "TradFi Basis Monitor",
@@ -22,7 +23,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><PosleyOAuthCallback />{children}</body>
     </html>
   );
 }

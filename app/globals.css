@@ -47,7 +47,7 @@ main { min-height: 100vh; padding-bottom: 48px; }
 }
 .brand strong { display: block; font-size: 14px; letter-spacing: .02em; }
 .brand span { display: block; color: var(--muted); font: 10px/1.4 monospace; text-transform: uppercase; letter-spacing: .1em; }
-.topbar-actions { display: flex; align-items: center; }
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
 .connection {
   display: flex; align-items: center; gap: 8px; padding: 8px 11px;
   border: 1px solid var(--line); border-radius: 6px; background: var(--card);
@@ -57,7 +57,7 @@ main { min-height: 100vh; padding-bottom: 48px; }
 .connection.live i { background: #20b67f; box-shadow: 0 0 0 4px rgba(32,182,127,.12); animation: pulse 2s infinite; }
 .connection.stale i { background: #e09932; }
 .connection span { color: var(--muted); font-weight: 400; letter-spacing: 0; border-left: 1px solid var(--line); padding-left: 8px; }
-.sign-out { margin-left: 10px; }
+.sign-out { margin-left: 0; }
 .sign-out button {
   min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px;
   background: transparent; color: var(--muted); font: 700 10px monospace; letter-spacing: .06em; text-transform: uppercase;
@@ -279,7 +279,7 @@ tbody tr:hover { background: #f5f8f2; }
   .brand strong { max-width: 136px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
   .brand span, .connection span { display: none; }
   .connection { min-height: 32px; padding: 7px 8px; gap: 6px; font-size: 9px; }
-  .sign-out { display: block; margin-left: 6px; }
+  .sign-out { display: block; margin-left: 0; }
   .sign-out button { min-height: 32px; padding-inline: 9px; font-size: 9px; }
   .hero, .hero.compact { gap: 16px; padding: 20px 12px 14px; }
   .eyebrow { margin-bottom: 9px; font-size: 9px; }
