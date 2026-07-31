@@ -1,0 +1,71 @@
+.switcher {
+  position: relative;
+  z-index: 30;
+  color: #17231e;
+  font-family: Arial, "PingFang SC", sans-serif;
+}
+
+.switcher summary {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid #dfe6e0;
+  border-radius: 6px;
+  background: rgba(251, 252, 248, .96);
+  color: #51605a;
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+  user-select: none;
+}
+
+.switcher summary::-webkit-details-marker { display: none; }
+.switcher summary span { font-size: 14px; line-height: 1; }
+.switcher summary b { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; }
+.switcher[open] summary { border-color: #9eaaa3; color: #17231e; background: #fff; }
+
+.switcher nav {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(310px, calc(100vw - 24px));
+  padding: 8px;
+  border: 1px solid #d9e1dc;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 20px 55px rgba(23, 35, 30, .18);
+}
+
+.switcher nav p {
+  margin: 3px 7px 7px;
+  color: #8a9690;
+  font: 800 9px/1.4 monospace;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.switcher nav a {
+  display: block;
+  padding: 11px 12px;
+  border-radius: 6px;
+  color: #17231e;
+  text-decoration: none;
+}
+
+.switcher nav a:hover { background: #f3f6f1; }
+.switcher nav a[aria-current="page"] { background: #17231e; color: #fff; }
+.switcher nav a span { display: block; font-size: 12px; font-weight: 800; }
+.switcher nav a small { display: block; margin-top: 4px; color: #7d8983; font-size: 10px; line-height: 1.35; }
+.switcher nav a[aria-current="page"] small { color: #b9c5bf; }
+
+@media (max-width: 560px) {
+  .switcher summary {
+    width: 36px;
+    min-height: 34px;
+    justify-content: center;
+    padding: 0;
+  }
+  .switcher summary b { display: none; }
+}
