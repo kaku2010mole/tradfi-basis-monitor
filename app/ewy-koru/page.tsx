@@ -8,7 +8,7 @@ type MarketPoint = {
   t: number;
   ewy: number;
   koru: number;
-  pairId: PairId;
+  pairId: string;
 };
 
 type DerivedPoint = MarketPoint & {
@@ -18,7 +18,7 @@ type DerivedPoint = MarketPoint & {
   residual: number;
 };
 
-type FeedState = "connecting" | "posley-office" | "posley-remote" | "binance-rest" | "paused";
+type FeedState = "connecting" | "posley-office" | "posley-remote" | "binance-rest" | "binance-oracle" | "paused";
 
 type OrderLevel = {
   price: number;
@@ -42,35 +42,50 @@ type OracleQuote = {
   updatedAt: number;
 };
 
-type PairId = "ewy-koru" | "sndk-snxx" | "mrvl-mvll" | "qqq-tqqq" | "tencent-hk0700";
+type PairMode = "returns" | "ratio" | "oracle";
 
 type PairConfig = {
-  id: PairId;
+  id: string;
   base: string;
   leveraged: string;
-  factor: 1 | 2 | 3;
+  factor: number;
+  mode: PairMode;
   priceRatio?: number;
   label: string;
+  custom?: boolean;
 };
 
 const OFFICE_RELAY = "ws://192.168.50.112:8787/ws";
 const REMOTE_GATEWAY = process.env.NEXT_PUBLIC_REDIS_BACKEND_URL ?? "https://redis-data.posley.capital";
 const COGNITO_CLIENT_ID = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID ?? "5qup0una5tdma3l33pnn1gm87i";
 const COGNITO_DOMAIN = process.env.NEXT_PUBLIC_COGNITO_DOMAIN ?? "posley.auth.us-east-1.amazoncognito.com";
-const PAIRS: Record<PairId, PairConfig> = {
-  "ewy-koru": { id: "ewy-koru", base: "EWYUSDT", leveraged: "KORUUSDT", factor: 3, label: "EWY ↔ KORU · 3×" },
-  "sndk-snxx": { id: "sndk-snxx", base: "SNDKUSDT", leveraged: "SNXXUSDT", factor: 2, label: "SNDK ↔ SNXX · 2×" },
-  "mrvl-mvll": { id: "mrvl-mvll", base: "MRVLUSDT", leveraged: "MVLLUSDT", factor: 2, label: "MRVL ↔ MVLL · 2×" },
-  "qqq-tqqq": { id: "qqq-tqqq", base: "QQQUSDT", leveraged: "TQQQUSDT", factor: 3, label: "QQQ ↔ TQQQ · 3×" },
+const BUILTIN_PAIRS: Record<string, PairConfig> = {
+  "ewy-koru": { id: "ewy-koru", base: "EWYUSDT", leveraged: "KORUUSDT", factor: 3, mode: "returns", label: "EWY ↔ KORU · 3×" },
+  "sndk-snxx": { id: "sndk-snxx", base: "SNDKUSDT", leveraged: "SNXXUSDT", factor: 2, mode: "returns", label: "SNDK ↔ SNXX · 2×" },
+  "mrvl-mvll": { id: "mrvl-mvll", base: "MRVLUSDT", leveraged: "MVLLUSDT", factor: 2, mode: "returns", label: "MRVL ↔ MVLL · 2×" },
+  "qqq-tqqq": { id: "qqq-tqqq", base: "QQQUSDT", leveraged: "TQQQUSDT", factor: 3, mode: "returns", label: "QQQ ↔ TQQQ · 3×" },
   "tencent-hk0700": {
     id: "tencent-hk0700",
     base: "TENCENTUSDT",
     leveraged: "HK0700USDT",
     factor: 1,
+    mode: "ratio",
     priceRatio: 7.84,
     label: "TENCENT ↔ HK0700 · 7.84:1",
   },
+  "hk1810-oracle": { id: "hk1810-oracle", base: "HK1810USDT", leveraged: "HK1810USDT", factor: 1, mode: "oracle", priceRatio: 1, label: "HK1810 · LIVE ↔ ORACLE" },
+  "hk0700-oracle": { id: "hk0700-oracle", base: "HK0700USDT", leveraged: "HK0700USDT", factor: 1, mode: "oracle", priceRatio: 1, label: "HK0700 · LIVE ↔ ORACLE" },
+  "tencent-oracle": { id: "tencent-oracle", base: "TENCENTUSDT", leveraged: "TENCENTUSDT", factor: 1, mode: "oracle", priceRatio: 1, label: "TENCENT · LIVE ↔ ORACLE" },
 };
+
+const ORACLE_PAIR_BY_SYMBOL: Record<OracleQuote["symbol"], string> = {
+  HK1810USDT: "hk1810-oracle",
+  HK0700USDT: "hk0700-oracle",
+  TENCENTUSDT: "tencent-oracle",
+};
+
+const CUSTOM_PAIRS_KEY = "leveraged_monitor_custom_pairs_v1";
+const SYMBOL_PATTERN = /^[A-Z0-9]{3,24}$/;
 
 const hktDateTimeValue = (offsetDays = 0, hour = 7) => {
   const now = new Date(Date.now() + 8 * 60 * 60 * 1000 + offsetDays * 24 * 60 * 60 * 1000);
@@ -91,6 +106,36 @@ const hktTime = (value: number, includeDate = false) =>
     second: includeDate ? undefined : "2-digit",
     hour12: false,
   }).format(value);
+
+const baseLabel = (pair: PairConfig) => pair.mode === "oracle" ? `${pair.base} oracle` : pair.base;
+const comparisonLabel = (pair: PairConfig) => pair.mode === "oracle" ? `${pair.base} live` : pair.leveraged;
+
+function pairQuery(pair: PairConfig) {
+  const params = new URLSearchParams({ pair: pair.id });
+  if (pair.custom) {
+    params.set("mode", pair.mode);
+    params.set("base", pair.base);
+    params.set("leveraged", pair.leveraged);
+    params.set("factor", String(pair.factor));
+    if (pair.priceRatio) params.set("priceRatio", String(pair.priceRatio));
+  }
+  return params.toString();
+}
+
+function isStoredPair(value: unknown): value is PairConfig {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<PairConfig>;
+  return Boolean(
+    candidate.custom &&
+    typeof candidate.id === "string" && candidate.id.startsWith("custom-") &&
+    typeof candidate.base === "string" && SYMBOL_PATTERN.test(candidate.base) &&
+    typeof candidate.leveraged === "string" && SYMBOL_PATTERN.test(candidate.leveraged) &&
+    typeof candidate.factor === "number" && candidate.factor >= 0.01 && candidate.factor <= 20 &&
+    candidate.mode && ["returns", "ratio", "oracle"].includes(candidate.mode) &&
+    typeof candidate.label === "string" &&
+    (candidate.mode !== "ratio" || (typeof candidate.priceRatio === "number" && candidate.priceRatio > 0))
+  );
+}
 
 function parseLevels(levels?: string): OrderLevel[] {
   if (!levels) return [];
@@ -165,7 +210,7 @@ function FiveLevelOrderBook({ symbol, book }: { symbol: string; book?: OrderBook
   );
 }
 
-function PriceRatioChart({ points, target }: { points: DerivedPoint[]; target: number }) {
+function PriceRatioChart({ points, target, pair }: { points: DerivedPoint[]; target: number; pair: PairConfig }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const width = 1240;
   const height = 470;
@@ -198,7 +243,7 @@ function PriceRatioChart({ points, target }: { points: DerivedPoint[]; target: n
         setHoverIndex(Math.max(0, Math.min(points.length - 1, index)));
       }}
     >
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`HK0700USDT to TENCENTUSDT price ratio against ${target}`}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${comparisonLabel(pair)} to ${baseLabel(pair)} price ratio against ${target}`}>
         <rect x={left} y={top} width={width - left - right} height={bottom - top} fill="#fbfcfe" />
         {ratioTicks.map((tick) => (
           <g key={tick}>
@@ -355,7 +400,15 @@ function RelativeValueChart({ points, threshold, pair }: { points: DerivedPoint[
 }
 
 export default function EwyKoruMonitor() {
-  const [pairId, setPairId] = useState<PairId>("ewy-koru");
+  const [pairId, setPairId] = useState("ewy-koru");
+  const [customPairs, setCustomPairs] = useState<PairConfig[]>([]);
+  const [customPairsReady, setCustomPairsReady] = useState(false);
+  const [showPairBuilder, setShowPairBuilder] = useState(false);
+  const [draftMode, setDraftMode] = useState<PairMode>("returns");
+  const [draftBase, setDraftBase] = useState("");
+  const [draftComparison, setDraftComparison] = useState("");
+  const [draftTarget, setDraftTarget] = useState("2");
+  const [pairBuilderError, setPairBuilderError] = useState("");
   const [startValue, setStartValue] = useState(hktDateTimeValue(0, 7));
   const [endValue, setEndValue] = useState(hktDateTimeValue(0, 16));
   const [liveEnd, setLiveEnd] = useState(true);
@@ -380,7 +433,76 @@ export default function EwyKoruMonitor() {
   const historyAbortRef = useRef<AbortController | null>(null);
   const historyRequestRef = useRef(0);
   const feedGenerationRef = useRef(0);
-  const pair = PAIRS[pairId];
+  const allPairs = useMemo(() => [...Object.values(BUILTIN_PAIRS), ...customPairs], [customPairs]);
+  const pair = allPairs.find((candidate) => candidate.id === pairId) ?? BUILTIN_PAIRS["ewy-koru"];
+  const activePairQuery = useMemo(() => pairQuery(pair), [pair]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      try {
+        const stored = JSON.parse(localStorage.getItem(CUSTOM_PAIRS_KEY) || "[]") as unknown;
+        if (Array.isArray(stored)) setCustomPairs(stored.filter(isStoredPair));
+      } catch {
+        localStorage.removeItem(CUSTOM_PAIRS_KEY);
+      } finally {
+        setCustomPairsReady(true);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    if (customPairsReady) localStorage.setItem(CUSTOM_PAIRS_KEY, JSON.stringify(customPairs));
+  }, [customPairs, customPairsReady]);
+
+  const resetForPair = (nextPairId: string) => {
+    historyAbortRef.current?.abort();
+    socketRef.current?.close();
+    feedGenerationRef.current += 1;
+    liveQuoteRef.current = {};
+    setLiveBooks({});
+    setRawPoints([]);
+    setLoading(true);
+    setLastUpdate(null);
+    setDataNotice("");
+    setPairId(nextPairId);
+  };
+
+  const addCustomPair = () => {
+    const base = draftBase.trim().toUpperCase();
+    const comparison = draftMode === "oracle" ? base : draftComparison.trim().toUpperCase();
+    const target = Number(draftTarget);
+    if (!SYMBOL_PATTERN.test(base) || !SYMBOL_PATTERN.test(comparison)) {
+      setPairBuilderError("Use valid Binance contract symbols such as EWYUSDT or HK1810USDT.");
+      return;
+    }
+    if (draftMode !== "oracle" && (!Number.isFinite(target) || target < 0.01 || target > 20)) {
+      setPairBuilderError("Enter a target between 0.01 and 20.");
+      return;
+    }
+    const id = `custom-${draftMode}-${base.toLowerCase()}-${comparison.toLowerCase()}-${Date.now().toString(36)}`;
+    const config: PairConfig = {
+      id,
+      base,
+      leveraged: comparison,
+      factor: draftMode === "oracle" ? 1 : target,
+      mode: draftMode,
+      priceRatio: draftMode === "oracle" ? 1 : draftMode === "ratio" ? target : undefined,
+      label: draftMode === "oracle"
+        ? `${base.replace(/USDT$/, "")} · LIVE ↔ ORACLE`
+        : draftMode === "ratio"
+          ? `${base.replace(/USDT$/, "")} ↔ ${comparison.replace(/USDT$/, "")} · ${target}:1`
+          : `${base.replace(/USDT$/, "")} ↔ ${comparison.replace(/USDT$/, "")} · ${target}×`,
+      custom: true,
+    };
+    setCustomPairs((current) => [...current, config]);
+    setPairBuilderError("");
+    setShowPairBuilder(false);
+    setDraftBase("");
+    setDraftComparison("");
+    setDraftTarget("2");
+    resetForPair(id);
+  };
 
   const setFeedState = (next: FeedState) => {
     feedRef.current = next;
@@ -403,7 +525,7 @@ export default function EwyKoruMonitor() {
     setDataNotice("");
     try {
       const response = await fetch(
-        `/api/ewy-koru/history?pair=${pairId}&start=${start}&end=${end}`,
+        `/api/ewy-koru/history?${activePairQuery}&start=${start}&end=${end}`,
         { cache: "no-store", signal: controller.signal },
       );
       const payload = await response.json() as {
@@ -412,7 +534,7 @@ export default function EwyKoruMonitor() {
         error?: string;
       };
       if (requestId !== historyRequestRef.current || controller.signal.aborted) return;
-      if (!response.ok || !payload.points?.length) throw new Error(payload.error || "No matched EWY/KORU observations were returned.");
+      if (!response.ok || !payload.points?.length) throw new Error(payload.error || "No synchronized observations were returned for this monitoring pair.");
       setRawPoints(payload.points.map((point) => ({ ...point, pairId })));
       setIntervalName(payload.interval || "1m");
     } catch (loadError) {
@@ -421,11 +543,14 @@ export default function EwyKoruMonitor() {
     } finally {
       if (requestId === historyRequestRef.current && !controller.signal.aborted) setLoading(false);
     }
-  }, [endValue, liveEnd, pairId, startValue]);
+  }, [activePairQuery, endValue, liveEnd, pairId, startValue]);
 
   useEffect(() => {
-    void loadHistory();
-    return () => historyAbortRef.current?.abort();
+    const frame = window.requestAnimationFrame(() => void loadHistory());
+    return () => {
+      window.cancelAnimationFrame(frame);
+      historyAbortRef.current?.abort();
+    };
   }, [loadHistory]);
 
   useEffect(() => {
@@ -454,13 +579,14 @@ export default function EwyKoruMonitor() {
   useEffect(() => {
     if (!liveEnd) {
       socketRef.current?.close();
-      setLiveBooks({});
-      setFeedState("paused");
-      return;
+      const frame = window.requestAnimationFrame(() => {
+        setLiveBooks({});
+        setFeedState("paused");
+      });
+      return () => window.cancelAnimationFrame(frame);
     }
 
     liveQuoteRef.current = {};
-    setLiveBooks({});
     lastAppendRef.current = 0;
     const generation = ++feedGenerationRef.current;
     let cancelled = false;
@@ -519,10 +645,10 @@ export default function EwyKoruMonitor() {
 
     const startRestFallback = () => {
       if (fallbackTimer || !isActive()) return;
-      setFeedState("binance-rest");
+      setFeedState(pair.mode === "oracle" ? "binance-oracle" : "binance-rest");
       const poll = async () => {
         try {
-          const response = await fetch(`/api/ewy-koru/quote?pair=${pairId}`, { cache: "no-store" });
+          const response = await fetch(`/api/ewy-koru/quote?${activePairQuery}`, { cache: "no-store" });
           const quote = await response.json() as {
             t: number;
             ewy: { mid: number; bids: OrderLevel[]; asks: OrderLevel[]; ts: number };
@@ -626,14 +752,15 @@ export default function EwyKoruMonitor() {
       };
     };
 
-    connectOffice();
+    if (pair.mode === "oracle") startRestFallback();
+    else connectOffice();
     return () => {
       cancelled = true;
       if (officeTimeout) clearTimeout(officeTimeout);
       if (fallbackTimer) clearInterval(fallbackTimer);
       socketRef.current?.close();
     };
-  }, [liveEnd, pair.base, pair.leveraged, pairId]);
+  }, [activePairQuery, liveEnd, pair.base, pair.label, pair.leveraged, pair.mode, pairId]);
 
   const points = useMemo<DerivedPoint[]>(() => {
     const activePoints = rawPoints.filter((point) => point.pairId === pairId);
@@ -652,7 +779,7 @@ export default function EwyKoruMonitor() {
           : koruReturn - ewyReturn * pair.factor,
       };
     });
-  }, [pair.factor, pair.priceRatio, rawPoints]);
+  }, [pair.factor, pair.priceRatio, pairId, rawPoints]);
 
   const latest = points.at(-1);
   const currentRatio = latest && pair.priceRatio ? latest.koru / latest.ewy : null;
@@ -662,9 +789,13 @@ export default function EwyKoruMonitor() {
   const signal = !latest
     ? "Waiting for data"
     : latest.residual >= threshold
-      ? `${pair.leveraged} rich · short ${pair.leveraged} / long ${pair.priceRatio ? `${pair.priceRatio}× ` : ""}${pair.base}`
+      ? pair.mode === "oracle"
+        ? `Live price above oracle by ${residualPct(latest.residual)}`
+        : `${comparisonLabel(pair)} rich · short ${comparisonLabel(pair)} / long ${pair.priceRatio ? `${pair.priceRatio}× ` : ""}${baseLabel(pair)}`
       : latest.residual <= -threshold
-        ? `${pair.leveraged} cheap · long ${pair.leveraged} / short ${pair.priceRatio ? `${pair.priceRatio}× ` : ""}${pair.base}`
+        ? pair.mode === "oracle"
+          ? `Live price below oracle by ${residualPct(Math.abs(latest.residual))}`
+          : `${comparisonLabel(pair)} cheap · long ${comparisonLabel(pair)} / short ${pair.priceRatio ? `${pair.priceRatio}× ` : ""}${baseLabel(pair)}`
         : "Inside monitoring band";
   const recentRows = points.slice(-6).reverse();
   const feedLabel = {
@@ -672,6 +803,7 @@ export default function EwyKoruMonitor() {
     "posley-office": "Live · Posley office relay",
     "posley-remote": "Live · Posley remote gateway",
     "binance-rest": "Live · Binance REST fallback",
+    "binance-oracle": "Live · Binance market + oracle",
     paused: "Historical review · live paused",
   }[feed];
 
@@ -683,11 +815,11 @@ export default function EwyKoruMonitor() {
             <p className={styles.eyebrow}>RELATIVE-VALUE INTELLIGENCE</p>
             <h1 className={styles.title}>Leveraged Pair Monitor</h1>
             <p className={styles.subtitle}>
-              Track five linked-product combinations from any selected baseline. Positive residual means the comparison product is rich versus its target relationship; negative residual means it is cheap.
+              Track linked contracts and live-versus-oracle relationships across a selected window. Positive deviation means the comparison value is rich versus its target; negative deviation means it is cheap.
             </p>
           </div>
           <div className={styles.statusStack}>
-            <span className={`${styles.status} ${feed.startsWith("posley") || feed === "binance-rest" ? styles.statusLive : ""}`}><i />{feedLabel}</span>
+            <span className={`${styles.status} ${feed.startsWith("posley") || feed === "binance-rest" || feed === "binance-oracle" ? styles.statusLive : ""}`}><i />{feedLabel}</span>
             <PageSwitcher active="pairs" />
           </div>
         </header>
@@ -697,19 +829,16 @@ export default function EwyKoruMonitor() {
             Monitoring pair
             <select
               value={pairId}
-              onChange={(event) => {
-                historyAbortRef.current?.abort();
-                socketRef.current?.close();
-                feedGenerationRef.current += 1;
-                liveQuoteRef.current = {};
-                setLiveBooks({});
-                setRawPoints([]);
-                setLoading(true);
-                setDataNotice("");
-                setPairId(event.target.value as PairId);
-              }}
+              onChange={(event) => resetForPair(event.target.value)}
             >
-              {Object.values(PAIRS).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
+              <optgroup label="Built-in pairs">
+                {Object.values(BUILTIN_PAIRS).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
+              </optgroup>
+              {customPairs.length > 0 && (
+                <optgroup label="My pairs">
+                  {customPairs.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
+                </optgroup>
+              )}
             </select>
           </label>
           <label className={styles.field}>
@@ -734,22 +863,66 @@ export default function EwyKoruMonitor() {
             <button className={styles.presetButton} onClick={() => { setStartValue(hktDateTimeValue(0, 7)); setLiveEnd(true); }}>Today 07:00</button>
             <button className={styles.presetButton} onClick={() => { setStartValue(hktDateTimeValue(-1, 7)); setLiveEnd(true); }}>Yesterday 07:00</button>
             <button className={styles.presetButton} onClick={() => {
-              historyAbortRef.current?.abort();
-              socketRef.current?.close();
-              feedGenerationRef.current += 1;
-              liveQuoteRef.current = {};
-              setLiveBooks({});
-              setRawPoints([]);
-              setLoading(true);
-              setDataNotice("");
-              setPairId("ewy-koru");
+              resetForPair("ewy-koru");
               setStartValue("2026-07-29T07:00");
               setEndValue("2026-07-29T16:00");
               setLiveEnd(false);
             }}>29 Jul EWY/KORU case</button>
+            {pair.custom && (
+              <button className={styles.secondaryButton} onClick={() => {
+                setCustomPairs((current) => current.filter((candidate) => candidate.id !== pair.id));
+                resetForPair("ewy-koru");
+              }}>Remove pair</button>
+            )}
+            <button className={styles.secondaryButton} onClick={() => setShowPairBuilder((current) => !current)}>
+              {showPairBuilder ? "Close pair builder" : "+ Add pair"}
+            </button>
             <button className={styles.primaryButton} onClick={() => void loadHistory()}>{pair.priceRatio ? "Apply window" : "Apply baseline"}</button>
           </div>
         </section>
+
+        {showPairBuilder && (
+          <section className={styles.pairBuilder} aria-label="Add a monitoring pair">
+            <div className={styles.pairBuilderIntro}>
+              <p className={styles.panelKicker}>CUSTOM MONITOR</p>
+              <h2 className={styles.panelTitle}>Add a pair</h2>
+              <p>Create a device-local monitor using Binance USDⓈ-M symbols. It will use the same history, live quotes, threshold and diagnostics as built-in pairs.</p>
+            </div>
+            <div className={styles.pairBuilderFields}>
+              <label className={styles.field}>
+                Relationship
+                <select value={draftMode} onChange={(event) => {
+                  const mode = event.target.value as PairMode;
+                  setDraftMode(mode);
+                  setDraftTarget(mode === "oracle" ? "1" : "2");
+                  setPairBuilderError("");
+                }}>
+                  <option value="returns">Leveraged returns</option>
+                  <option value="ratio">Direct price ratio</option>
+                  <option value="oracle">Live price vs oracle</option>
+                </select>
+              </label>
+              <label className={styles.field}>
+                {draftMode === "oracle" ? "Contract symbol" : "Base symbol"}
+                <input value={draftBase} onChange={(event) => setDraftBase(event.target.value.toUpperCase())} placeholder="HK1810USDT" autoCapitalize="characters" />
+              </label>
+              {draftMode !== "oracle" && (
+                <label className={styles.field}>
+                  Comparison symbol
+                  <input value={draftComparison} onChange={(event) => setDraftComparison(event.target.value.toUpperCase())} placeholder="KORUUSDT" autoCapitalize="characters" />
+                </label>
+              )}
+              {draftMode !== "oracle" && (
+                <label className={styles.field}>
+                  {draftMode === "ratio" ? "Target price ratio" : "Return multiplier"}
+                  <input type="number" min="0.01" max="20" step="0.01" value={draftTarget} onChange={(event) => setDraftTarget(event.target.value)} />
+                </label>
+              )}
+              <button className={styles.primaryButton} onClick={addCustomPair}>Add and open history</button>
+            </div>
+            {pairBuilderError && <div className={styles.builderError} role="alert">{pairBuilderError}</div>}
+          </section>
+        )}
 
         <section className={styles.metricGrid}>
           <article className={`${styles.metricCard} ${styles.signalCard}`}>
@@ -758,25 +931,25 @@ export default function EwyKoruMonitor() {
             <p className={styles.metricSub}>Alert band ±{threshold.toFixed(1)}% · costs, liquidity, funding and legging risk are not included.</p>
           </article>
           <article className={styles.metricCard}>
-            <p className={styles.metricLabel}>{pair.priceRatio ? "Current price ratio" : "Current residual"}</p>
+            <p className={styles.metricLabel}>{pair.mode === "oracle" ? "Live / oracle ratio" : pair.priceRatio ? "Current price ratio" : "Current residual"}</p>
             <div className={`${styles.metricValue} ${latest && latest.residual >= 0 ? styles.metricValuePositive : styles.metricValueNegative}`}>
               {pair.priceRatio ? currentRatio?.toFixed(4) ?? "—" : latest ? residualPct(latest.residual) : "—"}
             </div>
             <p className={styles.metricSub}>
               {pair.priceRatio
-                ? `Target ${pair.priceRatio.toFixed(4)} · deviation ${latest ? residualPct(latest.residual) : "—"}`
+                ? `${pair.mode === "oracle" ? "Parity" : "Target"} ${pair.priceRatio.toFixed(4)} · deviation ${latest ? residualPct(latest.residual) : "—"}`
                 : `${pair.leveraged} return minus ${pair.factor}× ${pair.base} return`}
             </p>
           </article>
           <article className={styles.metricCard}>
-            <p className={styles.metricLabel}>{pair.base}</p>
+            <p className={styles.metricLabel}>{baseLabel(pair)}</p>
             <div className={styles.metricValue}>{latest ? price(latest.ewy) : "—"}</div>
-            <p className={styles.metricSub}>{latest ? pair.priceRatio ? "Live midpoint" : `${pct(latest.ewyReturn)} from baseline` : "Waiting for price"}</p>
+            <p className={styles.metricSub}>{latest ? pair.mode === "oracle" ? "Binance index price" : pair.priceRatio ? "Live midpoint" : `${pct(latest.ewyReturn)} from baseline` : "Waiting for price"}</p>
           </article>
           <article className={styles.metricCard}>
-            <p className={styles.metricLabel}>{pair.leveraged}</p>
+            <p className={styles.metricLabel}>{comparisonLabel(pair)}</p>
             <div className={styles.metricValue}>{latest ? price(latest.koru) : "—"}</div>
-            <p className={styles.metricSub}>{latest ? pair.priceRatio ? "Live midpoint" : `${pct(latest.koruReturn)} from baseline` : "Waiting for price"}</p>
+            <p className={styles.metricSub}>{latest ? pair.priceRatio ? "Live bid/ask midpoint" : `${pct(latest.koruReturn)} from baseline` : "Waiting for price"}</p>
           </article>
           <article className={styles.metricCard}>
             <p className={styles.metricLabel}>Last update</p>
@@ -809,8 +982,11 @@ export default function EwyKoruMonitor() {
                   <div><dt>Mark price</dt><dd>{price(quote.mark)}</dd></div>
                 </dl>
                 <footer>
-                  <span>Bid {price(quote.bid)} · Ask {price(quote.ask)}</span>
-                  <span>{hktTime(quote.updatedAt)} HKT</span>
+                  <div>
+                    <span>Bid {price(quote.bid)} · Ask {price(quote.ask)}</span>
+                    <span>{hktTime(quote.updatedAt)} HKT</span>
+                  </div>
+                  <button className={styles.oracleOpenButton} onClick={() => resetForPair(ORACLE_PAIR_BY_SYMBOL[quote.symbol])}>Open full history</button>
                 </footer>
               </article>
             ))}
@@ -827,13 +1003,13 @@ export default function EwyKoruMonitor() {
             <div className={styles.panelHead}>
               <div>
                 <p className={styles.panelKicker}>LIVE MARKET DEPTH</p>
-                <h2 className={styles.panelTitle}>Five-level order books</h2>
+                <h2 className={styles.panelTitle}>{pair.mode === "oracle" ? `${pair.base} five-level order book` : "Five-level order books"}</h2>
               </div>
               <span className={styles.bookSource}>{feedLabel}</span>
             </div>
-            <div className={styles.orderBookGrid}>
-              <FiveLevelOrderBook symbol={pair.base} book={liveBooks.ewy} />
-              <FiveLevelOrderBook symbol={pair.leveraged} book={liveBooks.koru} />
+            <div className={`${styles.orderBookGrid} ${pair.mode === "oracle" ? styles.orderBookGridSingle : ""}`}>
+              {pair.mode !== "oracle" && <FiveLevelOrderBook symbol={pair.base} book={liveBooks.ewy} />}
+              <FiveLevelOrderBook symbol={comparisonLabel(pair)} book={liveBooks.koru} />
             </div>
           </section>
         )}
@@ -842,13 +1018,13 @@ export default function EwyKoruMonitor() {
           <div className={styles.panelHead}>
             <div>
               <p className={styles.panelKicker}>FULL-WINDOW EVIDENCE</p>
-              <h2 className={styles.panelTitle}>{pair.priceRatio ? `Direct price ratio vs ${pair.priceRatio.toFixed(4)}` : "Normalized performance and residual"}</h2>
+              <h2 className={styles.panelTitle}>{pair.mode === "oracle" ? "Live price versus oracle history" : pair.priceRatio ? `Direct price ratio vs ${pair.priceRatio.toFixed(4)}` : "Normalized performance and residual"}</h2>
             </div>
             <div className={styles.legend}>
               {pair.priceRatio ? (
                 <>
-                  <span><i style={{ background: "#079a76" }} />HK0700USDT / TENCENTUSDT</span>
-                  <span><i style={{ background: "#f28c32" }} />Theoretical ratio {pair.priceRatio.toFixed(4)}</span>
+                  <span><i style={{ background: "#079a76" }} />{comparisonLabel(pair)} / {baseLabel(pair)}</span>
+                  <span><i style={{ background: "#f28c32" }} />{pair.mode === "oracle" ? "Parity" : "Theoretical ratio"} {pair.priceRatio.toFixed(4)}</span>
                 </>
               ) : (
                 <>
@@ -865,7 +1041,7 @@ export default function EwyKoruMonitor() {
               ? <div className={styles.error}>{error}</div>
               : points.length
                 ? pair.priceRatio
-                  ? <PriceRatioChart points={points} target={pair.priceRatio} />
+                  ? <PriceRatioChart points={points} target={pair.priceRatio} pair={pair} />
                   : <RelativeValueChart points={points} threshold={threshold} pair={pair} />
                 : <div className={styles.loading}>Waiting for synchronized pair data…</div>}
         </section>
@@ -876,7 +1052,7 @@ export default function EwyKoruMonitor() {
             <ul>
               {pair.priceRatio ? (
                 <>
-                  <li>Theoretical ratio: {pair.priceRatio.toFixed(4)}</li>
+                  <li>{pair.mode === "oracle" ? "Parity target" : "Theoretical ratio"}: {pair.priceRatio.toFixed(4)}</li>
                   <li>Latest ratio: {currentRatio?.toFixed(4) ?? "—"} · deviation {latest ? residualPct(latest.residual) : "—"}</li>
                   <li>Peak positive deviation: {peakPositive ? `${residualPct(peakPositive.residual)} at ${hktTime(peakPositive.t, true)} HKT` : "—"}</li>
                   <li>Peak negative deviation: {peakNegative ? `${residualPct(peakNegative.residual)} at ${hktTime(peakNegative.t, true)} HKT` : "—"}</li>
@@ -888,9 +1064,9 @@ export default function EwyKoruMonitor() {
                   <li>Peak negative residual: {peakNegative ? `${residualPct(peakNegative.residual)} at ${hktTime(peakNegative.t, true)} HKT` : "—"}</li>
                 </>
               )}
-              <li>Live pricing prefers Posley Redis orderbooks and automatically falls back to Binance official depth data.</li>
+              <li>{pair.mode === "oracle" ? "Historical oracle values use Binance index-price klines; live values use official depth and premium-index endpoints." : "Live pricing prefers Posley Redis orderbooks and automatically falls back to Binance official depth data."}</li>
             </ul>
-            {!feed.startsWith("posley") && (
+            {pair.mode !== "oracle" && !feed.startsWith("posley") && (
               <button className={styles.authButton} onClick={() => void beginPosleyLogin()}>Connect Posley remote feed</button>
             )}
           </article>
@@ -899,7 +1075,7 @@ export default function EwyKoruMonitor() {
             <table className={styles.observationTable}>
               <thead>
                 <tr>
-                  <th>HKT</th><th>{pair.base}</th><th>{pair.leveraged}</th>
+                  <th>HKT</th><th>{baseLabel(pair)}</th><th>{comparisonLabel(pair)}</th>
                   {pair.priceRatio && <th>Ratio</th>}
                   <th>{pair.priceRatio ? "Deviation" : "Residual"}</th>
                 </tr>
@@ -920,8 +1096,8 @@ export default function EwyKoruMonitor() {
         </section>
 
         <footer className={styles.footer}>
-          <span>Historical source: Binance USDⓈ-M futures synchronized closes. Live source: Posley Redis orderbooks, with Binance REST fallback.</span>
-          <span>Leveraged-return targets are approximations; the Tencent pair uses HK0700USDT = 7.84 × TENCENTUSDT as its theoretical price relationship. Neither is a guaranteed risk-free trade.</span>
+          <span>Historical source: Binance USDⓈ-M synchronized contract and index-price closes. Live source: Posley Redis orderbooks or Binance official REST endpoints.</span>
+          <span>Custom pairs are saved on this device. Target relationships are monitoring assumptions, not guaranteed risk-free trades.</span>
         </footer>
       </div>
     </div>
