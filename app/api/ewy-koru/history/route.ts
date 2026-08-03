@@ -1,12 +1,6 @@
-const BINANCE_FUTURES_API = "https://fapi.binance.com";
+import { resolvePair } from "../pairs";
 
-const PAIRS = {
-  "ewy-koru": { base: "EWYUSDT", leveraged: "KORUUSDT", factor: 3 },
-  "sndk-snxx": { base: "SNDKUSDT", leveraged: "SNXXUSDT", factor: 2 },
-  "mrvl-mvll": { base: "MRVLUSDT", leveraged: "MVLLUSDT", factor: 2 },
-  "qqq-tqqq": { base: "QQQUSDT", leveraged: "TQQQUSDT", factor: 3 },
-  "tencent-hk0700": { base: "TENCENTUSDT", leveraged: "HK0700USDT", factor: 1, priceRatio: 7.84 },
-} as const;
+const BINANCE_FUTURES_API = "https://fapi.binance.com";
 
 const intervalForRange = (durationMs: number) => {
   const hour = 60 * 60 * 1000;
@@ -50,10 +44,24 @@ async function getKlines(symbol: string, start: number, end: number, interval: s
   return (await response.json()) as BinanceKline[];
 }
 
+async function getIndexKlines(symbol: string, start: number, end: number, interval: string) {
+  const params = new URLSearchParams({
+    pair: symbol,
+    interval,
+    startTime: String(start),
+    endTime: String(end),
+    limit: "1500",
+  });
+  const response = await fetch(`${BINANCE_FUTURES_API}/fapi/v1/indexPriceKlines?${params}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`${symbol} oracle history request failed (${response.status})`);
+  return (await response.json()) as BinanceKline[];
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const pairId = url.searchParams.get("pair") || "ewy-koru";
-  const pair = PAIRS[pairId as keyof typeof PAIRS];
+  const pair = resolvePair(url);
   const now = Date.now();
   const start = Number(url.searchParams.get("start"));
   const requestedEnd = Number(url.searchParams.get("end") || now);
@@ -70,23 +78,28 @@ export async function GET(request: Request) {
   const interval = intervalForRange(end - start);
 
   try {
-    const [ewy, koru] = await Promise.all([
-      getKlines(pair.base, start, end, interval),
-      getKlines(pair.leveraged, start, end, interval),
-    ]);
-    const koruByTime = new Map(koru.map((row) => [row[0], Number(row[4])]));
-    const points = ewy.flatMap((row) => {
-      const koruClose = koruByTime.get(row[0]);
-      if (!Number.isFinite(koruClose)) return [];
+    const [baseRows, comparisonRows] = pair.mode === "oracle"
+      ? await Promise.all([
+          getIndexKlines(pair.base, start, end, interval),
+          getKlines(pair.base, start, end, interval),
+        ])
+      : await Promise.all([
+          getKlines(pair.base, start, end, interval),
+          getKlines(pair.leveraged, start, end, interval),
+        ]);
+    const comparisonByTime = new Map(comparisonRows.map((row) => [row[0], Number(row[4])]));
+    const points = baseRows.flatMap((row) => {
+      const comparisonClose = comparisonByTime.get(row[0]);
+      if (!Number.isFinite(comparisonClose)) return [];
       return [{
         t: row[0],
         ewy: Number(row[4]),
-        koru: koruClose as number,
+        koru: comparisonClose as number,
       }];
     });
 
     return Response.json(
-      { interval, pairId, ...pair, points },
+      { interval, pairId: pair.id, ...pair, points },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
@@ -96,4 +109,3 @@ export async function GET(request: Request) {
     );
   }
 }
-
