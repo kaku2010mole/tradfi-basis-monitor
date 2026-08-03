@@ -276,6 +276,99 @@
   box-shadow: 0 18px 60px rgba(23, 46, 79, 0.07);
 }
 
+.oraclePanel {
+  margin-top: 12px;
+  border: 1px solid #dce4ef;
+  background: var(--panel);
+  box-shadow: 0 18px 60px rgba(23, 46, 79, 0.07);
+}
+
+.oracleSource {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.oracleGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px 22px 22px;
+}
+
+.oracleCard {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #dce4ef;
+  background: #fbfcfe;
+}
+
+.oracleCardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.oracleCardHead strong {
+  font: 800 15px var(--font-geist-mono), monospace;
+}
+
+.oracleCardHead span {
+  padding: 5px 7px;
+  border-radius: 999px;
+  background: #eef3f9;
+  font: 800 11px var(--font-geist-mono), monospace;
+}
+
+.oracleCard dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid #e4eaf2;
+  border-bottom: 1px solid #e4eaf2;
+}
+
+.oracleCard dl div {
+  min-width: 0;
+  padding: 13px 10px;
+  border-right: 1px solid #e4eaf2;
+}
+
+.oracleCard dl div:first-child { padding-left: 0; }
+.oracleCard dl div:last-child { padding-right: 0; border-right: 0; }
+.oracleCard dt { color: #8793a5; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+.oracleCard dd { margin: 6px 0 0; color: var(--ink); font: 800 16px var(--font-geist-mono), monospace; }
+
+.oracleCard footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: var(--muted);
+  font: 10px var(--font-geist-mono), monospace;
+}
+
+.oracleNotice {
+  margin: 0 22px 10px;
+  padding: 10px 12px;
+  border: 1px solid #efc98e;
+  border-radius: 8px;
+  background: #fff8eb;
+  color: #9a5b13;
+  font-size: 11px;
+}
+
+.oracleLoading {
+  grid-column: 1 / -1;
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .bookSource,
 .bookSpread,
 .bookTimestamp {
@@ -539,6 +632,7 @@
 @media (max-width: 1120px) {
   .metricGrid { grid-template-columns: repeat(3, 1fr); }
   .signalCard { grid-column: span 2; }
+  .oracleGrid { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 760px) {
@@ -550,6 +644,14 @@
   .buttonGroup { width: 100%; margin-left: 0; }
   .panelHead { align-items: flex-start; flex-direction: column; }
   .orderBookGrid { grid-template-columns: 1fr; padding: 10px; }
+  .oracleGrid { grid-template-columns: 1fr; padding: 10px; }
+  .oracleCard dl { grid-template-columns: 1fr; }
+  .oracleCard dl div, .oracleCard dl div:first-child, .oracleCard dl div:last-child {
+    padding: 10px 0;
+    border-right: 0;
+    border-bottom: 1px solid #e4eaf2;
+  }
+  .oracleCard dl div:last-child { border-bottom: 0; }
   .detailGrid { grid-template-columns: 1fr; }
   .footer { display: grid; }
 }
@@ -559,4 +661,3 @@
   .signalCard { grid-column: auto; }
   .metricCard { min-height: 126px; }
 }
-
