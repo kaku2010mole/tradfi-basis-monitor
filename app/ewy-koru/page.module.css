@@ -269,6 +269,47 @@
   box-shadow: 0 18px 60px rgba(23, 46, 79, 0.07);
 }
 
+.pairBuilder {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.62fr) minmax(0, 1.38fr);
+  gap: 24px;
+  margin-top: 12px;
+  padding: 22px 24px;
+  border: 1px solid #cdd9e8;
+  background: linear-gradient(135deg, rgba(36, 118, 229, 0.08), rgba(255, 255, 255, 0.96) 52%);
+  box-shadow: 0 18px 60px rgba(23, 46, 79, 0.07);
+}
+
+.pairBuilderIntro p:last-child {
+  max-width: 410px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.pairBuilderFields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  align-items: end;
+  gap: 12px;
+}
+
+.pairBuilderFields .primaryButton {
+  min-width: 160px;
+}
+
+.builderError {
+  grid-column: 2;
+  padding: 10px 12px;
+  border: 1px solid rgba(216, 81, 81, 0.35);
+  border-radius: 8px;
+  background: rgba(216, 81, 81, 0.08);
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 650;
+}
+
 .orderBookPanel {
   margin-top: 12px;
   border: 1px solid #dce4ef;
@@ -343,11 +384,29 @@
 
 .oracleCard footer {
   display: flex;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
   margin-top: 12px;
   color: var(--muted);
   font: 10px var(--font-geist-mono), monospace;
+}
+
+.oracleCard footer div {
+  display: grid;
+  gap: 5px;
+}
+
+.oracleOpenButton {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(36, 118, 229, 0.25);
+  border-radius: 7px;
+  background: rgba(36, 118, 229, 0.07);
+  color: var(--blue);
+  cursor: pointer;
+  font: 750 10px var(--font-geist-sans), Arial, sans-serif;
+  white-space: nowrap;
 }
 
 .oracleNotice {
@@ -386,6 +445,10 @@
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   padding: 12px 22px 22px;
+}
+
+.orderBookGridSingle {
+  grid-template-columns: minmax(0, 760px);
 }
 
 .orderBookCard {
@@ -633,6 +696,9 @@
   .metricGrid { grid-template-columns: repeat(3, 1fr); }
   .signalCard { grid-column: span 2; }
   .oracleGrid { grid-template-columns: 1fr 1fr; }
+  .pairBuilder { grid-template-columns: 1fr; }
+  .pairBuilderFields { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .builderError { grid-column: 1; }
 }
 
 @media (max-width: 760px) {
@@ -652,6 +718,11 @@
     border-bottom: 1px solid #e4eaf2;
   }
   .oracleCard dl div:last-child { border-bottom: 0; }
+  .pairBuilder { padding: 18px; }
+  .pairBuilderFields { grid-template-columns: 1fr; }
+  .pairBuilderFields .primaryButton { width: 100%; }
+  .oracleCard footer { align-items: stretch; flex-direction: column; }
+  .oracleOpenButton { min-height: 36px; }
   .detailGrid { grid-template-columns: 1fr; }
   .footer { display: grid; }
 }
