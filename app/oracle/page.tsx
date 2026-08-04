@@ -11,7 +11,9 @@ type OracleQuote = {
   symbol: string;
   apiSymbol: string;
   bid: number | null;
+  bidQty: number | null;
   ask: number | null;
+  askQty: number | null;
   live: number;
   oracle: number;
   mark: number;
@@ -20,13 +22,21 @@ type OracleQuote = {
   fundingHours: number;
   nextFundingTime: number | null;
   updatedAt: number;
+  executableSide: "BUY" | "SELL";
+  executablePrice: number | null;
+  executableQty: number | null;
+  executableUsd: number | null;
 };
 
 type OraclePoint = { t: number; live: number; oracle: number; deviation: number };
 type SourceState = { binance: boolean; hyperliquid: boolean };
 type BroadcastState = { title: string; message: string; tone: "positive" | "negative" };
+type CustomPair = { venue: "Binance" | "Hyperliquid"; apiSymbol: string };
 
 const REFRESH_MS = 5000;
+const CUSTOM_PAIRS_KEY = "oracle-monitor-custom-pairs-v1";
+const DEFAULT_BINANCE = ["HK1810USDT", "HK0700USDT", "TENCENTUSDT"];
+const DEFAULT_PARA = ["para:OTHERS", "para:TOTAL2", "para:BTCD"];
 
 const hktDateValue = (offsetDays = 0) => {
   const date = new Date(Date.now() + 8 * 3600_000 + offsetDays * 24 * 3600_000);
@@ -37,6 +47,9 @@ const formatPct = (value: number, digits = 3) => `${value >= 0 ? "+" : ""}${valu
 const formatPrice = (value: number | null) => value == null || !Number.isFinite(value)
   ? "—"
   : value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: value >= 100 ? 3 : 6 });
+const formatUsd = (value: number | null) => value == null || !Number.isFinite(value)
+  ? "—"
+  : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: value >= 1000 ? 0 : 2 }).format(value);
 const formatTime = (value: number, date = false) => new Intl.DateTimeFormat("en-GB", {
   timeZone: "Asia/Hong_Kong",
   month: date ? "short" : undefined,
@@ -119,6 +132,13 @@ function QuoteCard({ quote, threshold, selected, onSelect }: { quote: OracleQuot
         <div><span>Oracle</span><b>{formatPrice(quote.oracle)}</b></div>
         <div><span>Mark</span><b>{formatPrice(quote.mark)}</b></div>
       </div>
+      <div className={styles.executableBar}>
+        <div>
+          <span>{quote.executableSide === "SELL" ? "Sell into best bid" : "Buy from best ask"}</span>
+          <strong>{formatUsd(quote.executableUsd)}</strong>
+        </div>
+        <small>{quote.executableQty == null || quote.executablePrice == null ? "Depth unavailable" : `${formatPrice(quote.executableQty)} @ ${formatPrice(quote.executablePrice)}`}</small>
+      </div>
       <footer>
         <span>Funding {quote.funding == null ? "—" : formatPct(quote.funding * 100, 4)} / {quote.fundingHours}h</span>
         <span>{formatTime(quote.updatedAt)} HKT</span>
@@ -140,12 +160,39 @@ export default function OracleMonitor() {
   const [error, setError] = useState("");
   const [lastRefresh, setLastRefresh] = useState<number | null>(null);
   const [broadcast, setBroadcast] = useState<BroadcastState | null>(null);
+  const [customPairs, setCustomPairs] = useState<CustomPair[]>([]);
+  const [pairsReady, setPairsReady] = useState(false);
+  const [pairManagerOpen, setPairManagerOpen] = useState(false);
+  const [newVenue, setNewVenue] = useState<CustomPair["venue"]>("Binance");
+  const [newSymbol, setNewSymbol] = useState("");
+  const [pairError, setPairError] = useState("");
   const triggerDirections = useRef<Record<string, -1 | 0 | 1>>({});
   const dismissBroadcast = useCallback(() => setBroadcast(null), []);
 
+  useEffect(() => {
+    let saved: CustomPair[] = [];
+    try {
+      saved = JSON.parse(window.localStorage.getItem(CUSTOM_PAIRS_KEY) || "[]") as CustomPair[];
+    } catch { /* Device has no usable saved pairs. */ }
+    const frame = window.requestAnimationFrame(() => {
+      setCustomPairs(saved.filter((pair) => pair && (pair.venue === "Binance" || pair.venue === "Hyperliquid") && typeof pair.apiSymbol === "string").slice(0, 24));
+      setPairsReady(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  const quoteUrl = useMemo(() => {
+    const binance = new Set(DEFAULT_BINANCE);
+    const para = new Set(DEFAULT_PARA);
+    for (const pair of customPairs) (pair.venue === "Binance" ? binance : para).add(pair.apiSymbol);
+    const params = new URLSearchParams({ binance: [...binance].join(","), para: [...para].join(",") });
+    return `/api/oracle-monitor/quotes?${params}`;
+  }, [customPairs]);
+
   const loadQuotes = useCallback(async () => {
     try {
-      const response = await fetch("/api/oracle-monitor/quotes", { cache: "no-store" });
+      if (!pairsReady) return;
+      const response = await fetch(quoteUrl, { cache: "no-store" });
       const payload = await response.json() as { quotes?: OracleQuote[]; sources?: SourceState; timestamp?: number; error?: string };
       if (!response.ok || !payload.quotes?.length) throw new Error(payload.error || "Oracle feed unavailable.");
       const nextDirections: Record<string, -1 | 0 | 1> = {};
@@ -184,7 +231,7 @@ export default function OracleMonitor() {
       setError(loadError instanceof Error ? loadError.message : "Oracle feeds are reconnecting.");
       setSources({ binance: false, hyperliquid: false });
     }
-  }, [threshold]);
+  }, [pairsReady, quoteUrl, threshold]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => void loadQuotes());
@@ -233,6 +280,36 @@ export default function OracleMonitor() {
   const negative = quotes.filter((quote) => quote.deviation < 0).sort((a, b) => a.deviation - b.deviation);
   const triggered = quotes.filter((quote) => Math.abs(quote.deviation) >= threshold);
   const extreme = quotes.reduce<OracleQuote | null>((best, quote) => !best || Math.abs(quote.deviation) > Math.abs(best.deviation) ? quote : best, null);
+  const binanceCount = quotes.filter((quote) => quote.venue === "Binance").length;
+  const paraCount = quotes.length - binanceCount;
+
+  const addPair = () => {
+    const normalized = newVenue === "Binance"
+      ? newSymbol.trim().toUpperCase()
+      : newSymbol.trim().replace(/^para:/i, "para:").replace(/BTC\.D$/i, "BTCD");
+    const valid = newVenue === "Binance" ? /^[A-Z0-9_]{2,32}$/.test(normalized) : /^para:[A-Z0-9._-]{1,28}$/i.test(normalized);
+    if (!valid) {
+      setPairError(newVenue === "Binance" ? "Use a Binance Futures symbol such as AAPLUSDT." : "Use a para symbol such as para:OTHERS.");
+      return;
+    }
+    const builtIn = (newVenue === "Binance" ? DEFAULT_BINANCE : DEFAULT_PARA).includes(normalized);
+    const duplicate = customPairs.some((pair) => pair.venue === newVenue && pair.apiSymbol === normalized);
+    if (builtIn || duplicate) {
+      setPairError("This pair is already monitored.");
+      return;
+    }
+    const next = [...customPairs, { venue: newVenue, apiSymbol: normalized }].slice(0, 24);
+    setCustomPairs(next);
+    window.localStorage.setItem(CUSTOM_PAIRS_KEY, JSON.stringify(next));
+    setNewSymbol("");
+    setPairError("");
+  };
+
+  const removePair = (pair: CustomPair) => {
+    const next = customPairs.filter((item) => item.venue !== pair.venue || item.apiSymbol !== pair.apiSymbol);
+    setCustomPairs(next);
+    window.localStorage.setItem(CUSTOM_PAIRS_KEY, JSON.stringify(next));
+  };
 
   return (
     <main className={styles.shell}>
@@ -262,11 +339,30 @@ export default function OracleMonitor() {
             }} /><span>%</span></div>
           </label>
           <button onClick={() => void loadQuotes()}>Refresh now</button>
+          <button className={styles.secondaryButton} onClick={() => setPairManagerOpen((open) => !open)}>{pairManagerOpen ? "Close pair manager" : "Add pairs"}</button>
           <span className={styles.refreshText}>{error || (lastRefresh ? `Updated ${formatTime(lastRefresh)} HKT · auto-refresh 5s` : "Connecting live feeds…")}</span>
         </section>
 
+        {pairManagerOpen && <section className={styles.pairManager} aria-label="Custom pair manager">
+          <div className={styles.pairManagerCopy}>
+            <p className={styles.eyebrow}>CUSTOM UNIVERSE</p>
+            <h2>Add an Oracle pair</h2>
+            <p>Pairs are saved on this device. Binance symbols receive historical charts; Hyperliquid para symbols collect a live session trail.</p>
+          </div>
+          <div className={styles.pairForm}>
+            <label>Venue<select value={newVenue} onChange={(event) => setNewVenue(event.target.value as CustomPair["venue"])}><option>Binance</option><option>Hyperliquid</option></select></label>
+            <label>Symbol<input value={newSymbol} onChange={(event) => setNewSymbol(event.target.value)} placeholder={newVenue === "Binance" ? "AAPLUSDT" : "para:OTHERS"} /></label>
+            <button onClick={addPair}>Add pair</button>
+          </div>
+          {pairError && <p className={styles.pairError}>{pairError}</p>}
+          <div className={styles.customPairs}>
+            {customPairs.map((pair) => <span key={`${pair.venue}:${pair.apiSymbol}`}><b>{pair.venue}</b>{pair.apiSymbol === "para:BTCD" ? "para:BTC.D" : pair.apiSymbol}<button aria-label={`Remove ${pair.apiSymbol}`} onClick={() => removePair(pair)}>×</button></span>)}
+            {!customPairs.length && <small>No custom pairs on this device.</small>}
+          </div>
+        </section>}
+
         <section className={styles.stats}>
-          <article><span>Monitored</span><strong>{quotes.length || "—"}</strong><small>3 Binance · 3 Hyperliquid para</small></article>
+          <article><span>Monitored</span><strong>{quotes.length || "—"}</strong><small>{binanceCount} Binance · {paraCount} Hyperliquid para</small></article>
           <article><span>Triggered</span><strong className={triggered.length ? styles.warningText : ""}>{triggered.length}</strong><small>Outside ±{threshold.toFixed(3)}%</small></article>
           <article><span>Largest drift</span><strong className={extreme && extreme.deviation >= 0 ? styles.positive : styles.negative}>{extreme ? formatPct(extreme.deviation) : "—"}</strong><small>{extreme?.symbol ?? "Waiting for data"}</small></article>
           <article><span>Selected funding</span><strong>{selected?.funding == null ? "—" : formatPct(selected.funding * 100, 4)}</strong><small>{selected ? `${selected.fundingHours}h rate · ${selected.venue}` : "—"}</small></article>
