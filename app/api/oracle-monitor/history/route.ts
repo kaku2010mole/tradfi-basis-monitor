@@ -1,5 +1,5 @@
 const BINANCE_API = "https://fapi.binance.com";
-const SYMBOLS = new Set(["HK1810USDT", "HK0700USDT", "TENCENTUSDT"]);
+const SYMBOL_PATTERN = /^[A-Z0-9_]{2,32}$/;
 
 type BinanceKline = [number, string, string, string, string, string, number, string, number, string, string, string];
 
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   const symbol = (url.searchParams.get("symbol") || "").toUpperCase();
   const start = Number(url.searchParams.get("start"));
   const end = Math.min(Number(url.searchParams.get("end") || Date.now()), Date.now());
-  if (!SYMBOLS.has(symbol)) return Response.json({ error: "Unsupported Binance oracle symbol." }, { status: 400 });
+  if (!SYMBOL_PATTERN.test(symbol)) return Response.json({ error: "Unsupported Binance oracle symbol." }, { status: 400 });
   if (!Number.isFinite(start) || start <= 0 || start >= end) {
     return Response.json({ error: "A valid start time is required." }, { status: 400 });
   }
