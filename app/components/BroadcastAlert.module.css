@@ -1,0 +1,73 @@
+.broadcast {
+  position: fixed;
+  z-index: 1000;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  width: min(920px, calc(100vw - 24px));
+  min-height: 86px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 18px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  color: #fff;
+  box-shadow: 0 24px 80px rgba(6, 14, 25, .35);
+  transform: translateX(-50%);
+  overflow: hidden;
+  animation: arrive .28s ease-out both;
+  font-family: Arial, "PingFang SC", sans-serif;
+}
+
+.positive { background: linear-gradient(120deg, #075f50, #079a76 62%, #063f37); }
+.negative { background: linear-gradient(120deg, #7d2027, #d85151 62%, #641920); }
+
+.beacon { display: flex; gap: 4px; align-items: flex-end; height: 32px; }
+.beacon i { width: 5px; border-radius: 5px; background: #fff; animation: pulse .75s ease-in-out infinite alternate; }
+.beacon i:nth-child(1) { height: 15px; }
+.beacon i:nth-child(2) { height: 30px; animation-delay: .18s; }
+.beacon i:nth-child(3) { height: 21px; animation-delay: .36s; }
+
+.copy { min-width: 0; }
+.copy > span { display: block; margin-bottom: 3px; font: 800 9px/1.2 monospace; letter-spacing: .18em; opacity: .72; }
+.copy strong { display: block; font-size: clamp(15px, 2vw, 20px); letter-spacing: -.02em; }
+.copy p { margin: 4px 0 0; font: 11px/1.4 monospace; opacity: .86; }
+
+.broadcast button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(255,255,255,.44);
+  border-radius: 7px;
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.sweep {
+  position: absolute;
+  inset: 0;
+  width: 28%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.16), transparent);
+  transform: skewX(-22deg) translateX(-180%);
+  animation: sweep 2.4s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes arrive { from { opacity: 0; transform: translate(-50%, -20px) scale(.98); } }
+@keyframes pulse { to { height: 8px; opacity: .55; } }
+@keyframes sweep { to { transform: skewX(-22deg) translateX(520%); } }
+
+@media (max-width: 560px) {
+  .broadcast { grid-template-columns: auto 1fr; gap: 10px; padding: 13px 14px; }
+  .broadcast button { grid-column: 2; justify-self: start; min-height: 30px; }
+  .copy p { font-size: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .broadcast, .beacon i, .sweep { animation: none; }
+}
