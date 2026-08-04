@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import BroadcastAlert from "./components/BroadcastAlert";
 import PageSwitcher from "./components/PageSwitcher";
 
 type Venue = "Hyperliquid" | "Binance";
@@ -19,6 +20,7 @@ type Market = {
 
 type Anchor = { price: number | null; timestamp: number | null; loading?: boolean; error?: boolean };
 type LinkHealth = { online: boolean; lastActivity: number | null };
+type BroadcastState = { title: string; message: string; tone: "positive" | "negative" };
 
 const REFRESH_MS = 5000;
 const LIVE_QUOTE_MAX_AGE_MS = 30_000;
@@ -125,12 +127,15 @@ export default function Home() {
   const [status, setStatus] = useState<"connecting" | "live" | "stale">("connecting");
   const [lastRefresh, setLastRefresh] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [broadcast, setBroadcast] = useState<BroadcastState | null>(null);
   const [links, setLinks] = useState<Record<"snapshot" | "hyperliquid" | "binance", LinkHealth>>({
     snapshot: { online: false, lastActivity: null },
     hyperliquid: { online: false, lastActivity: null },
     binance: { online: false, lastActivity: null },
   });
   const anchorGeneration = useRef(0);
+  const triggerDirections = useRef<Record<string, -1 | 0 | 1>>({});
+  const dismissBroadcast = useCallback(() => setBroadcast(null), []);
 
   const loadCurrent = useCallback(async () => {
     try {
@@ -349,6 +354,33 @@ export default function Home() {
     [rows, threshold],
   );
 
+  useEffect(() => {
+    if (!started) {
+      triggerDirections.current = {};
+      return;
+    }
+    const nextDirections: Record<string, -1 | 0 | 1> = {};
+    const crossings: typeof rows = [];
+    for (const row of rows) {
+      const key = anchorKey(row);
+      const direction: -1 | 0 | 1 = (row.deviation ?? 0) >= threshold ? 1 : (row.deviation ?? 0) <= -threshold ? -1 : 0;
+      nextDirections[key] = direction;
+      const previous = triggerDirections.current[key] ?? 0;
+      if (direction !== 0 && direction !== previous) crossings.push(row);
+    }
+    triggerDirections.current = nextDirections;
+    if (!crossings.length) return;
+    const strongest = crossings.reduce((best, row) => Math.abs(row.deviation ?? 0) > Math.abs(best.deviation ?? 0) ? row : best);
+    const tone = (strongest.deviation ?? 0) >= 0 ? "positive" : "negative";
+    const extra = crossings.length > 1 ? ` · ${crossings.length - 1} additional contract${crossings.length > 2 ? "s" : ""} crossed the band.` : "";
+    const timer = window.setTimeout(() => setBroadcast({
+      tone,
+      title: `${strongest.displaySymbol} ${tone === "positive" ? "POSITIVE" : "NEGATIVE"} TRIGGER`,
+      message: `${strongest.venue} deviation ${formatPct(strongest.deviation)} crossed the ±${threshold.toFixed(2)}% alert band${extra}`,
+    }), 0);
+    return () => window.clearTimeout(timer);
+  }, [rows, started, threshold]);
+
   const stats = useMemo(() => {
     const deviations = rows.map((row) => row.deviation).filter((value): value is number => value != null);
     return {
@@ -372,6 +404,13 @@ export default function Home() {
 
   return (
     <main>
+      <BroadcastAlert
+        open={broadcast !== null}
+        title={broadcast?.title ?? ""}
+        message={broadcast?.message ?? ""}
+        tone={broadcast?.tone ?? "positive"}
+        onDismiss={dismissBroadcast}
+      />
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark">M</div>

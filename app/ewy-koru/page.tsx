@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import BroadcastAlert from "../components/BroadcastAlert";
 import PageSwitcher from "../components/PageSwitcher";
 import styles from "./page.module.css";
 
@@ -29,17 +30,6 @@ type OrderBook = {
   bids: OrderLevel[];
   asks: OrderLevel[];
   ts: number;
-};
-
-type OracleQuote = {
-  symbol: "HK1810USDT" | "HK0700USDT" | "TENCENTUSDT";
-  bid: number;
-  ask: number;
-  live: number;
-  oracle: number;
-  mark: number;
-  deviation: number;
-  updatedAt: number;
 };
 
 type PairMode = "returns" | "ratio" | "oracle";
@@ -73,15 +63,6 @@ const BUILTIN_PAIRS: Record<string, PairConfig> = {
     priceRatio: 7.84,
     label: "TENCENT ↔ HK0700 · 7.84:1",
   },
-  "hk1810-oracle": { id: "hk1810-oracle", base: "HK1810USDT", leveraged: "HK1810USDT", factor: 1, mode: "oracle", priceRatio: 1, label: "HK1810 · LIVE ↔ ORACLE" },
-  "hk0700-oracle": { id: "hk0700-oracle", base: "HK0700USDT", leveraged: "HK0700USDT", factor: 1, mode: "oracle", priceRatio: 1, label: "HK0700 · LIVE ↔ ORACLE" },
-  "tencent-oracle": { id: "tencent-oracle", base: "TENCENTUSDT", leveraged: "TENCENTUSDT", factor: 1, mode: "oracle", priceRatio: 1, label: "TENCENT · LIVE ↔ ORACLE" },
-};
-
-const ORACLE_PAIR_BY_SYMBOL: Record<OracleQuote["symbol"], string> = {
-  HK1810USDT: "hk1810-oracle",
-  HK0700USDT: "hk0700-oracle",
-  TENCENTUSDT: "tencent-oracle",
 };
 
 const CUSTOM_PAIRS_KEY = "leveraged_monitor_custom_pairs_v1";
@@ -131,7 +112,7 @@ function isStoredPair(value: unknown): value is PairConfig {
     typeof candidate.base === "string" && SYMBOL_PATTERN.test(candidate.base) &&
     typeof candidate.leveraged === "string" && SYMBOL_PATTERN.test(candidate.leveraged) &&
     typeof candidate.factor === "number" && candidate.factor >= 0.01 && candidate.factor <= 20 &&
-    candidate.mode && ["returns", "ratio", "oracle"].includes(candidate.mode) &&
+    candidate.mode && ["returns", "ratio"].includes(candidate.mode) &&
     typeof candidate.label === "string" &&
     (candidate.mode !== "ratio" || (typeof candidate.priceRatio === "number" && candidate.priceRatio > 0))
   );
@@ -421,8 +402,7 @@ export default function EwyKoruMonitor() {
   const [feed, setFeed] = useState<FeedState>("connecting");
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
   const [liveBooks, setLiveBooks] = useState<{ ewy?: OrderBook; koru?: OrderBook }>({});
-  const [oracleQuotes, setOracleQuotes] = useState<OracleQuote[]>([]);
-  const [oracleError, setOracleError] = useState("");
+  const [broadcast, setBroadcast] = useState<{ title: string; message: string; tone: "positive" | "negative" } | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const feedRef = useRef<FeedState>("connecting");
   const liveQuoteRef = useRef<{
@@ -433,6 +413,8 @@ export default function EwyKoruMonitor() {
   const historyAbortRef = useRef<AbortController | null>(null);
   const historyRequestRef = useRef(0);
   const feedGenerationRef = useRef(0);
+  const triggerDirectionRef = useRef<-1 | 0 | 1>(0);
+  const dismissBroadcast = useCallback(() => setBroadcast(null), []);
   const allPairs = useMemo(() => [...Object.values(BUILTIN_PAIRS), ...customPairs], [customPairs]);
   const pair = allPairs.find((candidate) => candidate.id === pairId) ?? BUILTIN_PAIRS["ewy-koru"];
   const activePairQuery = useMemo(() => pairQuery(pair), [pair]);
@@ -464,6 +446,8 @@ export default function EwyKoruMonitor() {
     setRawPoints([]);
     setLoading(true);
     setLastUpdate(null);
+    triggerDirectionRef.current = 0;
+    setBroadcast(null);
     setDataNotice("");
     setPairId(nextPairId);
   };
@@ -552,29 +536,6 @@ export default function EwyKoruMonitor() {
       historyAbortRef.current?.abort();
     };
   }, [loadHistory]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadOracleQuotes = async () => {
-      try {
-        const response = await fetch("/api/ewy-koru/oracle", { cache: "no-store" });
-        const payload = await response.json() as { quotes?: OracleQuote[]; error?: string };
-        if (!response.ok || !payload.quotes?.length) throw new Error(payload.error || "Price feed unavailable.");
-        if (!cancelled) {
-          setOracleQuotes(payload.quotes);
-          setOracleError("");
-        }
-      } catch {
-        if (!cancelled) setOracleError("Live and oracle prices are reconnecting automatically.");
-      }
-    };
-    void loadOracleQuotes();
-    const timer = window.setInterval(loadOracleQuotes, 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
 
   useEffect(() => {
     if (!liveEnd) {
@@ -807,8 +768,30 @@ export default function EwyKoruMonitor() {
     paused: "Historical review · live paused",
   }[feed];
 
+  useEffect(() => {
+    const deviation = latest?.residual;
+    const direction: -1 | 0 | 1 = deviation == null ? 0 : deviation >= threshold ? 1 : deviation <= -threshold ? -1 : 0;
+    const previous = triggerDirectionRef.current;
+    triggerDirectionRef.current = direction;
+    if (direction === 0 || direction === previous || deviation == null) return;
+    const tone = direction > 0 ? "positive" : "negative";
+    const timer = window.setTimeout(() => setBroadcast({
+      tone,
+      title: `${pair.label} ${tone === "positive" ? "POSITIVE" : "NEGATIVE"} TRIGGER`,
+      message: `${pair.priceRatio ? "Deviation" : "Residual"} ${residualPct(deviation)} crossed the ±${threshold.toFixed(2)}% alert band. ${signal}`,
+    }), 0);
+    return () => window.clearTimeout(timer);
+  }, [latest?.residual, pair.label, pair.priceRatio, signal, threshold]);
+
   return (
     <div className={styles.shell}>
+      <BroadcastAlert
+        open={broadcast !== null}
+        title={broadcast?.title ?? ""}
+        message={broadcast?.message ?? ""}
+        tone={broadcast?.tone ?? "positive"}
+        onDismiss={dismissBroadcast}
+      />
       <div className={styles.frame}>
         <header className={styles.topbar}>
           <div>
@@ -886,7 +869,7 @@ export default function EwyKoruMonitor() {
             <div className={styles.pairBuilderIntro}>
               <p className={styles.panelKicker}>CUSTOM MONITOR</p>
               <h2 className={styles.panelTitle}>Add a pair</h2>
-              <p>Create a device-local monitor using Binance USDⓈ-M symbols. It will use the same history, live quotes, threshold and diagnostics as built-in pairs.</p>
+              <p>Create a device-local two-contract monitor using Binance USDⓈ-M symbols. Oracle comparisons now live in the dedicated Oracle Monitor.</p>
             </div>
             <div className={styles.pairBuilderFields}>
               <label className={styles.field}>
@@ -899,7 +882,6 @@ export default function EwyKoruMonitor() {
                 }}>
                   <option value="returns">Leveraged returns</option>
                   <option value="ratio">Direct price ratio</option>
-                  <option value="oracle">Live price vs oracle</option>
                 </select>
               </label>
               <label className={styles.field}>
@@ -956,44 +938,6 @@ export default function EwyKoruMonitor() {
             <div className={styles.metricValue}>{lastUpdate ? hktTime(lastUpdate) : latest ? hktTime(latest.t) : "—"}</div>
             <p className={styles.metricSub}>{points.length.toLocaleString()} points · {interval} history</p>
           </article>
-        </section>
-
-        <section className={styles.oraclePanel} aria-label="Live and oracle prices">
-          <div className={styles.panelHead}>
-            <div>
-              <p className={styles.panelKicker}>LIVE / ORACLE PRICES</p>
-              <h2 className={styles.panelTitle}>Hong Kong contract price checks</h2>
-            </div>
-            <span className={styles.oracleSource}>Binance USDⓈ-M · 5-second refresh</span>
-          </div>
-          {oracleError && <div className={styles.oracleNotice} role="status">{oracleError}</div>}
-          <div className={styles.oracleGrid}>
-            {oracleQuotes.map((quote) => (
-              <article className={styles.oracleCard} key={quote.symbol}>
-                <div className={styles.oracleCardHead}>
-                  <strong>{quote.symbol}</strong>
-                  <span className={quote.deviation >= 0 ? styles.metricValuePositive : styles.metricValueNegative}>
-                    {residualPct(quote.deviation, 3)}
-                  </span>
-                </div>
-                <dl>
-                  <div><dt>Live midpoint</dt><dd>{price(quote.live)}</dd></div>
-                  <div><dt>Oracle (index)</dt><dd>{price(quote.oracle)}</dd></div>
-                  <div><dt>Mark price</dt><dd>{price(quote.mark)}</dd></div>
-                </dl>
-                <footer>
-                  <div>
-                    <span>Bid {price(quote.bid)} · Ask {price(quote.ask)}</span>
-                    <span>{hktTime(quote.updatedAt)} HKT</span>
-                  </div>
-                  <button className={styles.oracleOpenButton} onClick={() => resetForPair(ORACLE_PAIR_BY_SYMBOL[quote.symbol])}>Open full history</button>
-                </footer>
-              </article>
-            ))}
-            {!oracleQuotes.length && !oracleError && (
-              <div className={styles.oracleLoading}>Loading live and oracle prices…</div>
-            )}
-          </div>
         </section>
 
         {dataNotice && <div className={styles.qualityWarning} role="status">{dataNotice}</div>}
