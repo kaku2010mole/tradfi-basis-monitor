@@ -35,9 +35,22 @@ type OrderDraft = {
   oracle: number;
   offsetPct: number;
   serverTime: number;
+  clientTime: number;
   reduceOnly: boolean;
 };
+type ExchangeFilter = {
+  filterType: string;
+  minPrice?: string;
+  maxPrice?: string;
+  tickSize?: string;
+  minQty?: string;
+  maxQty?: string;
+  stepSize?: string;
+  notional?: string;
+};
+type ExchangeSymbol = { symbol: string; status: string; filters: ExchangeFilter[] };
 
+const BINANCE_API = "https://fapi.binance.com";
 const CUSTOM_PAIRS_KEY = "oracle-monitor-custom-pairs-v1";
 const DEFAULT_SYMBOLS = ["HK1810USDT", "HK0700USDT", "TENCENTUSDT"];
 const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value);
@@ -56,6 +69,63 @@ const hmacHex = async (secret: string, message: string) => {
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
   return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+
+const positiveNumber = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const directBinanceMarket = async (symbol: string): Promise<Market> => {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8_000);
+  try {
+    const request = (path: string) => fetch(`${BINANCE_API}${path}`, { cache: "no-store", credentials: "omit", signal: controller.signal });
+    const [premiumResponse, bookResponse, exchangeResponse, timeResponse] = await Promise.all([
+      request(`/fapi/v1/premiumIndex?symbol=${encodeURIComponent(symbol)}`),
+      request(`/fapi/v1/ticker/bookTicker?symbol=${encodeURIComponent(symbol)}`),
+      request("/fapi/v1/exchangeInfo"),
+      request("/fapi/v1/time"),
+    ]);
+    if (!premiumResponse.ok || !bookResponse.ok || !exchangeResponse.ok || !timeResponse.ok) throw new Error("Direct Binance market feed unavailable.");
+    const premium = await premiumResponse.json() as { indexPrice?: string; markPrice?: string };
+    const book = await bookResponse.json() as { bidPrice?: string; bidQty?: string; askPrice?: string; askQty?: string; time?: number };
+    const exchange = await exchangeResponse.json() as { symbols?: ExchangeSymbol[] };
+    const serverTime = Number((await timeResponse.json() as { serverTime?: number }).serverTime);
+    const instrument = exchange.symbols?.find((item) => item.symbol === symbol);
+    if (!instrument || instrument.status !== "TRADING") throw new Error(`${symbol} is not currently trading.`);
+    const priceFilter = instrument.filters.find((filter) => filter.filterType === "PRICE_FILTER");
+    const lotFilter = instrument.filters.find((filter) => filter.filterType === "LOT_SIZE");
+    const minNotional = instrument.filters.find((filter) => filter.filterType === "MIN_NOTIONAL");
+    const oracle = positiveNumber(premium.indexPrice);
+    const mark = positiveNumber(premium.markPrice);
+    const bid = positiveNumber(book.bidPrice);
+    const ask = positiveNumber(book.askPrice);
+    if (oracle === null || mark === null || bid === null || ask === null) throw new Error("Incomplete Binance market response.");
+    return {
+      symbol,
+      oracle,
+      mark,
+      bid,
+      bidQty: positiveNumber(book.bidQty),
+      ask,
+      askQty: positiveNumber(book.askQty),
+      serverTime: Number.isFinite(serverTime) ? serverTime : Date.now(),
+      clientTime: Date.now(),
+      updatedAt: book.time ?? Date.now(),
+      filters: {
+        minPrice: positiveNumber(priceFilter?.minPrice),
+        maxPrice: positiveNumber(priceFilter?.maxPrice),
+        tickSize: positiveNumber(priceFilter?.tickSize),
+        minQty: positiveNumber(lotFilter?.minQty),
+        maxQty: positiveNumber(lotFilter?.maxQty),
+        stepSize: positiveNumber(lotFilter?.stepSize),
+        minNotional: positiveNumber(minNotional?.notional),
+      },
+    };
+  } finally {
+    window.clearTimeout(timeout);
+  }
 };
 
 export default function TradePanel() {
@@ -89,10 +159,16 @@ export default function TradePanel() {
 
   const loadMarket = useCallback(async () => {
     try {
-      const response = await fetch(`/api/binance-trade/market?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" });
-      const payload = await response.json() as Market & { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Market unavailable.");
-      setMarket(payload);
+      let snapshot: Market;
+      try {
+        snapshot = await directBinanceMarket(symbol);
+      } catch {
+        const response = await fetch(`/api/binance-trade/market?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" });
+        const payload = await response.json() as Market & { error?: string };
+        if (!response.ok) throw new Error(payload.error || "Market unavailable.");
+        snapshot = { ...payload, clientTime: Date.now() };
+      }
+      setMarket(snapshot);
       setMarketError("");
     } catch (error) {
       setMarket(null);
@@ -153,17 +229,26 @@ export default function TradePanel() {
       if (review.reduceOnly && review.positionSide === "BOTH") params.set("reduceOnly", "true");
       const query = params.toString();
       const signature = await hmacHex(apiSecret, query);
-      const response = await fetch("/api/binance-trade/order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey, query, signature, live: liveMode }),
-      });
-      const payload = await response.json() as { error?: string; order?: { orderId?: number; status?: string; clientOrderId?: string } };
-      if (!response.ok) throw new Error(payload.error || "Order rejected.");
+      const endpoint = liveMode ? "/fapi/v1/order" : "/fapi/v1/order/test";
+      let response: Response;
+      try {
+        response = await fetch(`${BINANCE_API}${endpoint}?${query}&signature=${signature}`, {
+          method: "POST",
+          credentials: "omit",
+          headers: { "X-MBX-APIKEY": apiKey },
+        });
+      } catch {
+        throw new Error(liveMode
+          ? "Network interrupted after submission. The order was not retried; check Binance Open Orders before trying again."
+          : "Could not reach Binance Test Order directly from this browser.");
+      }
+      const responseText = await response.text();
+      const payload = responseText ? JSON.parse(responseText) as { code?: number; msg?: string; orderId?: number; status?: string; clientOrderId?: string } : {};
+      if (!response.ok) throw new Error(payload.msg || `Binance rejected the order (HTTP ${response.status}).`);
       setResult({
         tone: "success",
         message: liveMode ? "Live post-only order submitted." : "Signature and order parameters passed Binance Test Order.",
-        detail: payload.order?.orderId ? `Order ${payload.order.orderId} · ${payload.order.status || "NEW"}` : liveMode ? payload.order?.clientOrderId : "No order entered the matching engine.",
+        detail: payload.orderId ? `Order ${payload.orderId} · ${payload.status || "NEW"}` : liveMode ? payload.clientOrderId : "No order entered the matching engine.",
       });
       setReview(null);
     } catch (error) {
@@ -186,7 +271,7 @@ export default function TradePanel() {
         <div className={styles.topActions}><span className={market ? styles.online : styles.offline}><i />{market ? "Binance connected" : "Binance reconnecting"}</span><PageSwitcher active="trade" /><button onClick={lockDesk}>Lock desk</button></div>
       </header>
 
-      <section className={styles.securityNotice}><strong>API Secret stays in this browser.</strong><span>The browser signs the order locally. Only the API key and signed order are sent to this server. Use a dedicated Futures key with withdrawals disabled.</span></section>
+      <section className={styles.securityNotice}><strong>API credentials stay between this browser and Binance.</strong><span>The order is signed locally and sent directly to Binance. This server never receives the API key or HMAC secret. Use a dedicated Futures key with withdrawals disabled.</span></section>
 
       <div className={styles.workspace}>
         <section className={styles.builder}>
@@ -218,7 +303,7 @@ export default function TradePanel() {
           </div>
           <div className={styles.modeTabs}><button className={!liveMode ? styles.activeMode : ""} onClick={() => { setLiveMode(false); setLiveAcknowledged(false); }}>Test order</button><button className={liveMode ? styles.liveMode : ""} onClick={() => setLiveMode(true)}>Live order</button></div>
           <div className={styles.credentials}>
-            <label>Binance API key<input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value.trim())} placeholder="Required · sent with signed order" /></label>
+            <label>Binance API key<input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value.trim())} placeholder="Required · sent directly to Binance" /></label>
             <label>HMAC API secret<input type="password" autoComplete="new-password" value={apiSecret} onChange={(event) => setApiSecret(event.target.value)} placeholder="Required · never leaves this browser" /></label>
           </div>
           {liveMode && <label className={`${styles.check} ${styles.liveCheck}`}><input type="checkbox" checked={liveAcknowledged} onChange={(event) => setLiveAcknowledged(event.target.checked)} /><span>I confirm this is a real order that may execute on Binance.</span></label>}

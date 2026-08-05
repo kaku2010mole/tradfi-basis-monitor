@@ -362,9 +362,11 @@ export default function OracleMonitor() {
               updatedAt,
             });
           } else {
+            const mark = positiveNumber(data.p);
+            const oracle = positiveNumber(data.i);
             applyBinanceStreamPatch(data.s, {
-              mark: positiveNumber(data.p),
-              oracle: positiveNumber(data.i),
+              ...(mark === null ? {} : { mark }),
+              ...(oracle === null ? {} : { oracle }),
               funding: finiteNumber(data.r),
               nextFundingTime: finiteNumber(data.T),
               updatedAt,
