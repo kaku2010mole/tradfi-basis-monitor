@@ -57,6 +57,17 @@ const executableLiquidity = (live: number, oracle: number, bid: number | null, b
 
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+const withDeadline = <T,>(promise: Promise<T>, milliseconds: number, label: string) => new Promise<T>((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error(`${label} timed out.`)), milliseconds);
+  promise.then((value) => {
+    clearTimeout(timer);
+    resolve(value);
+  }, (error) => {
+    clearTimeout(timer);
+    reject(error);
+  });
+});
+
 async function fetchJson<T>(url: string, init?: RequestInit) {
   let lastError: unknown;
   for (const delay of RETRY_DELAYS_MS) {
@@ -196,8 +207,8 @@ export async function GET(request: Request) {
   const binanceSymbols = parseSymbols(url.searchParams.get("binance"), "binance");
   const paraSymbols = parseSymbols(url.searchParams.get("para"), "para");
   const [binance, hyperliquid] = await Promise.allSettled([
-    getBinanceQuotes(binanceSymbols),
-    getParaQuotes(paraSymbols),
+    withDeadline(getBinanceQuotes(binanceSymbols), 4_500, "Binance server snapshot"),
+    withDeadline(getParaQuotes(paraSymbols), 7_500, "Hyperliquid snapshot"),
   ]);
   const quotes = [
     ...(binance.status === "fulfilled" ? binance.value : []),

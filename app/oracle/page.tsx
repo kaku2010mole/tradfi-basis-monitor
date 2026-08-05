@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BroadcastAlert from "../components/BroadcastAlert";
 import PageSwitcher from "../components/PageSwitcher";
+import ParaDepthHeatmap from "./ParaDepthHeatmap";
 import styles from "./page.module.css";
 
 type OracleQuote = {
@@ -48,6 +49,8 @@ type BinanceStreamEnvelope = {
     T?: number;
   };
 };
+type BinanceBookSnapshot = { symbol?: string; bidPrice?: string; bidQty?: string; askPrice?: string; askQty?: string; time?: number };
+type BinancePremiumSnapshot = { symbol?: string; indexPrice?: string; markPrice?: string; lastFundingRate?: string; nextFundingTime?: number; time?: number };
 
 const REFRESH_MS = 5000;
 const STALE_AFTER_MS = 8_000;
@@ -123,6 +126,36 @@ const rebuildBinanceQuote = (symbol: string, candidate: Partial<OracleQuote>): O
     executableUsd: executableQty === null ? null : executablePrice * executableQty,
   };
 };
+
+async function fetchBrowserBinanceQuotes(symbols: string[], signal: AbortSignal) {
+  const [bookResponse, premiumResponse] = await Promise.all([
+    fetch("https://fapi.binance.com/fapi/v1/ticker/bookTicker", { cache: "no-store", credentials: "omit", signal }),
+    fetch("https://fapi.binance.com/fapi/v1/premiumIndex", { cache: "no-store", credentials: "omit", signal }),
+  ]);
+  if (!bookResponse.ok || !premiumResponse.ok) throw new Error("Binance browser snapshot unavailable.");
+  const [books, premiums] = await Promise.all([
+    bookResponse.json() as Promise<BinanceBookSnapshot[]>,
+    premiumResponse.json() as Promise<BinancePremiumSnapshot[]>,
+  ]);
+  const bookBySymbol = new Map(books.flatMap((book) => book.symbol ? [[book.symbol, book] as const] : []));
+  const premiumBySymbol = new Map(premiums.flatMap((premium) => premium.symbol ? [[premium.symbol, premium] as const] : []));
+  return symbols.flatMap((symbol) => {
+    const book = bookBySymbol.get(symbol);
+    const premium = premiumBySymbol.get(symbol);
+    const quote = rebuildBinanceQuote(symbol, {
+      bid: positiveNumber(book?.bidPrice),
+      bidQty: positiveNumber(book?.bidQty),
+      ask: positiveNumber(book?.askPrice),
+      askQty: positiveNumber(book?.askQty),
+      oracle: positiveNumber(premium?.indexPrice),
+      mark: positiveNumber(premium?.markPrice),
+      funding: finiteNumber(premium?.lastFundingRate),
+      nextFundingTime: finiteNumber(premium?.nextFundingTime),
+      updatedAt: Math.max(book?.time ?? 0, premium?.time ?? 0, Date.now()),
+    });
+    return quote ? [quote] : [];
+  });
+}
 
 function DeviationChart({ points, threshold, symbol }: { points: OraclePoint[]; threshold: number; symbol: string }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -232,6 +265,7 @@ export default function OracleMonitor() {
   const [pairError, setPairError] = useState("");
   const [clock, setClock] = useState(0);
   const [binanceStreams, setBinanceStreams] = useState<BinanceStreamState>({ book: "connecting", oracle: "connecting" });
+  const [binanceBrowserRest, setBinanceBrowserRest] = useState(false);
   const triggerDirections = useRef<Record<string, -1 | 0 | 1>>({});
   const requestInFlight = useRef(false);
   const streamCache = useRef<Record<string, Partial<OracleQuote>>>({});
@@ -341,12 +375,16 @@ export default function OracleMonitor() {
       if (cancelled) return;
       setBinanceStreams((current) => ({ ...current, [kind]: attempt ? "reconnecting" : "connecting" }));
       const suffix = kind === "book" ? "@bookTicker" : "@markPrice@1s";
-      const streams = binanceSymbols.map((symbol) => `${symbol.toLowerCase()}${suffix}`).join("/");
+      const streams = binanceSymbols.map((symbol) => `${symbol.toLowerCase()}${suffix}`);
       const channel = kind === "book" ? "public" : "market";
-      const socket = new WebSocket(`wss://fstream.binance.com/${channel}/stream?streams=${streams}`);
+      const socket = new WebSocket(`wss://fstream.binance.com/${channel}/stream`);
       sockets[kind] = socket;
+      const openedAt = Date.now();
 
-      socket.onopen = () => setBinanceStreams((current) => ({ ...current, [kind]: "live" }));
+      socket.onopen = () => {
+        socket.send(JSON.stringify({ method: "SUBSCRIBE", params: streams, id: kind === "book" ? 1 : 2 }));
+        setBinanceStreams((current) => ({ ...current, [kind]: "live" }));
+      };
       socket.onmessage = (event) => {
         try {
           const payload = JSON.parse(String(event.data)) as BinanceStreamEnvelope;
@@ -378,8 +416,10 @@ export default function OracleMonitor() {
       socket.onclose = () => {
         if (cancelled || sockets[kind] !== socket) return;
         setBinanceStreams((current) => ({ ...current, [kind]: "reconnecting" }));
-        const delay = Math.min(20_000, 800 * 2 ** Math.min(attempt, 5));
-        reconnectTimers.push(window.setTimeout(() => connect(kind, attempt + 1), delay));
+        const stable = Date.now() - openedAt > 15_000;
+        const nextAttempt = stable ? 0 : attempt + 1;
+        const delay = Math.min(6_000, 550 * 2 ** Math.min(nextAttempt, 4)) + Math.round(Math.random() * 350);
+        reconnectTimers.push(window.setTimeout(() => connect(kind, nextAttempt), delay));
       };
     };
 
@@ -401,25 +441,58 @@ export default function OracleMonitor() {
       const response = await fetch(quoteUrl, { cache: "no-store", signal: controller.signal });
       const payload = await response.json() as { quotes?: OracleQuote[]; sources?: SourceState; timestamp?: number; error?: string };
       if (!response.ok || !payload.quotes?.length) throw new Error(payload.error || "Oracle feed unavailable.");
-      for (const quote of payload.quotes) {
+      let browserQuotes: OracleQuote[] = [];
+      if (payload.sources?.binance === false) {
+        try {
+          browserQuotes = await fetchBrowserBinanceQuotes(binanceSymbols, controller.signal);
+        } catch { /* The WebSocket can remain the primary source. */ }
+      }
+      const resolvedQuotes = payload.sources?.binance === false
+        ? [...payload.quotes.filter((quote) => quote.venue !== "Binance"), ...browserQuotes]
+        : payload.quotes;
+      for (const quote of resolvedQuotes) {
         if (quote.venue === "Binance") streamCache.current[quote.apiSymbol] = { ...streamCache.current[quote.apiSymbol], ...quote };
       }
       commitQuotes((current) => {
         const byId = new Map(current.filter((quote) => desiredIds.has(quote.id)).map((quote) => [quote.id, quote]));
-        for (const quote of payload.quotes!) byId.set(quote.id, quote);
+        for (const quote of resolvedQuotes) {
+          const existing = byId.get(quote.id);
+          const websocketLive = quote.venue === "Binance" && binanceStreams.book === "live" && binanceStreams.oracle === "live";
+          byId.set(quote.id, websocketLive && existing ? existing : quote);
+        }
         return [...byId.values()];
       });
-      setSources(payload.sources ?? { binance: false, hyperliquid: false });
+      const browserFallbackLive = browserQuotes.length > 0;
+      setBinanceBrowserRest(browserFallbackLive);
+      setSources({ binance: Boolean(payload.sources?.binance || browserFallbackLive), hyperliquid: Boolean(payload.sources?.hyperliquid) });
       setLastRefresh(payload.timestamp ?? Date.now());
-      setError(payload.sources?.binance === false ? "Binance REST snapshot is retrying; live WebSocket remains active." : "");
+      setError(payload.sources?.binance === false && !browserFallbackLive ? "Binance snapshot is retrying; live WebSocket remains active." : "");
     } catch (loadError) {
-      setError(loadError instanceof Error && loadError.name !== "AbortError" ? loadError.message : "REST snapshot timed out; live streams are reconnecting.");
-      setSources({ binance: false, hyperliquid: false });
+      try {
+        const browserController = new AbortController();
+        const browserTimeout = window.setTimeout(() => browserController.abort(), 5_000);
+        const browserQuotes = await fetchBrowserBinanceQuotes(binanceSymbols, browserController.signal);
+        window.clearTimeout(browserTimeout);
+        for (const quote of browserQuotes) streamCache.current[quote.apiSymbol] = { ...streamCache.current[quote.apiSymbol], ...quote };
+        commitQuotes((current) => {
+          const byId = new Map(current.filter((quote) => desiredIds.has(quote.id)).map((quote) => [quote.id, quote]));
+          for (const quote of browserQuotes) byId.set(quote.id, quote);
+          return [...byId.values()];
+        });
+        setBinanceBrowserRest(browserQuotes.length > 0);
+        setSources({ binance: browserQuotes.length > 0, hyperliquid: false });
+        setLastRefresh(Date.now());
+        setError(browserQuotes.length ? "Hyperliquid snapshot is retrying; Binance browser fallback is live." : "Market feeds are retrying.");
+      } catch {
+        setBinanceBrowserRest(false);
+        setError(loadError instanceof Error && loadError.name !== "AbortError" ? loadError.message : "REST snapshot timed out; live streams are reconnecting.");
+        setSources({ binance: false, hyperliquid: false });
+      }
     } finally {
       window.clearTimeout(timeout);
       requestInFlight.current = false;
     }
-  }, [commitQuotes, desiredIds, pairsReady, quoteUrl]);
+  }, [binanceStreams.book, binanceStreams.oracle, binanceSymbols, commitQuotes, desiredIds, pairsReady, quoteUrl]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => void loadQuotes());
@@ -474,7 +547,7 @@ export default function OracleMonitor() {
   const binanceWebSocketLive = binanceStreams.book === "live" && binanceStreams.oracle === "live";
   const binanceOnline = binanceCount > 0 && (binanceWebSocketLive || sources.binance);
   const paraOnline = paraCount > 0 && sources.hyperliquid;
-  const binanceStatus = binanceWebSocketLive ? "Binance WS live" : sources.binance ? "Binance REST fallback" : "Binance reconnecting";
+  const binanceStatus = binanceWebSocketLive ? "Binance WS live" : binanceBrowserRest ? "Binance browser fallback" : sources.binance ? "Binance REST fallback" : "Binance reconnecting";
 
   const addPair = () => {
     const normalized = newVenue === "Binance"
@@ -594,6 +667,8 @@ export default function OracleMonitor() {
             <span>{chartPoints.length.toLocaleString()} points</span>
           </footer>
         </section>
+
+        <ParaDepthHeatmap />
 
         <footer className={styles.footer}>Oracle and mark prices are reference inputs, not executable prices. Funding is shown in each venue&apos;s native interval.</footer>
       </div>
