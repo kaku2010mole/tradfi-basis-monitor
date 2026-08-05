@@ -37,8 +37,22 @@ export async function GET(request: Request) {
 
   try {
     const [{ readdir, readFile }, path] = await Promise.all([import("node:fs/promises"), import("node:path")]);
-    const dataDirectory = process.env.PARA_DATA_DIR || "/var/data/para-orderbooks";
-    const files = (await readdir(dataDirectory)).filter((name) => name.endsWith(".ndjson")).sort();
+    const candidates = process.env.PARA_DATA_DIR
+      ? [process.env.PARA_DATA_DIR]
+      : ["/var/data/para-orderbooks", "/tmp/para-orderbooks"];
+    let dataDirectory = "";
+    let files: string[] = [];
+    for (const candidate of candidates) {
+      try {
+        files = (await readdir(candidate)).filter((name) => name.endsWith(".ndjson")).sort();
+        dataDirectory = candidate;
+        break;
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+        if (code !== "ENOENT" && code !== "EACCES") throw error;
+      }
+    }
+    if (!dataDirectory) return Response.json({ snapshots: [], source: "render-disk", start, end }, { headers: { "Cache-Control": "no-store" } });
     const snapshots: Snapshot[] = [];
     for (const name of files) {
       const content = await readFile(path.join(dataDirectory, name), "utf8");

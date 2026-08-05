@@ -6,7 +6,8 @@ import path from "node:path";
 const SYMBOLS = ["para:OTHERS", "para:TOTAL2", "para:BTCD"];
 const HYPERLIQUID_INFO = "https://api.hyperliquid.xyz/info";
 const CAPTURE_MS = 10_000;
-const DATA_DIR = process.env.PARA_DATA_DIR || "/var/data/para-orderbooks";
+let dataDirectory = process.env.PARA_DATA_DIR || "/var/data/para-orderbooks";
+let dataDirectoryReady = false;
 const RETENTION_DAYS = Math.max(1, Math.min(90, Number(process.env.PARA_RETENTION_DAYS) || 14));
 let stopped = false;
 let lastCleanup = 0;
@@ -31,11 +32,24 @@ async function cleanupOldFiles() {
   if (Date.now() - lastCleanup < 60 * 60_000) return;
   lastCleanup = Date.now();
   const cutoff = Date.now() - RETENTION_DAYS * 24 * 60 * 60_000;
-  const entries = await readdir(DATA_DIR, { withFileTypes: true });
+  const entries = await readdir(dataDirectory, { withFileTypes: true });
   await Promise.all(entries.filter((entry) => entry.isFile() && entry.name.endsWith(".ndjson")).map(async (entry) => {
-    const file = path.join(DATA_DIR, entry.name);
+    const file = path.join(dataDirectory, entry.name);
     if ((await stat(file)).mtimeMs < cutoff) await unlink(file);
   }));
+}
+
+async function ensureDataDirectory() {
+  if (dataDirectoryReady) return;
+  try {
+    await mkdir(dataDirectory, { recursive: true });
+  } catch (error) {
+    if (process.env.PARA_DATA_DIR || !error || typeof error !== "object" || error.code !== "EACCES") throw error;
+    dataDirectory = "/tmp/para-orderbooks";
+    await mkdir(dataDirectory, { recursive: true });
+    console.warn("[para-recorder] Persistent disk is not mounted; using temporary Render storage until /var/data is attached.");
+  }
+  dataDirectoryReady = true;
 }
 
 async function capture() {
@@ -73,9 +87,9 @@ async function capture() {
     }];
   });
   if (!records.length) return;
-  await mkdir(DATA_DIR, { recursive: true });
+  await ensureDataDirectory();
   const date = new Date(records[0].t).toISOString().slice(0, 10);
-  await appendFile(path.join(DATA_DIR, `${date}.ndjson`), `${records.map((record) => JSON.stringify(record)).join("\n")}\n`, "utf8");
+  await appendFile(path.join(dataDirectory, `${date}.ndjson`), `${records.map((record) => JSON.stringify(record)).join("\n")}\n`, "utf8");
   await cleanupOldFiles();
 }
 
