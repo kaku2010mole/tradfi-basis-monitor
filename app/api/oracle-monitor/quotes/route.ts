@@ -4,6 +4,8 @@ const HYPERLIQUID_INFO = "https://api.hyperliquid.xyz/info";
 const DEFAULT_BINANCE_SYMBOLS = ["HK1810USDT", "HK0700USDT", "TENCENTUSDT"];
 const DEFAULT_PARA_SYMBOLS = ["para:OTHERS", "para:TOTAL2", "para:BTCD"];
 const MAX_SYMBOLS_PER_VENUE = 24;
+const FETCH_TIMEOUT_MS = 6_000;
+const RETRY_DELAYS_MS = [0, 180, 520];
 
 type BinanceBook = {
   symbol: string;
@@ -53,73 +55,105 @@ const executableLiquidity = (live: number, oracle: number, bid: number | null, b
   };
 };
 
+const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function fetchJson<T>(url: string, init?: RequestInit) {
+  let lastError: unknown;
+  for (const delay of RETRY_DELAYS_MS) {
+    if (delay) await wait(delay);
+    try {
+      const response = await fetch(url, {
+        ...init,
+        cache: "no-store",
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json() as T;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Market request failed.");
+}
+
+const buildBinanceQuote = (symbol: string, book?: BinanceBook, premium?: BinancePremium) => {
+  const bid = finite(book?.bidPrice);
+  const bidQty = finite(book?.bidQty);
+  const ask = finite(book?.askPrice);
+  const askQty = finite(book?.askQty);
+  const oracle = finite(premium?.indexPrice);
+  const mark = finite(premium?.markPrice);
+  if (bid === null || ask === null || oracle === null || mark === null) return null;
+  const live = (bid + ask) / 2;
+  return {
+    id: `binance:${symbol}`,
+    venue: "Binance" as const,
+    symbol,
+    apiSymbol: symbol,
+    bid,
+    bidQty,
+    ask,
+    askQty,
+    live,
+    oracle,
+    mark,
+    deviation: (live / oracle - 1) * 100,
+    funding: Number.isFinite(Number(premium?.lastFundingRate)) ? Number(premium?.lastFundingRate) : null,
+    fundingHours: 8,
+    nextFundingTime: premium?.nextFundingTime ?? null,
+    updatedAt: Math.max(book?.time ?? 0, premium?.time ?? 0, Date.now()),
+    ...executableLiquidity(live, oracle, bid, bidQty, ask, askQty),
+  };
+};
+
+async function getBinanceSymbolQuote(symbol: string) {
+  const [book, premium] = await Promise.all([
+    fetchJson<BinanceBook>(`${BINANCE_API}/fapi/v1/ticker/bookTicker?symbol=${encodeURIComponent(symbol)}`),
+    fetchJson<BinancePremium>(`${BINANCE_API}/fapi/v1/premiumIndex?symbol=${encodeURIComponent(symbol)}`),
+  ]);
+  return buildBinanceQuote(symbol, book, premium);
+}
+
 async function getBinanceQuotes(symbols: string[]) {
   if (!symbols.length) return [];
-  const [bookResponse, premiumResponse] = await Promise.all([
-    fetch(`${BINANCE_API}/fapi/v1/ticker/bookTicker`, { cache: "no-store" }),
-    fetch(`${BINANCE_API}/fapi/v1/premiumIndex`, { cache: "no-store" }),
-  ]);
-  if (!bookResponse.ok || !premiumResponse.ok) throw new Error("Binance oracle feed unavailable.");
-  const books = new Map(((await bookResponse.json()) as BinanceBook[]).map((item) => [item.symbol, item]));
-  const premiums = new Map(((await premiumResponse.json()) as BinancePremium[]).map((item) => [item.symbol, item]));
-
-  return symbols.flatMap((symbol) => {
-    const book = books.get(symbol);
-    const premium = premiums.get(symbol);
-    const bid = finite(book?.bidPrice);
-    const bidQty = finite(book?.bidQty);
-    const ask = finite(book?.askPrice);
-    const askQty = finite(book?.askQty);
-    const oracle = finite(premium?.indexPrice);
-    const mark = finite(premium?.markPrice);
-    if (bid === null || ask === null || oracle === null || mark === null) return [];
-    const live = (bid + ask) / 2;
-    return [{
-      id: `binance:${symbol}`,
-      venue: "Binance" as const,
-      symbol,
-      apiSymbol: symbol,
-      bid,
-      bidQty,
-      ask,
-      askQty,
-      live,
-      oracle,
-      mark,
-      deviation: (live / oracle - 1) * 100,
-      funding: Number.isFinite(Number(premium?.lastFundingRate)) ? Number(premium?.lastFundingRate) : null,
-      fundingHours: 8,
-      nextFundingTime: premium?.nextFundingTime ?? null,
-      updatedAt: Math.max(book?.time ?? 0, premium?.time ?? 0, Date.now()),
-      ...executableLiquidity(live, oracle, bid, bidQty, ask, askQty),
-    }];
-  });
+  try {
+    const [bookItems, premiumItems] = await Promise.all([
+      fetchJson<BinanceBook[]>(`${BINANCE_API}/fapi/v1/ticker/bookTicker`),
+      fetchJson<BinancePremium[]>(`${BINANCE_API}/fapi/v1/premiumIndex`),
+    ]);
+    const books = new Map(bookItems.map((item) => [item.symbol, item]));
+    const premiums = new Map(premiumItems.map((item) => [item.symbol, item]));
+    return symbols.flatMap((symbol) => {
+      const quote = buildBinanceQuote(symbol, books.get(symbol), premiums.get(symbol));
+      return quote ? [quote] : [];
+    });
+  } catch {
+    const fallback = await Promise.allSettled(symbols.map(getBinanceSymbolQuote));
+    const quotes = fallback.flatMap((result) => result.status === "fulfilled" && result.value ? [result.value] : []);
+    if (!quotes.length) throw new Error("Binance oracle feed unavailable.");
+    return quotes;
+  }
 }
 
 async function getParaBook(symbol: string) {
-  const response = await fetch(HYPERLIQUID_INFO, {
+  return fetchJson<HyperBook>(HYPERLIQUID_INFO, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ type: "l2Book", coin: symbol }),
-    cache: "no-store",
   });
-  if (!response.ok) throw new Error(`${symbol} order book unavailable.`);
-  return (await response.json()) as HyperBook;
 }
 
 async function getParaQuotes(symbols: string[]) {
   if (!symbols.length) return [];
-  const [contextResponse, bookResults] = await Promise.all([
-    fetch(HYPERLIQUID_INFO, {
+  const [contextPayload, bookResults] = await Promise.all([
+    fetchJson<[HyperMeta, HyperContext[]]>(HYPERLIQUID_INFO, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "metaAndAssetCtxs", dex: "para" }),
-      cache: "no-store",
     }),
     Promise.allSettled(symbols.map((symbol) => getParaBook(symbol))),
   ]);
-  if (!contextResponse.ok) throw new Error("Hyperliquid para feed unavailable.");
-  const [meta, contexts] = (await contextResponse.json()) as [HyperMeta, HyperContext[]];
+  const [meta, contexts] = contextPayload;
   const byName = new Map(meta.universe.map((asset, index) => [asset.name, contexts[index]]));
   const books = new Map(symbols.flatMap((symbol, index) => bookResults[index]?.status === "fulfilled" ? [[symbol, bookResults[index].value] as const] : []));
 

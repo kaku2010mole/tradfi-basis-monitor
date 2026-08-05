@@ -48,6 +48,8 @@
 .quoteCard:hover { transform:translateY(-1px); border-color:#b9c8db; }
 .selectedCard { border-color:var(--blue); box-shadow:0 0 0 2px rgba(36,118,229,.09); }
 .triggeredCard { background:linear-gradient(120deg,rgba(242,140,50,.07),#fff 45%); }
+.staleCard { border-color:#e2b878; background:linear-gradient(120deg,rgba(236,160,55,.1),#fff 48%); }
+.staleCard footer span:last-child { color:#b66d16; font-weight:850; }
 .cardTop { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
 .cardTop div { display:grid; gap:4px; }
 .cardTop small { color:var(--muted); font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }

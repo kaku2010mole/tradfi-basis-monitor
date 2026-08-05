@@ -30,10 +30,28 @@ type OracleQuote = {
 
 type OraclePoint = { t: number; live: number; oracle: number; deviation: number };
 type SourceState = { binance: boolean; hyperliquid: boolean };
+type StreamStatus = "connecting" | "live" | "reconnecting";
+type BinanceStreamState = { book: StreamStatus; oracle: StreamStatus };
 type BroadcastState = { title: string; message: string; tone: "positive" | "negative" };
 type CustomPair = { venue: "Binance" | "Hyperliquid"; apiSymbol: string };
+type BinanceStreamEnvelope = {
+  data?: {
+    E?: number;
+    s?: string;
+    b?: string;
+    B?: string;
+    a?: string;
+    A?: string;
+    p?: string;
+    i?: string;
+    r?: string;
+    T?: number;
+  };
+};
 
 const REFRESH_MS = 5000;
+const STALE_AFTER_MS = 8_000;
+const HIDE_AFTER_MS = 20_000;
 const CUSTOM_PAIRS_KEY = "oracle-monitor-custom-pairs-v1";
 const DEFAULT_BINANCE = ["HK1810USDT", "HK0700USDT", "TENCENTUSDT"];
 const DEFAULT_PARA = ["para:OTHERS", "para:TOTAL2", "para:BTCD"];
@@ -59,6 +77,52 @@ const formatTime = (value: number, date = false) => new Intl.DateTimeFormat("en-
   second: date ? undefined : "2-digit",
   hour12: false,
 }).format(value);
+
+const positiveNumber = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const finiteNumber = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const rebuildBinanceQuote = (symbol: string, candidate: Partial<OracleQuote>): OracleQuote | null => {
+  const bid = positiveNumber(candidate.bid);
+  const bidQty = positiveNumber(candidate.bidQty);
+  const ask = positiveNumber(candidate.ask);
+  const askQty = positiveNumber(candidate.askQty);
+  const oracle = positiveNumber(candidate.oracle);
+  const mark = positiveNumber(candidate.mark);
+  if (bid === null || ask === null || oracle === null || mark === null) return null;
+  const live = (bid + ask) / 2;
+  const executableSide = live >= oracle ? "SELL" as const : "BUY" as const;
+  const executablePrice = executableSide === "SELL" ? bid : ask;
+  const executableQty = executableSide === "SELL" ? bidQty : askQty;
+  return {
+    id: `binance:${symbol}`,
+    venue: "Binance",
+    symbol,
+    apiSymbol: symbol,
+    bid,
+    bidQty,
+    ask,
+    askQty,
+    live,
+    oracle,
+    mark,
+    deviation: (live / oracle - 1) * 100,
+    funding: finiteNumber(candidate.funding),
+    fundingHours: 8,
+    nextFundingTime: finiteNumber(candidate.nextFundingTime),
+    updatedAt: finiteNumber(candidate.updatedAt) ?? Date.now(),
+    executableSide,
+    executablePrice,
+    executableQty,
+    executableUsd: executableQty === null ? null : executablePrice * executableQty,
+  };
+};
 
 function DeviationChart({ points, threshold, symbol }: { points: OraclePoint[]; threshold: number; symbol: string }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -119,10 +183,10 @@ function DeviationChart({ points, threshold, symbol }: { points: OraclePoint[]; 
   );
 }
 
-function QuoteCard({ quote, threshold, selected, onSelect }: { quote: OracleQuote; threshold: number; selected: boolean; onSelect: () => void }) {
+function QuoteCard({ quote, threshold, selected, stale, onSelect }: { quote: OracleQuote; threshold: number; selected: boolean; stale: boolean; onSelect: () => void }) {
   const triggered = Math.abs(quote.deviation) >= threshold;
   return (
-    <button className={`${styles.quoteCard} ${selected ? styles.selectedCard : ""} ${triggered ? styles.triggeredCard : ""}`} onClick={onSelect}>
+    <button className={`${styles.quoteCard} ${selected ? styles.selectedCard : ""} ${triggered ? styles.triggeredCard : ""} ${stale ? styles.staleCard : ""}`} onClick={onSelect}>
       <div className={styles.cardTop}>
         <div><small>{quote.venue}</small><strong>{quote.symbol}</strong></div>
         <span className={quote.deviation >= 0 ? styles.positive : styles.negative}>{formatPct(quote.deviation)}</span>
@@ -141,7 +205,7 @@ function QuoteCard({ quote, threshold, selected, onSelect }: { quote: OracleQuot
       </div>
       <footer>
         <span>Funding {quote.funding == null ? "—" : formatPct(quote.funding * 100, 4)} / {quote.fundingHours}h</span>
-        <span>{formatTime(quote.updatedAt)} HKT</span>
+        <span>{stale ? "RECONNECTING · " : ""}{formatTime(quote.updatedAt)} HKT</span>
       </footer>
     </button>
   );
@@ -166,7 +230,13 @@ export default function OracleMonitor() {
   const [newVenue, setNewVenue] = useState<CustomPair["venue"]>("Binance");
   const [newSymbol, setNewSymbol] = useState("");
   const [pairError, setPairError] = useState("");
+  const [clock, setClock] = useState(0);
+  const [binanceStreams, setBinanceStreams] = useState<BinanceStreamState>({ book: "connecting", oracle: "connecting" });
   const triggerDirections = useRef<Record<string, -1 | 0 | 1>>({});
+  const requestInFlight = useRef(false);
+  const streamCache = useRef<Record<string, Partial<OracleQuote>>>({});
+  const quotesRef = useRef<OracleQuote[]>([]);
+  const thresholdRef = useRef(threshold);
   const dismissBroadcast = useCallback(() => setBroadcast(null), []);
 
   useEffect(() => {
@@ -189,49 +259,165 @@ export default function OracleMonitor() {
     return `/api/oracle-monitor/quotes?${params}`;
   }, [customPairs]);
 
+  const binanceSymbols = useMemo(() => {
+    const symbols = new Set(DEFAULT_BINANCE);
+    for (const pair of customPairs) if (pair.venue === "Binance") symbols.add(pair.apiSymbol);
+    return [...symbols];
+  }, [customPairs]);
+
+  const desiredIds = useMemo(() => {
+    const ids = new Set(binanceSymbols.map((symbol) => `binance:${symbol}`));
+    for (const symbol of DEFAULT_PARA) ids.add(`hyperliquid:${symbol}`);
+    for (const pair of customPairs) if (pair.venue === "Hyperliquid") ids.add(`hyperliquid:${pair.apiSymbol}`);
+    return ids;
+  }, [binanceSymbols, customPairs]);
+
+  const commitQuotes = useCallback((update: (current: OracleQuote[]) => OracleQuote[]) => {
+    const next = update(quotesRef.current);
+    quotesRef.current = next;
+    setQuotes(next);
+
+    const nextDirections: Record<string, -1 | 0 | 1> = {};
+    const crossings: OracleQuote[] = [];
+    for (const quote of next) {
+      const direction: -1 | 0 | 1 = quote.deviation >= thresholdRef.current ? 1 : quote.deviation <= -thresholdRef.current ? -1 : 0;
+      nextDirections[quote.id] = direction;
+      const previous = triggerDirections.current[quote.id] ?? 0;
+      if (direction !== 0 && direction !== previous) crossings.push(quote);
+    }
+    triggerDirections.current = nextDirections;
+    if (crossings.length) {
+      const strongest = crossings.reduce((best, quote) => Math.abs(quote.deviation) > Math.abs(best.deviation) ? quote : best);
+      const tone = strongest.deviation >= 0 ? "positive" : "negative";
+      setBroadcast({
+        tone,
+        title: `${strongest.symbol} ${tone === "positive" ? "POSITIVE" : "NEGATIVE"} ORACLE TRIGGER`,
+        message: `${strongest.venue} live midpoint is ${formatPct(strongest.deviation)} from oracle, outside the ±${thresholdRef.current.toFixed(3)}% band${crossings.length > 1 ? ` · ${crossings.length - 1} additional trigger${crossings.length > 2 ? "s" : ""}` : ""}.`,
+      });
+    }
+
+    setSessionPoints((current) => {
+      const points = { ...current };
+      let changed = false;
+      for (const quote of next) {
+        const point = { t: quote.updatedAt, live: quote.live, oracle: quote.oracle, deviation: quote.deviation };
+        const existing = points[quote.id] ?? [];
+        if ((existing.at(-1)?.t ?? 0) > point.t - 900) continue;
+        points[quote.id] = [...existing, point].slice(-720);
+        changed = true;
+      }
+      return changed ? points : current;
+    });
+  }, []);
+
+  const applyBinanceStreamPatch = useCallback((symbol: string, patch: Partial<OracleQuote>) => {
+    const normalized = symbol.toUpperCase();
+    streamCache.current[normalized] = { ...streamCache.current[normalized], ...patch };
+    commitQuotes((current) => {
+      const existing = current.find((quote) => quote.id === `binance:${normalized}`);
+      const rebuilt = rebuildBinanceQuote(normalized, { ...existing, ...streamCache.current[normalized] });
+      if (!rebuilt) return current;
+      const index = current.findIndex((quote) => quote.id === rebuilt.id);
+      return index < 0
+        ? [...current, rebuilt]
+        : current.map((quote, quoteIndex) => quoteIndex === index ? rebuilt : quote);
+    });
+    setLastRefresh((current) => Math.max(current ?? 0, Number(patch.updatedAt) || Date.now()));
+    setError("");
+  }, [commitQuotes]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!pairsReady || !binanceSymbols.length) return;
+    let cancelled = false;
+    const sockets: Partial<Record<"book" | "oracle", WebSocket>> = {};
+    const reconnectTimers: number[] = [];
+
+    const connect = (kind: "book" | "oracle", attempt = 0) => {
+      if (cancelled) return;
+      setBinanceStreams((current) => ({ ...current, [kind]: attempt ? "reconnecting" : "connecting" }));
+      const suffix = kind === "book" ? "@bookTicker" : "@markPrice@1s";
+      const streams = binanceSymbols.map((symbol) => `${symbol.toLowerCase()}${suffix}`).join("/");
+      const channel = kind === "book" ? "public" : "market";
+      const socket = new WebSocket(`wss://fstream.binance.com/${channel}/stream?streams=${streams}`);
+      sockets[kind] = socket;
+
+      socket.onopen = () => setBinanceStreams((current) => ({ ...current, [kind]: "live" }));
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(String(event.data)) as BinanceStreamEnvelope;
+          const data = payload.data;
+          if (!data?.s) return;
+          const updatedAt = finiteNumber(data.E) ?? Date.now();
+          if (kind === "book") {
+            applyBinanceStreamPatch(data.s, {
+              bid: positiveNumber(data.b),
+              bidQty: positiveNumber(data.B),
+              ask: positiveNumber(data.a),
+              askQty: positiveNumber(data.A),
+              updatedAt,
+            });
+          } else {
+            applyBinanceStreamPatch(data.s, {
+              mark: positiveNumber(data.p),
+              oracle: positiveNumber(data.i),
+              funding: finiteNumber(data.r),
+              nextFundingTime: finiteNumber(data.T),
+              updatedAt,
+            });
+          }
+        } catch { /* Ignore malformed frames and keep the healthy socket open. */ }
+      };
+      socket.onerror = () => socket.close();
+      socket.onclose = () => {
+        if (cancelled || sockets[kind] !== socket) return;
+        setBinanceStreams((current) => ({ ...current, [kind]: "reconnecting" }));
+        const delay = Math.min(20_000, 800 * 2 ** Math.min(attempt, 5));
+        reconnectTimers.push(window.setTimeout(() => connect(kind, attempt + 1), delay));
+      };
+    };
+
+    connect("book");
+    connect("oracle");
+    return () => {
+      cancelled = true;
+      reconnectTimers.forEach((timer) => window.clearTimeout(timer));
+      Object.values(sockets).forEach((socket) => socket?.close());
+    };
+  }, [applyBinanceStreamPatch, binanceSymbols, pairsReady]);
+
   const loadQuotes = useCallback(async () => {
+    if (!pairsReady || requestInFlight.current) return;
+    requestInFlight.current = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 9_000);
     try {
-      if (!pairsReady) return;
-      const response = await fetch(quoteUrl, { cache: "no-store" });
+      const response = await fetch(quoteUrl, { cache: "no-store", signal: controller.signal });
       const payload = await response.json() as { quotes?: OracleQuote[]; sources?: SourceState; timestamp?: number; error?: string };
       if (!response.ok || !payload.quotes?.length) throw new Error(payload.error || "Oracle feed unavailable.");
-      const nextDirections: Record<string, -1 | 0 | 1> = {};
-      const crossings: OracleQuote[] = [];
       for (const quote of payload.quotes) {
-        const direction: -1 | 0 | 1 = quote.deviation >= threshold ? 1 : quote.deviation <= -threshold ? -1 : 0;
-        nextDirections[quote.id] = direction;
-        const previous = triggerDirections.current[quote.id] ?? 0;
-        if (direction !== 0 && direction !== previous) crossings.push(quote);
+        if (quote.venue === "Binance") streamCache.current[quote.apiSymbol] = { ...streamCache.current[quote.apiSymbol], ...quote };
       }
-      triggerDirections.current = nextDirections;
-      if (crossings.length) {
-        const strongest = crossings.reduce((best, quote) => Math.abs(quote.deviation) > Math.abs(best.deviation) ? quote : best);
-        const tone = strongest.deviation >= 0 ? "positive" : "negative";
-        setBroadcast({
-          tone,
-          title: `${strongest.symbol} ${tone === "positive" ? "POSITIVE" : "NEGATIVE"} ORACLE TRIGGER`,
-          message: `${strongest.venue} live midpoint is ${formatPct(strongest.deviation)} from oracle, outside the ±${threshold.toFixed(3)}% band${crossings.length > 1 ? ` · ${crossings.length - 1} additional trigger${crossings.length > 2 ? "s" : ""}` : ""}.`,
-        });
-      }
-      setQuotes(payload.quotes);
+      commitQuotes((current) => {
+        const byId = new Map(current.filter((quote) => desiredIds.has(quote.id)).map((quote) => [quote.id, quote]));
+        for (const quote of payload.quotes!) byId.set(quote.id, quote);
+        return [...byId.values()];
+      });
       setSources(payload.sources ?? { binance: false, hyperliquid: false });
       setLastRefresh(payload.timestamp ?? Date.now());
-      setError("");
-      setSessionPoints((current) => {
-        const next = { ...current };
-        for (const quote of payload.quotes!) {
-          const point = { t: quote.updatedAt, live: quote.live, oracle: quote.oracle, deviation: quote.deviation };
-          const existing = next[quote.id] ?? [];
-          if (existing.at(-1)?.t === point.t) continue;
-          next[quote.id] = [...existing, point].slice(-720);
-        }
-        return next;
-      });
+      setError(payload.sources?.binance === false ? "Binance REST snapshot is retrying; live WebSocket remains active." : "");
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Oracle feeds are reconnecting.");
+      setError(loadError instanceof Error && loadError.name !== "AbortError" ? loadError.message : "REST snapshot timed out; live streams are reconnecting.");
       setSources({ binance: false, hyperliquid: false });
+    } finally {
+      window.clearTimeout(timeout);
+      requestInFlight.current = false;
     }
-  }, [pairsReady, quoteUrl, threshold]);
+  }, [commitQuotes, desiredIds, pairsReady, quoteUrl]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => void loadQuotes());
@@ -239,7 +425,8 @@ export default function OracleMonitor() {
     return () => { window.cancelAnimationFrame(frame); window.clearInterval(timer); };
   }, [loadQuotes]);
 
-  const selected = quotes.find((quote) => quote.id === selectedId) ?? quotes[0];
+  const visibleQuotes = useMemo(() => quotes.filter((quote) => clock - quote.updatedAt <= HIDE_AFTER_MS), [clock, quotes]);
+  const selected = visibleQuotes.find((quote) => quote.id === selectedId) ?? visibleQuotes[0];
   const selectedVenue = selected?.venue;
   const selectedApiSymbol = selected?.apiSymbol;
 
@@ -276,12 +463,16 @@ export default function OracleMonitor() {
     const lastHistoryTime = history.at(-1)?.t ?? 0;
     return [...history, ...selectedSession.filter((point) => point.t > lastHistoryTime)];
   }, [history, selected, selectedSession]);
-  const positive = quotes.filter((quote) => quote.deviation >= 0).sort((a, b) => b.deviation - a.deviation);
-  const negative = quotes.filter((quote) => quote.deviation < 0).sort((a, b) => a.deviation - b.deviation);
-  const triggered = quotes.filter((quote) => Math.abs(quote.deviation) >= threshold);
-  const extreme = quotes.reduce<OracleQuote | null>((best, quote) => !best || Math.abs(quote.deviation) > Math.abs(best.deviation) ? quote : best, null);
-  const binanceCount = quotes.filter((quote) => quote.venue === "Binance").length;
-  const paraCount = quotes.length - binanceCount;
+  const positive = visibleQuotes.filter((quote) => quote.deviation >= 0).sort((a, b) => b.deviation - a.deviation);
+  const negative = visibleQuotes.filter((quote) => quote.deviation < 0).sort((a, b) => a.deviation - b.deviation);
+  const triggered = visibleQuotes.filter((quote) => Math.abs(quote.deviation) >= threshold);
+  const extreme = visibleQuotes.reduce<OracleQuote | null>((best, quote) => !best || Math.abs(quote.deviation) > Math.abs(best.deviation) ? quote : best, null);
+  const binanceCount = visibleQuotes.filter((quote) => quote.venue === "Binance").length;
+  const paraCount = visibleQuotes.length - binanceCount;
+  const binanceWebSocketLive = binanceStreams.book === "live" && binanceStreams.oracle === "live";
+  const binanceOnline = binanceCount > 0 && (binanceWebSocketLive || sources.binance);
+  const paraOnline = paraCount > 0 && sources.hyperliquid;
+  const binanceStatus = binanceWebSocketLive ? "Binance WS live" : sources.binance ? "Binance REST fallback" : "Binance reconnecting";
 
   const addPair = () => {
     const normalized = newVenue === "Binance"
@@ -323,8 +514,8 @@ export default function OracleMonitor() {
           </div>
           <div className={styles.topActions}>
             <div className={styles.links} aria-label="Connection status">
-              <span className={sources.binance ? styles.online : ""}><i />Binance</span>
-              <span className={sources.hyperliquid ? styles.online : ""}><i />Hyperliquid para</span>
+              <span className={binanceOnline ? styles.online : ""}><i />{binanceStatus}</span>
+              <span className={paraOnline ? styles.online : ""}><i />{paraOnline ? "Hyperliquid live" : "Hyperliquid reconnecting"}</span>
             </div>
             <PageSwitcher active="oracle" />
           </div>
@@ -334,13 +525,15 @@ export default function OracleMonitor() {
           <label>
             Alert threshold
             <div><input type="number" min="0.001" max="10" step="0.01" value={threshold} onChange={(event) => {
-              setThreshold(Math.max(.001, Number(event.target.value) || .1));
+              const nextThreshold = Math.max(.001, Number(event.target.value) || .1);
+              thresholdRef.current = nextThreshold;
+              setThreshold(nextThreshold);
               triggerDirections.current = {};
             }} /><span>%</span></div>
           </label>
           <button onClick={() => void loadQuotes()}>Refresh now</button>
           <button className={styles.secondaryButton} onClick={() => setPairManagerOpen((open) => !open)}>{pairManagerOpen ? "Close pair manager" : "Add pairs"}</button>
-          <span className={styles.refreshText}>{error || (lastRefresh ? `Updated ${formatTime(lastRefresh)} HKT · auto-refresh 5s` : "Connecting live feeds…")}</span>
+          <span className={styles.refreshText}>{error || (lastRefresh ? `Last live update ${formatTime(lastRefresh)} HKT · WS + 5s snapshot` : "Connecting live feeds…")}</span>
         </section>
 
         {pairManagerOpen && <section className={styles.pairManager} aria-label="Custom pair manager">
@@ -362,7 +555,7 @@ export default function OracleMonitor() {
         </section>}
 
         <section className={styles.stats}>
-          <article><span>Monitored</span><strong>{quotes.length || "—"}</strong><small>{binanceCount} Binance · {paraCount} Hyperliquid para</small></article>
+          <article><span>Live now</span><strong>{visibleQuotes.length || "—"}</strong><small>{binanceCount} Binance · {paraCount} Hyperliquid para</small></article>
           <article><span>Triggered</span><strong className={triggered.length ? styles.warningText : ""}>{triggered.length}</strong><small>Outside ±{threshold.toFixed(3)}%</small></article>
           <article><span>Largest drift</span><strong className={extreme && extreme.deviation >= 0 ? styles.positive : styles.negative}>{extreme ? formatPct(extreme.deviation) : "—"}</strong><small>{extreme?.symbol ?? "Waiting for data"}</small></article>
           <article><span>Selected funding</span><strong>{selected?.funding == null ? "—" : formatPct(selected.funding * 100, 4)}</strong><small>{selected ? `${selected.fundingHours}h rate · ${selected.venue}` : "—"}</small></article>
@@ -371,13 +564,13 @@ export default function OracleMonitor() {
         <section className={styles.deviationBoard}>
           <div className={`${styles.side} ${styles.positiveSide}`}>
             <header><div><span>↗</span><strong>Positive deviation</strong></div><b>{positive.length}</b></header>
-            <div className={styles.cardList}>{positive.map((quote) => <QuoteCard key={quote.id} quote={quote} threshold={threshold} selected={quote.id === selected?.id} onSelect={() => setSelectedId(quote.id)} />)}
+            <div className={styles.cardList}>{positive.map((quote) => <QuoteCard key={quote.id} quote={quote} threshold={threshold} stale={clock - quote.updatedAt > STALE_AFTER_MS} selected={quote.id === selected?.id} onSelect={() => setSelectedId(quote.id)} />)}
               {!positive.length && <p>No positive deviations.</p>}
             </div>
           </div>
           <div className={`${styles.side} ${styles.negativeSide}`}>
             <header><div><span>↘</span><strong>Negative deviation</strong></div><b>{negative.length}</b></header>
-            <div className={styles.cardList}>{negative.map((quote) => <QuoteCard key={quote.id} quote={quote} threshold={threshold} selected={quote.id === selected?.id} onSelect={() => setSelectedId(quote.id)} />)}
+            <div className={styles.cardList}>{negative.map((quote) => <QuoteCard key={quote.id} quote={quote} threshold={threshold} stale={clock - quote.updatedAt > STALE_AFTER_MS} selected={quote.id === selected?.id} onSelect={() => setSelectedId(quote.id)} />)}
               {!negative.length && <p>No negative deviations.</p>}
             </div>
           </div>
