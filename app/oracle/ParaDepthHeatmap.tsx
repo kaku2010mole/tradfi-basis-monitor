@@ -23,6 +23,7 @@ type StoredSnapshot = {
   levels: CompactLevel[];
 };
 type RecorderStatus = "starting" | "recording" | "retrying" | "local-storage-unavailable";
+type AxisMode = "auto" | "oracle";
 
 const SYMBOLS = [
   { api: "para:OTHERS", label: "para:OTHERS" },
@@ -90,7 +91,13 @@ const persistSnapshots = (database: IDBDatabase, snapshots: StoredSnapshot[]) =>
   transaction.onabort = () => reject(transaction.error);
 });
 
-function DepthCanvas({ snapshots, windowMs, symbol }: { snapshots: StoredSnapshot[]; windowMs: number; symbol: string }) {
+function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct }: {
+  snapshots: StoredSnapshot[];
+  windowMs: number;
+  symbol: string;
+  axisMode: AxisMode;
+  oracleRangePct: number;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -128,11 +135,26 @@ function DepthCanvas({ snapshots, windowMs, symbol }: { snapshots: StoredSnapsho
         return;
       }
 
-      let priceMin = Math.min(...prices);
-      let priceMax = Math.max(...prices);
-      const padding = Math.max((priceMax - priceMin) * .06, Math.abs(priceMax) * .0001, .000001);
-      priceMin -= padding;
-      priceMax += padding;
+      let latestOracle: number | null = null;
+      for (let index = snapshots.length - 1; index >= 0; index -= 1) {
+        if (snapshots[index].oracle) {
+          latestOracle = snapshots[index].oracle;
+          break;
+        }
+      }
+      let priceMin: number;
+      let priceMax: number;
+      if (axisMode === "oracle" && latestOracle) {
+        const span = Math.max(latestOracle * oracleRangePct / 100, Math.abs(latestOracle) * .00001, .000001);
+        priceMin = latestOracle - span;
+        priceMax = latestOracle + span;
+      } else {
+        priceMin = Math.min(...prices);
+        priceMax = Math.max(...prices);
+        const padding = Math.max((priceMax - priceMin) * .06, Math.abs(priceMax) * .0001, .000001);
+        priceMin -= padding;
+        priceMax += padding;
+      }
       const x = (time: number) => margin.left + ((time - start) / windowMs) * plotWidth;
       const y = (price: number) => margin.top + ((priceMax - price) / (priceMax - priceMin)) * plotHeight;
 
@@ -169,6 +191,7 @@ function DepthCanvas({ snapshots, windowMs, symbol }: { snapshots: StoredSnapsho
       snapshots.forEach((snapshot) => {
         const aggregated = new Map<string, number>();
         snapshot.levels.forEach(([price, size, side]) => {
+          if (price < priceMin || price > priceMax) return;
           const row = Math.max(0, Math.min(rows - 1, Math.floor(((priceMax - price) / (priceMax - priceMin)) * rows)));
           const key = `${row}:${side}`;
           aggregated.set(key, (aggregated.get(key) ?? 0) + price * size);
@@ -190,17 +213,46 @@ function DepthCanvas({ snapshots, windowMs, symbol }: { snapshots: StoredSnapsho
         context.fillRect(cell.x - cellWidth / 2, margin.top + (cell.row / rows) * plotHeight, cellWidth, cellHeight);
       });
 
-      context.strokeStyle = "#54a6ff";
-      context.lineWidth = 1.6;
-      context.beginPath();
-      let started = false;
-      snapshots.forEach((snapshot) => {
-        if (!snapshot.oracle) return;
-        if (!started) context.moveTo(x(snapshot.t), y(snapshot.oracle));
-        else context.lineTo(x(snapshot.t), y(snapshot.oracle));
-        started = true;
-      });
+      const traceOracle = () => {
+        context.beginPath();
+        let started = false;
+        snapshots.forEach((snapshot) => {
+          if (!snapshot.oracle || snapshot.oracle < priceMin || snapshot.oracle > priceMax) return;
+          if (!started) context.moveTo(x(snapshot.t), y(snapshot.oracle));
+          else context.lineTo(x(snapshot.t), y(snapshot.oracle));
+          started = true;
+        });
+      };
+      context.save();
+      context.lineJoin = "round";
+      context.lineCap = "round";
+      context.shadowColor = "#42bfff";
+      context.shadowBlur = 14;
+      context.strokeStyle = "rgba(66,191,255,.52)";
+      context.lineWidth = 6;
+      traceOracle();
       context.stroke();
+      context.shadowBlur = 0;
+      context.strokeStyle = "#bdeaff";
+      context.lineWidth = 2.6;
+      traceOracle();
+      context.stroke();
+      context.restore();
+
+      if (latestOracle && latestOracle >= priceMin && latestOracle <= priceMax) {
+        const badgeText = `ORACLE ${formatPrice(latestOracle)}`;
+        context.font = "800 10px ui-monospace, SFMono-Regular, monospace";
+        const badgeWidth = context.measureText(badgeText).width + 18;
+        const badgeX = width - margin.right - badgeWidth;
+        const badgeY = Math.max(margin.top + 20, Math.min(height - margin.bottom - 20, y(latestOracle)));
+        context.fillStyle = "rgba(28,137,214,.94)";
+        context.beginPath();
+        context.roundRect(badgeX, badgeY - 10, badgeWidth, 20, 5);
+        context.fill();
+        context.fillStyle = "#f4fbff";
+        context.textAlign = "center";
+        context.fillText(badgeText, badgeX + badgeWidth / 2, badgeY + 3.5);
+      }
 
       context.font = "10px system-ui, sans-serif";
       context.textAlign = "left";
@@ -208,7 +260,8 @@ function DepthCanvas({ snapshots, windowMs, symbol }: { snapshots: StoredSnapsho
       context.fillText("BID LIQUIDITY", margin.left + 8, margin.top + 12);
       context.fillStyle = "#ff6b4c";
       context.fillText("ASK LIQUIDITY", margin.left + 98, margin.top + 12);
-      context.fillStyle = "#54a6ff";
+      context.fillStyle = "#bdeaff";
+      context.font = "800 10px system-ui, sans-serif";
       context.fillText("ORACLE", margin.left + 192, margin.top + 12);
     };
 
@@ -216,7 +269,7 @@ function DepthCanvas({ snapshots, windowMs, symbol }: { snapshots: StoredSnapsho
     const observer = new ResizeObserver(render);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [snapshots, symbol, windowMs]);
+  }, [axisMode, oracleRangePct, snapshots, symbol, windowMs]);
 
   return <canvas ref={canvasRef} className={styles.depthCanvas} aria-label={`${symbol} local orderbook liquidity heatmap`} />;
 }
@@ -227,6 +280,8 @@ export default function ParaDepthHeatmap() {
   const [snapshots, setSnapshots] = useState<StoredSnapshot[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState(SYMBOLS[0].api);
   const [windowMs, setWindowMs] = useState<number>(WINDOWS[1].ms);
+  const [axisMode, setAxisMode] = useState<AxisMode>("auto");
+  const [oracleRangePct, setOracleRangePct] = useState(.5);
   const [status, setStatus] = useState<RecorderStatus>("starting");
   const [lastCapture, setLastCapture] = useState<number | null>(null);
 
@@ -327,8 +382,14 @@ export default function ParaDepthHeatmap() {
         <div className={styles.depthTabs} aria-label="Para contract">
           {SYMBOLS.map((symbol) => <button key={symbol.api} className={selectedSymbol === symbol.api ? styles.activeDepthTab : ""} onClick={() => setSelectedSymbol(symbol.api)}>{symbol.label}</button>)}
         </div>
-        <div className={styles.depthWindows} aria-label="Heatmap time window">
-          {WINDOWS.map((window) => <button key={window.label} className={windowMs === window.ms ? styles.activeDepthWindow : ""} onClick={() => setWindowMs(window.ms)}>{window.label}</button>)}
+        <div className={styles.depthTools}>
+          <div className={styles.depthWindows} aria-label="Heatmap time window">
+            {WINDOWS.map((window) => <button key={window.label} className={windowMs === window.ms ? styles.activeDepthWindow : ""} onClick={() => setWindowMs(window.ms)}>{window.label}</button>)}
+          </div>
+          <div className={styles.depthAxis}>
+            <label>Y axis<select value={axisMode} onChange={(event) => setAxisMode(event.target.value as AxisMode)}><option value="auto">Auto depth</option><option value="oracle">Oracle range</option></select></label>
+            <label className={axisMode === "auto" ? styles.disabledAxis : ""}>Range<div><span>±</span><input aria-label="Vertical axis range around oracle in percent" type="number" min="0.01" max="20" step="0.05" disabled={axisMode === "auto"} value={oracleRangePct} onChange={(event) => setOracleRangePct(Math.max(.01, Math.min(20, Number(event.target.value) || .01)))} /><span>%</span></div></label>
+          </div>
         </div>
       </div>
 
@@ -341,7 +402,7 @@ export default function ParaDepthHeatmap() {
       </div>
 
       <div className={styles.depthCanvasWrap}>
-        <DepthCanvas snapshots={selectedSnapshots} windowMs={windowMs} symbol={SYMBOLS.find((symbol) => symbol.api === selectedSymbol)?.label ?? selectedSymbol} />
+        <DepthCanvas snapshots={selectedSnapshots} windowMs={windowMs} symbol={SYMBOLS.find((symbol) => symbol.api === selectedSymbol)?.label ?? selectedSymbol} axisMode={axisMode} oracleRangePct={oracleRangePct} />
       </div>
       <footer className={styles.depthFooter}>
         <span>Brighter cells represent more resting USD notional at that price level.</span>
