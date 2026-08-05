@@ -6,7 +6,7 @@
 .topbar p:last-child { max-width:820px; margin:14px 0 0; color:var(--muted); font-size:13px; line-height:1.55; }
 .topActions { display:flex; align-items:center; gap:10px; }
 .links { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
-.links span { display:inline-flex; align-items:center; gap:7px; min-height:34px; padding:0 11px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.82); color:var(--muted); font-size:10px; font-weight:750; }
+.links span { display:inline-flex; align-items:center; gap:7px; min-width:158px; min-height:34px; padding:0 11px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.82); color:var(--muted); font-size:10px; font-weight:750; }
 .links i { width:7px; height:7px; border-radius:50%; background:#a9b4c4; }
 .links .online i { background:var(--green); box-shadow:0 0 0 4px rgba(7,154,118,.12); }
 .controlBar { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px; padding:16px 18px; border:1px solid var(--line); background:var(--panel); box-shadow:0 18px 55px rgba(23,46,79,.07); }
@@ -16,7 +16,7 @@
 .controlBar label div span { padding-right:10px; color:var(--muted); }
 .controlBar button,.historyControls button { min-height:40px; padding:0 14px; border:0; border-radius:8px; background:var(--ink); color:#fff; cursor:pointer; font-size:11px; font-weight:800; }
 .controlBar .secondaryButton { border:1px solid #cad5e4; background:#fff; color:var(--ink); }
-.refreshText { margin-left:auto; color:var(--muted); font-size:10px; }
+.refreshText { width:min(460px,100%); min-height:28px; display:flex; align-items:center; margin-left:auto; color:var(--muted); font-size:10px; line-height:1.35; }
 .pairManager { display:grid; grid-template-columns:minmax(240px,.75fr) minmax(420px,1.25fr); gap:22px; margin-top:10px; padding:20px; border:1px solid var(--line); background:linear-gradient(120deg,#f9fbfe,#fff); box-shadow:0 18px 55px rgba(23,46,79,.06); }
 .pairManagerCopy h2 { margin:0 0 7px; font-size:20px; letter-spacing:-.03em; }
 .pairManagerCopy > p:last-child { max-width:440px; margin:0; color:var(--muted); font-size:11px; line-height:1.55; }
@@ -42,7 +42,7 @@
 .side > header div span { font-size:18px; }
 .side > header b { display:grid; place-items:center; min-width:28px; height:28px; border-radius:50%; background:#eef3f9; font-size:11px; }
 .positiveSide > header div { color:var(--green); } .negativeSide > header div { color:var(--red); }
-.cardList { display:grid; gap:8px; padding:10px; }
+.cardList { min-height:230px; max-height:68vh; display:grid; align-content:start; gap:8px; padding:10px; overflow:auto; scrollbar-gutter:stable; }
 .cardList > p { margin:0; padding:28px; color:var(--muted); text-align:center; font-size:11px; }
 .quoteCard { width:100%; min-width:0; padding:16px; border:1px solid #e0e7f0; border-radius:8px; background:#fbfcfe; color:var(--ink); cursor:pointer; text-align:left; transition:border-color .15s,transform .15s,box-shadow .15s; }
 .quoteCard:hover { transform:translateY(-1px); border-color:#b9c8db; }
@@ -82,6 +82,8 @@
 .depthHeader { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; padding:22px 24px 17px; border-bottom:1px solid rgba(155,181,204,.14); }
 .depthHeader h2 { margin:0; font-size:26px; letter-spacing:-.035em; }
 .depthHeader p:last-child { max-width:690px; margin:8px 0 0; color:#8198ad; font-size:11px; line-height:1.55; }
+.depthHeaderActions { display:flex; align-items:stretch; gap:8px; }
+.historyToggle { min-width:134px; padding:0 13px; border:1px solid rgba(84,166,255,.28); border-radius:8px; background:rgba(84,166,255,.09); color:#b9dcff; cursor:pointer; font-size:10px; font-weight:800; }
 .recorderStatus { display:flex; align-items:center; gap:10px; min-width:190px; padding:10px 12px; border:1px solid rgba(155,181,204,.16); border-radius:8px; background:rgba(255,255,255,.035); }
 .recorderStatus i { width:9px; height:9px; flex:0 0 auto; border-radius:50%; background:#efaa4b; box-shadow:0 0 0 5px rgba(239,170,75,.09); }
 .recorderLive i { background:#17dcaf; box-shadow:0 0 0 5px rgba(23,220,175,.1),0 0 18px rgba(23,220,175,.38); }
@@ -106,9 +108,30 @@
 .depthMetrics div:last-child { border-right:0; }
 .depthMetrics span { display:block; color:#6f889e; font-size:8px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
 .depthMetrics strong { display:block; margin-top:7px; overflow:hidden; color:#ecf6ff; font:800 17px var(--font-geist-mono),monospace; text-overflow:ellipsis; }
+.depthLegend { min-height:38px; display:flex; align-items:center; flex-wrap:wrap; gap:14px; padding:7px 18px 0; color:#91a5b8; font-size:9px; text-transform:uppercase; letter-spacing:.06em; }
+.depthLegend span { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+.depthLegend i { width:18px; height:3px; border-radius:999px; }
+.depthLegend .bidLegend { background:#17dcaf; box-shadow:0 0 8px rgba(23,220,175,.45); }
+.depthLegend .askLegend { background:#ff6b4c; box-shadow:0 0 8px rgba(255,107,76,.45); }
+.depthLegend .oracleLegend { height:4px; background:#bdeaff; box-shadow:0 0 10px #42bfff; }
+.depthLegend small { margin-left:auto; color:#617b91; font-size:8px; letter-spacing:0; text-transform:none; }
 .depthCanvasWrap { height:460px; padding:10px 10px 0; background:radial-gradient(circle at 50% 0,rgba(32,91,139,.13),transparent 50%); }
-.depthCanvas { display:block; width:100%; height:100%; }
+.depthCanvas { display:block; width:100%; height:100%; cursor:grab; touch-action:none; user-select:none; }
+.draggingCanvas { cursor:grabbing; }
+.timeNavigator { display:grid; gap:7px; padding:10px 18px 12px; border-top:1px solid rgba(155,181,204,.1); border-bottom:1px solid rgba(155,181,204,.1); background:#0a1824; }
+.timeNavigator > div { display:flex; align-items:center; justify-content:space-between; gap:12px; color:#7890a6; font:9px var(--font-geist-mono),monospace; }
+.timeNavigator button { min-width:62px; min-height:26px; border:1px solid rgba(155,181,204,.16); border-radius:999px; background:#102230; color:#7f95a8; cursor:pointer; font-size:9px; font-weight:800; }
+.timeNavigator .liveTime { border-color:rgba(23,220,175,.35); color:#17dcaf; }
+.timeNavigator input { width:100%; accent-color:#54a6ff; cursor:ew-resize; }
+.historyDataPanel { display:grid; grid-template-columns:minmax(180px,.7fr) minmax(420px,1.3fr); gap:12px 20px; padding:18px 20px; border-bottom:1px solid rgba(155,181,204,.12); background:#0d1c29; }
+.historyDataPanel > div:first-child { display:grid; align-content:start; gap:5px; }
+.historyDataPanel strong { font-size:13px; }
+.historyDataPanel span,.historyDataPanel > small { color:#7890a6; font-size:9px; line-height:1.45; }
+.historyDataPanel > small { grid-column:1/-1; min-height:14px; }
+.historyDataActions { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+.historyDataActions button { min-height:38px; padding:0 10px; border:1px solid rgba(155,181,204,.18); border-radius:6px; background:#132635; color:#c9ddef; cursor:pointer; font-size:9px; font-weight:800; }
+.historyDataActions button:disabled { cursor:wait; opacity:.55; }
 .depthFooter { display:flex; justify-content:space-between; gap:20px; padding:10px 22px 16px; color:#70879a; font-size:9px; }
 .footer { padding:18px 2px 0; color:#7c899b; font-size:9px; text-align:center; }
-@media(max-width:1000px){.topbar{display:grid}.topActions{justify-content:space-between}.stats{grid-template-columns:1fr 1fr}.deviationBoard{grid-template-columns:1fr}.links{justify-content:flex-start}.pairManager{grid-template-columns:1fr}.pairError,.customPairs{grid-column:1}.depthMetrics{grid-template-columns:repeat(3,1fr)}.depthMetrics div:nth-child(3){border-right:0}.depthMetrics div:nth-child(-n+3){border-bottom:1px solid rgba(155,181,204,.1)}}
-@media(max-width:640px){.shell{padding:18px 11px 28px}.topActions{align-items:flex-start;flex-direction:column-reverse}.controlBar{align-items:stretch}.controlBar label,.controlBar label div,.controlBar input,.controlBar button{width:100%}.refreshText{width:100%;margin-left:0}.pairManager{padding:16px}.pairForm{grid-template-columns:1fr}.customPairs>span{width:100%;justify-content:space-between}.stats{grid-template-columns:1fr 1fr}.stats article{min-height:110px;padding:16px}.panelHead{align-items:flex-start;flex-direction:column}.historyControls{width:100%;align-items:stretch;flex-direction:column}.historyControls input,.historyControls button{width:100%}.cardPrices{grid-template-columns:1fr}.cardPrices div,.cardPrices div:first-child{padding:9px 0;border-right:0;border-bottom:1px solid #e4eaf2}.cardPrices div:last-child{border-bottom:0}.executableBar{align-items:flex-start;flex-direction:column}.executableBar small{text-align:left}.quoteCard footer{flex-direction:column}.chartFooter{flex-direction:column;gap:5px}.emptyChart{min-height:300px}.depthHeader{padding:18px;flex-direction:column}.recorderStatus{width:100%}.depthToolbar{align-items:stretch;flex-direction:column}.depthTabs{display:grid;grid-template-columns:1fr}.depthTabs button{width:100%}.depthTools{display:grid;justify-content:stretch}.depthWindows{display:grid;grid-template-columns:repeat(4,1fr)}.depthAxis{display:grid;grid-template-columns:1fr 1fr;padding:12px 0 0;border-left:0;border-top:1px solid rgba(155,181,204,.15)}.depthAxis select,.depthAxis label>div{width:100%}.depthAxis label>div input{width:100%}.depthMetrics{grid-template-columns:1fr 1fr}.depthMetrics div,.depthMetrics div:nth-child(3){border-right:1px solid rgba(155,181,204,.1);border-bottom:1px solid rgba(155,181,204,.1)}.depthMetrics div:nth-child(even){border-right:0}.depthMetrics div:last-child{grid-column:1/-1;border-right:0}.depthCanvasWrap{height:360px;padding:5px 3px 0}.depthFooter{flex-direction:column;gap:5px}}
+@media(max-width:1000px){.topbar{display:grid}.topActions{justify-content:space-between}.stats{grid-template-columns:1fr 1fr}.deviationBoard{grid-template-columns:1fr}.links{justify-content:flex-start}.pairManager{grid-template-columns:1fr}.pairError,.customPairs{grid-column:1}.depthMetrics{grid-template-columns:repeat(3,1fr)}.depthMetrics div:nth-child(3){border-right:0}.depthMetrics div:nth-child(-n+3){border-bottom:1px solid rgba(155,181,204,.1)}.historyDataPanel{grid-template-columns:1fr}.historyDataPanel>small{grid-column:1}}
+@media(max-width:640px){.shell{padding:18px 11px 28px}.topActions{align-items:flex-start;flex-direction:column-reverse}.controlBar{align-items:stretch}.controlBar label,.controlBar label div,.controlBar input,.controlBar button{width:100%}.refreshText{width:100%;margin-left:0}.pairManager{padding:16px}.pairForm{grid-template-columns:1fr}.customPairs>span{width:100%;justify-content:space-between}.stats{grid-template-columns:1fr 1fr}.stats article{min-height:110px;padding:16px}.panelHead{align-items:flex-start;flex-direction:column}.historyControls{width:100%;align-items:stretch;flex-direction:column}.historyControls input,.historyControls button{width:100%}.cardPrices{grid-template-columns:1fr}.cardPrices div,.cardPrices div:first-child{padding:9px 0;border-right:0;border-bottom:1px solid #e4eaf2}.cardPrices div:last-child{border-bottom:0}.executableBar{align-items:flex-start;flex-direction:column}.executableBar small{text-align:left}.quoteCard footer{flex-direction:column}.chartFooter{flex-direction:column;gap:5px}.emptyChart{min-height:300px}.cardList{max-height:62vh}.depthHeader{padding:18px;flex-direction:column}.depthHeaderActions{width:100%;display:grid}.historyToggle,.recorderStatus{width:100%;min-height:42px}.depthToolbar{align-items:stretch;flex-direction:column}.depthTabs{display:grid;grid-template-columns:1fr}.depthTabs button{width:100%}.depthTools{display:grid;justify-content:stretch}.depthWindows{display:grid;grid-template-columns:repeat(3,1fr)}.depthAxis{display:grid;grid-template-columns:1fr 1fr;padding:12px 0 0;border-left:0;border-top:1px solid rgba(155,181,204,.15)}.depthAxis select,.depthAxis label>div{width:100%}.depthAxis label>div input{width:100%}.depthMetrics{grid-template-columns:1fr 1fr}.depthMetrics div,.depthMetrics div:nth-child(3){border-right:1px solid rgba(155,181,204,.1);border-bottom:1px solid rgba(155,181,204,.1)}.depthMetrics div:nth-child(even){border-right:0}.depthMetrics div:last-child{grid-column:1/-1;border-right:0}.depthLegend{gap:9px;padding:9px 12px}.depthLegend small{width:100%;margin-left:0}.depthCanvasWrap{height:360px;padding:5px 3px 0}.timeNavigator>div{align-items:flex-start;flex-direction:column}.historyDataActions{grid-template-columns:1fr}.depthFooter{flex-direction:column;gap:5px}}

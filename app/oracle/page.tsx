@@ -538,8 +538,8 @@ export default function OracleMonitor() {
     const lastHistoryTime = history.at(-1)?.t ?? 0;
     return [...history, ...selectedSession.filter((point) => point.t > lastHistoryTime)];
   }, [history, selected, selectedSession]);
-  const positive = visibleQuotes.filter((quote) => quote.deviation >= 0).sort((a, b) => b.deviation - a.deviation);
-  const negative = visibleQuotes.filter((quote) => quote.deviation < 0).sort((a, b) => a.deviation - b.deviation);
+  const positive = visibleQuotes.filter((quote) => quote.deviation >= 0).sort((a, b) => a.symbol.localeCompare(b.symbol));
+  const negative = visibleQuotes.filter((quote) => quote.deviation < 0).sort((a, b) => a.symbol.localeCompare(b.symbol));
   const triggered = visibleQuotes.filter((quote) => Math.abs(quote.deviation) >= threshold);
   const extreme = visibleQuotes.reduce<OracleQuote | null>((best, quote) => !best || Math.abs(quote.deviation) > Math.abs(best.deviation) ? quote : best, null);
   const binanceCount = visibleQuotes.filter((quote) => quote.venue === "Binance").length;

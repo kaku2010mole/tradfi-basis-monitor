@@ -35,11 +35,14 @@ const WINDOWS = [
   { label: "1h", ms: 60 * 60_000 },
   { label: "4h", ms: 4 * 60 * 60_000 },
   { label: "6h", ms: 6 * 60 * 60_000 },
+  { label: "12h", ms: 12 * 60 * 60_000 },
+  { label: "24h", ms: 24 * 60 * 60_000 },
 ] as const;
 const DB_NAME = "oracle-monitor-para-depth-v1";
 const STORE_NAME = "snapshots";
-const RETENTION_MS = 6 * 60 * 60_000;
+const RETENTION_MS = 24 * 60 * 60_000;
 const CAPTURE_MS = 10_000;
+const MAX_IMPORT_BYTES = 60 * 1024 * 1024;
 
 const formatPrice = (value: number | null | undefined) => value == null || !Number.isFinite(value)
   ? "—"
@@ -57,6 +60,41 @@ const formatTime = (value: number) => new Intl.DateTimeFormat("en-GB", {
   second: "2-digit",
   hour12: false,
 }).format(value);
+const formatDateTime = (value: number) => new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Hong_Kong",
+  month: "short",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+}).format(value);
+
+const normalizeSnapshot = (value: unknown): StoredSnapshot | null => {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Partial<StoredSnapshot>;
+  if (!record.apiSymbol || !SYMBOLS.some((symbol) => symbol.api === record.apiSymbol) || !Number.isFinite(record.t) || !Array.isArray(record.levels)) return null;
+  const levels = record.levels.slice(0, 50).flatMap<CompactLevel>((level) => {
+    if (!Array.isArray(level) || level.length < 3) return [];
+    const price = Number(level[0]);
+    const size = Number(level[1]);
+    const side = Number(level[2]);
+    return Number.isFinite(price) && price > 0 && Number.isFinite(size) && size > 0 && (side === 0 || side === 1)
+      ? [[price, size, side]]
+      : [];
+  });
+  if (!levels.length) return null;
+  const timestamp = Number(record.t);
+  const apiSymbol = record.apiSymbol;
+  return {
+    id: typeof record.id === "string" ? record.id : `${apiSymbol}:${Math.floor(timestamp / CAPTURE_MS)}`,
+    apiSymbol,
+    symbol: apiSymbol === "para:BTCD" ? "para:BTC.D" : apiSymbol,
+    t: timestamp,
+    oracle: Number.isFinite(Number(record.oracle)) && Number(record.oracle) > 0 ? Number(record.oracle) : null,
+    mark: Number.isFinite(Number(record.mark)) && Number(record.mark) > 0 ? Number(record.mark) : null,
+    levels,
+  };
+};
 
 const openDatabase = () => new Promise<IDBDatabase>((resolve, reject) => {
   const request = indexedDB.open(DB_NAME, 1);
@@ -91,14 +129,20 @@ const persistSnapshots = (database: IDBDatabase, snapshots: StoredSnapshot[]) =>
   transaction.onabort = () => reject(transaction.error);
 });
 
-function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct }: {
+function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, viewEnd, minViewEnd, maxViewEnd, onViewEndChange }: {
   snapshots: StoredSnapshot[];
   windowMs: number;
   symbol: string;
   axisMode: AxisMode;
   oracleRangePct: number;
+  viewEnd: number;
+  minViewEnd: number;
+  maxViewEnd: number;
+  onViewEndChange: (value: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dragRef = useRef<{ x: number; end: number; width: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -120,7 +164,7 @@ function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct }: 
       const margin = { left: 68, right: 14, top: 18, bottom: 34 };
       const plotWidth = width - margin.left - margin.right;
       const plotHeight = height - margin.top - margin.bottom;
-      const end = Date.now();
+      const end = viewEnd;
       const start = end - windowMs;
       const prices = snapshots.flatMap((snapshot) => [
         ...snapshot.levels.map((level) => level[0]),
@@ -239,44 +283,47 @@ function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct }: 
       context.stroke();
       context.restore();
 
-      if (latestOracle && latestOracle >= priceMin && latestOracle <= priceMax) {
-        const badgeText = `ORACLE ${formatPrice(latestOracle)}`;
-        context.font = "800 10px ui-monospace, SFMono-Regular, monospace";
-        const badgeWidth = context.measureText(badgeText).width + 18;
-        const badgeX = width - margin.right - badgeWidth;
-        const badgeY = Math.max(margin.top + 20, Math.min(height - margin.bottom - 20, y(latestOracle)));
-        context.fillStyle = "rgba(28,137,214,.94)";
-        context.beginPath();
-        context.roundRect(badgeX, badgeY - 10, badgeWidth, 20, 5);
-        context.fill();
-        context.fillStyle = "#f4fbff";
-        context.textAlign = "center";
-        context.fillText(badgeText, badgeX + badgeWidth / 2, badgeY + 3.5);
-      }
-
-      context.font = "10px system-ui, sans-serif";
-      context.textAlign = "left";
-      context.fillStyle = "#17dcaf";
-      context.fillText("BID LIQUIDITY", margin.left + 8, margin.top + 12);
-      context.fillStyle = "#ff6b4c";
-      context.fillText("ASK LIQUIDITY", margin.left + 98, margin.top + 12);
-      context.fillStyle = "#bdeaff";
-      context.font = "800 10px system-ui, sans-serif";
-      context.fillText("ORACLE", margin.left + 192, margin.top + 12);
     };
 
     render();
     const observer = new ResizeObserver(render);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [axisMode, oracleRangePct, snapshots, symbol, windowMs]);
+  }, [axisMode, oracleRangePct, snapshots, symbol, viewEnd, windowMs]);
 
-  return <canvas ref={canvasRef} className={styles.depthCanvas} aria-label={`${symbol} local orderbook liquidity heatmap`} />;
+  return <canvas
+    ref={canvasRef}
+    className={`${styles.depthCanvas} ${dragging ? styles.draggingCanvas : ""}`}
+    aria-label={`${symbol} local orderbook liquidity heatmap. Drag horizontally to move through time.`}
+    onPointerDown={(event) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      dragRef.current = { x: event.clientX, end: viewEnd, width: rect.width };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setDragging(true);
+    }}
+    onPointerMove={(event) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const delta = ((event.clientX - drag.x) / Math.max(1, drag.width)) * windowMs;
+      onViewEndChange(Math.max(minViewEnd, Math.min(maxViewEnd, drag.end - delta)));
+    }}
+    onPointerUp={(event) => {
+      dragRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      setDragging(false);
+    }}
+    onPointerCancel={() => {
+      dragRef.current = null;
+      setDragging(false);
+    }}
+    onDoubleClick={() => onViewEndChange(maxViewEnd)}
+  />;
 }
 
 export default function ParaDepthHeatmap() {
   const databaseRef = useRef<IDBDatabase | null>(null);
   const requestRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [snapshots, setSnapshots] = useState<StoredSnapshot[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState(SYMBOLS[0].api);
   const [windowMs, setWindowMs] = useState<number>(WINDOWS[1].ms);
@@ -284,6 +331,10 @@ export default function ParaDepthHeatmap() {
   const [oracleRangePct, setOracleRangePct] = useState(.5);
   const [status, setStatus] = useState<RecorderStatus>("starting");
   const [lastCapture, setLastCapture] = useState<number | null>(null);
+  const [viewEnd, setViewEnd] = useState<number | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyMessage, setHistoryMessage] = useState("");
+  const [loadingServerHistory, setLoadingServerHistory] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -350,10 +401,14 @@ export default function ParaDepthHeatmap() {
     };
   }, [capture]);
 
-  const selectedSnapshots = useMemo(() => {
-    const cutoff = (lastCapture ?? snapshots.at(-1)?.t ?? 0) - windowMs;
-    return snapshots.filter((snapshot) => snapshot.apiSymbol === selectedSymbol && snapshot.t >= cutoff);
-  }, [lastCapture, selectedSymbol, snapshots, windowMs]);
+  const symbolSnapshots = useMemo(() => snapshots.filter((snapshot) => snapshot.apiSymbol === selectedSymbol), [selectedSymbol, snapshots]);
+  const latestTime = symbolSnapshots.at(-1)?.t ?? lastCapture ?? 0;
+  const earliestTime = symbolSnapshots[0]?.t ?? latestTime;
+  const minViewEnd = Math.min(latestTime, earliestTime + windowMs);
+  const resolvedViewEnd = viewEnd === null ? latestTime : Math.max(minViewEnd, Math.min(latestTime, viewEnd));
+  const selectedSnapshots = useMemo(() => symbolSnapshots.filter((snapshot) => (
+    snapshot.t >= resolvedViewEnd - windowMs && snapshot.t <= resolvedViewEnd
+  )), [resolvedViewEnd, symbolSnapshots, windowMs]);
   const latest = selectedSnapshots.at(-1);
   const bestBid = latest?.levels.filter((level) => level[2] === 0).reduce<number | null>((best, level) => best === null || level[0] > best ? level[0] : best, null) ?? null;
   const bestAsk = latest?.levels.filter((level) => level[2] === 1).reduce<number | null>((best, level) => best === null || level[0] < best ? level[0] : best, null) ?? null;
@@ -364,27 +419,109 @@ export default function ParaDepthHeatmap() {
       : status === "local-storage-unavailable" ? "Session-only recording"
         : "Starting recorder";
 
+  const updateViewEnd = useCallback((value: number) => {
+    setViewEnd(value >= latestTime - CAPTURE_MS ? null : value);
+  }, [latestTime]);
+
+  const mergeHistory = useCallback((incoming: StoredSnapshot[]) => {
+    setSnapshots((current) => {
+      const byId = new Map(current.map((snapshot) => [snapshot.id, snapshot]));
+      incoming.forEach((snapshot) => byId.set(snapshot.id, snapshot));
+      return [...byId.values()].sort((a, b) => a.t - b.t);
+    });
+  }, []);
+
+  const loadServerHistory = useCallback(async () => {
+    if (!latestTime || loadingServerHistory) return;
+    setLoadingServerHistory(true);
+    setHistoryMessage("");
+    try {
+      const end = viewEnd ?? latestTime;
+      const response = await fetch(`/api/oracle-monitor/orderbook-history?symbol=${encodeURIComponent(selectedSymbol)}&start=${Math.max(0, end - windowMs)}&end=${end}`, { cache: "no-store" });
+      const payload = await response.json() as { snapshots?: unknown[]; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Server archive unavailable.");
+      const imported = (payload.snapshots ?? []).flatMap((snapshot) => {
+        const normalized = normalizeSnapshot(snapshot);
+        return normalized ? [normalized] : [];
+      });
+      mergeHistory(imported);
+      setHistoryMessage(imported.length ? `Loaded ${imported.length.toLocaleString()} Render archive samples.` : "No Render archive samples exist for this window yet.");
+    } catch (error) {
+      setHistoryMessage(error instanceof Error ? error.message : "Server archive unavailable.");
+    } finally {
+      setLoadingServerHistory(false);
+    }
+  }, [latestTime, loadingServerHistory, mergeHistory, selectedSymbol, viewEnd, windowMs]);
+
+  const importHistoryFile = useCallback(async (file: File | null) => {
+    if (!file) return;
+    if (file.size > MAX_IMPORT_BYTES) {
+      setHistoryMessage("File is larger than the 60 MB import limit.");
+      return;
+    }
+    try {
+      const text = await file.text();
+      let raw: unknown[];
+      try {
+        const parsed = JSON.parse(text) as unknown;
+        raw = Array.isArray(parsed) ? parsed : parsed && typeof parsed === "object" && "snapshots" in parsed
+          ? ((parsed as { snapshots?: unknown[] }).snapshots ?? [])
+          : [parsed];
+      } catch {
+        raw = text.split("\n").filter(Boolean).map((line) => JSON.parse(line) as unknown);
+      }
+      const imported = raw.slice(0, 150_000).flatMap((snapshot) => {
+        const normalized = normalizeSnapshot(snapshot);
+        return normalized ? [normalized] : [];
+      });
+      if (!imported.length) throw new Error("No valid Para orderbook snapshots were found in this file.");
+      mergeHistory(imported);
+      setViewEnd(imported.at(-1)?.t ?? null);
+      setHistoryMessage(`Loaded ${imported.length.toLocaleString()} samples from ${file.name}.`);
+    } catch (error) {
+      setHistoryMessage(error instanceof Error ? error.message : "History file could not be read.");
+    }
+  }, [mergeHistory]);
+
+  const exportHistoryFile = useCallback(() => {
+    if (!snapshots.length) {
+      setHistoryMessage("There are no loaded samples to export yet.");
+      return;
+    }
+    const payload = JSON.stringify({ format: "para-depth-v1", exportedAt: new Date().toISOString(), snapshots });
+    const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `para-orderbooks-${new Date().toISOString().replaceAll(":", "-")}.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    setHistoryMessage(`Exported ${snapshots.length.toLocaleString()} loaded samples.`);
+  }, [snapshots]);
+
   return (
     <section className={styles.depthPanel}>
       <div className={styles.depthHeader}>
         <div>
           <p className={styles.eyebrow}>LOCAL PARA ORDERBOOK RECORDER</p>
           <h2>Liquidity heatmap</h2>
-          <p>Top 20 bid and ask levels captured every 10 seconds. Stored only in this browser for 6 hours while this page is open.</p>
+          <p>Top 20 bid and ask levels captured every 10 seconds. The browser keeps a 24-hour local cache; the Render archive records independently.</p>
         </div>
-        <div className={`${styles.recorderStatus} ${status === "recording" ? styles.recorderLive : ""}`}>
-          <i />
-          <span><strong>{statusCopy}</strong><small>{lastCapture ? `${formatTime(lastCapture)} HKT` : "Waiting for first snapshot"}</small></span>
+        <div className={styles.depthHeaderActions}>
+          <button className={styles.historyToggle} onClick={() => setHistoryOpen((open) => !open)}>{historyOpen ? "Close history data" : "Read history data"}</button>
+          <div className={`${styles.recorderStatus} ${status === "recording" ? styles.recorderLive : ""}`}>
+            <i />
+            <span><strong>{statusCopy}</strong><small>{lastCapture ? `${formatTime(lastCapture)} HKT` : "Waiting for first snapshot"}</small></span>
+          </div>
         </div>
       </div>
 
       <div className={styles.depthToolbar}>
         <div className={styles.depthTabs} aria-label="Para contract">
-          {SYMBOLS.map((symbol) => <button key={symbol.api} className={selectedSymbol === symbol.api ? styles.activeDepthTab : ""} onClick={() => setSelectedSymbol(symbol.api)}>{symbol.label}</button>)}
+          {SYMBOLS.map((symbol) => <button key={symbol.api} className={selectedSymbol === symbol.api ? styles.activeDepthTab : ""} onClick={() => { setSelectedSymbol(symbol.api); setViewEnd(null); }}>{symbol.label}</button>)}
         </div>
         <div className={styles.depthTools}>
           <div className={styles.depthWindows} aria-label="Heatmap time window">
-            {WINDOWS.map((window) => <button key={window.label} className={windowMs === window.ms ? styles.activeDepthWindow : ""} onClick={() => setWindowMs(window.ms)}>{window.label}</button>)}
+            {WINDOWS.map((window) => <button key={window.label} className={windowMs === window.ms ? styles.activeDepthWindow : ""} onClick={() => { setWindowMs(window.ms); setViewEnd(null); }}>{window.label}</button>)}
           </div>
           <div className={styles.depthAxis}>
             <label>Y axis<select value={axisMode} onChange={(event) => setAxisMode(event.target.value as AxisMode)}><option value="auto">Auto depth</option><option value="oracle">Oracle range</option></select></label>
@@ -401,12 +538,33 @@ export default function ParaDepthHeatmap() {
         <div><span>Local samples</span><strong>{selectedSnapshots.length.toLocaleString()}</strong></div>
       </div>
 
-      <div className={styles.depthCanvasWrap}>
-        <DepthCanvas snapshots={selectedSnapshots} windowMs={windowMs} symbol={SYMBOLS.find((symbol) => symbol.api === selectedSymbol)?.label ?? selectedSymbol} axisMode={axisMode} oracleRangePct={oracleRangePct} />
+      <div className={styles.depthLegend} aria-label="Heatmap legend">
+        <span><i className={styles.bidLegend} />Bid liquidity</span>
+        <span><i className={styles.askLegend} />Ask liquidity</span>
+        <span><i className={styles.oracleLegend} />Oracle price</span>
+        <small>Drag the chart horizontally to move through time · double-click to return live</small>
       </div>
+      <div className={styles.depthCanvasWrap}>
+        <DepthCanvas snapshots={selectedSnapshots} windowMs={windowMs} symbol={SYMBOLS.find((symbol) => symbol.api === selectedSymbol)?.label ?? selectedSymbol} axisMode={axisMode} oracleRangePct={oracleRangePct} viewEnd={resolvedViewEnd} minViewEnd={minViewEnd} maxViewEnd={latestTime} onViewEndChange={updateViewEnd} />
+      </div>
+      <div className={styles.timeNavigator}>
+        <div><span>{resolvedViewEnd ? `${formatDateTime(resolvedViewEnd - windowMs)} — ${formatDateTime(resolvedViewEnd)} HKT` : "Waiting for history"}</span><button className={viewEnd === null ? styles.liveTime : ""} onClick={() => setViewEnd(null)}>● Live</button></div>
+        <input aria-label="Heatmap history position" type="range" min={minViewEnd} max={Math.max(minViewEnd, latestTime)} step={CAPTURE_MS} value={resolvedViewEnd} disabled={!latestTime || latestTime <= minViewEnd} onChange={(event) => updateViewEnd(Number(event.target.value))} />
+      </div>
+
+      {historyOpen && <div className={styles.historyDataPanel}>
+        <div><strong>History data</strong><span>Load the Render recorder or open a local JSON / NDJSON archive. Imported files stay on this device.</span></div>
+        <div className={styles.historyDataActions}>
+          <button disabled={loadingServerHistory} onClick={() => void loadServerHistory()}>{loadingServerHistory ? "Loading Render…" : "Load Render history"}</button>
+          <button onClick={() => fileInputRef.current?.click()}>Open local file</button>
+          <button onClick={exportHistoryFile}>Export loaded history</button>
+          <input ref={fileInputRef} type="file" hidden accept=".json,.ndjson,application/json" onChange={(event) => { void importHistoryFile(event.target.files?.[0] ?? null); event.target.value = ""; }} />
+        </div>
+        <small>{historyMessage || "Render history is available from the Render deployment. Local files are parsed in this browser and are not uploaded to a server."}</small>
+      </div>}
       <footer className={styles.depthFooter}>
         <span>Brighter cells represent more resting USD notional at that price level.</span>
-        <span>Data stays on this device and is not uploaded.</span>
+        <span>{selectedSnapshots.length.toLocaleString()} samples in this view · {viewEnd === null ? "live" : "historical"}</span>
       </footer>
     </section>
   );
