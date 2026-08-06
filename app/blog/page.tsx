@@ -57,6 +57,7 @@ const FALLBACK_RELATIONSHIPS = [
   { id: "soxl-tza", title: "SOXL ↔ TZA" },
 ] as const;
 const INITIAL_NOW = Date.now();
+const DIRECT_BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
 
 const toHktInput = (timestamp: number) => new Date(timestamp + 8 * 60 * 60_000).toISOString().slice(0, 16);
 const fromHktInput = (value: string) => Date.parse(`${value}:00+08:00`);
@@ -70,6 +71,87 @@ const formatTime = (value: number, includeDate = false) => new Intl.DateTimeForm
   minute: "2-digit",
   hour12: false,
 }).format(value);
+
+const directInterval = (duration: number) => duration <= 24 * 60 * 60_000 ? "1m"
+  : duration <= 4 * 24 * 60 * 60_000 ? "5m"
+    : duration <= 14 * 24 * 60 * 60_000 ? "15m"
+      : duration <= 45 * 24 * 60 * 60_000 ? "1h"
+        : "4h";
+const average = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+const standardDeviation = (values: number[], center = average(values)) => values.length < 2 ? 0 : Math.sqrt(values.reduce((sum, value) => sum + (value - center) ** 2, 0) / (values.length - 1));
+
+async function directBinance<T>(path: string) {
+  let lastError: unknown;
+  for (const host of DIRECT_BINANCE_HOSTS) {
+    try {
+      const response = await fetch(`${host}${path}`, { cache: "no-store", signal: AbortSignal.timeout(8_000) });
+      if (!response.ok) throw new Error(`Binance HTTP ${response.status}`);
+      return await response.json() as T;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Direct Binance history unavailable.");
+}
+
+async function directSeries(leg: Leg, start: number, end: number, interval: string) {
+  if (leg.venue === "binance") {
+    const params = new URLSearchParams({ symbol: leg.symbol, interval, startTime: String(start), endTime: String(end), limit: "1500" });
+    const rows = await directBinance<Array<[number, string, string, string, string]>>(`/fapi/v1/klines?${params}`);
+    return rows.flatMap((row) => Number(row[4]) > 0 ? [{ t: row[0], value: Number(row[4]) }] : []);
+  }
+  const response = await fetch("https://api.hyperliquid.xyz/info", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "candleSnapshot", req: { coin: leg.symbol, interval, startTime: start, endTime: end } }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(9_000),
+  });
+  if (!response.ok) throw new Error(`Hyperliquid HTTP ${response.status}`);
+  const rows = await response.json() as Array<{ t?: number; c?: string }>;
+  return rows.flatMap((row) => Number(row.c) > 0 ? [{ t: Number(row.t), value: Number(row.c) }] : []);
+}
+
+async function analyzeInBrowser(relationship: Relationship, relationships: Relationship[], start: number, end: number): Promise<Analysis> {
+  const interval = directInterval(end - start);
+  const [aRows, bRows, exchangeInfo] = await Promise.all([
+    directSeries(relationship.a, start, end, interval),
+    directSeries(relationship.b, start, end, interval),
+    directBinance<{ symbols?: Array<{ symbol?: string; status?: string; underlyingType?: string; underlyingSubType?: string[] }> }>("/fapi/v1/exchangeInfo"),
+  ]);
+  const bByTime = new Map(bRows.map((row) => [row.t, row.value]));
+  const aligned = aRows.flatMap((row) => bByTime.has(row.t) ? [{ t: row.t, a: row.value, b: bByTime.get(row.t)! }] : []);
+  if (aligned.length < 12) throw new Error("Not enough overlapping candles for this window.");
+  const returnsA = aligned.slice(1).map((row, index) => Math.log(row.a / aligned[index].a));
+  const returnsB = aligned.slice(1).map((row, index) => Math.log(row.b / aligned[index].b));
+  const meanA = average(returnsA);
+  const meanB = average(returnsB);
+  const covariance = returnsA.reduce((sum, value, index) => sum + (value - meanA) * (returnsB[index] - meanB), 0) / Math.max(1, returnsA.length - 1);
+  const varianceB = returnsB.reduce((sum, value) => sum + (value - meanB) ** 2, 0) / Math.max(1, returnsB.length - 1);
+  const fittedBeta = varianceB > 0 ? covariance / varianceB : 0;
+  const stdA = standardDeviation(returnsA, meanA);
+  const stdB = standardDeviation(returnsB, meanB);
+  const correlation = stdA && stdB ? covariance / (stdA * stdB) : 0;
+  const modelBeta = relationship.expectedBeta ?? fittedBeta;
+  const first = aligned[0];
+  const residuals = aligned.map((row) => Math.log(row.a / first.a) - modelBeta * Math.log(row.b / first.b));
+  const baseline = residuals.slice(0, Math.max(10, Math.min(residuals.length - 1, Math.floor(residuals.length * .8))));
+  const residualMean = average(baseline);
+  const residualStd = standardDeviation(baseline, residualMean);
+  const points = aligned.map((row, index) => ({ t: row.t, a: row.a, b: row.b, returnA: (row.a / first.a - 1) * 100, returnB: (row.b / first.b - 1) * 100, residual: residuals[index] * 100, z: residualStd ? (residuals[index] - residualMean) / residualStd : 0 }));
+  const latest = points.at(-1)!;
+  const tradFi = (exchangeInfo.symbols ?? []).filter((item) => item.status === "TRADING" && item.underlyingSubType?.some((tag) => tag.toLowerCase() === "tradfi"));
+  const symbols = tradFi.flatMap((item) => item.symbol ? [item.symbol] : []).sort();
+  const active = new Set(symbols);
+  const typeCounts = tradFi.reduce<Record<string, number>>((counts, item) => { const type = item.underlyingType || "OTHER"; counts[type] = (counts[type] ?? 0) + 1; return counts; }, {});
+  const zMagnitude = Math.abs(latest.z);
+  return {
+    generatedAt: Date.now(), interval, relationship, relationships,
+    universe: { count: symbols.length, symbols, typeCounts, candidates: relationships.map((item) => ({ id: item.id, available: [item.a, item.b].every((leg) => leg.venue === "hyperliquid" || active.has(leg.symbol)) })) },
+    points,
+    stats: { correlation, fittedBeta, modelBeta, returnA: latest.returnA, returnB: latest.returnB, relativeGap: latest.residual, zScore: latest.z, status: zMagnitude >= 2 ? "dislocation" : zMagnitude >= 1.5 ? "watch" : "normal", samples: points.length },
+  };
+}
 
 function linePath(values: number[], width: number, height: number, padding: { left: number; right: number; top: number; bottom: number }, min: number, max: number) {
   const plotWidth = width - padding.left - padding.right;
@@ -139,6 +221,7 @@ function ResidualChart({ points }: { points: Point[] }) {
 
 export default function RelativeValueBlog() {
   const requestRef = useRef<AbortController | null>(null);
+  const relationshipsRef = useRef<Relationship[] | null>(null);
   const [relationshipId, setRelationshipId] = useState("qqq-ustech");
   const [startInput, setStartInput] = useState(() => toHktInput(INITIAL_NOW - 24 * 60 * 60_000));
   const [endInput, setEndInput] = useState(() => toHktInput(INITIAL_NOW));
@@ -164,9 +247,17 @@ export default function RelativeValueBlog() {
     try {
       const params = new URLSearchParams({ relationship, start: String(start), end: String(end) });
       const response = await fetch(`/api/blog/analysis?${params}`, { cache: "no-store", signal: controller.signal });
-      const payload = await response.json() as Analysis & { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Relative-value data is unavailable.");
-      setAnalysis(payload);
+      const payload = await response.json() as Partial<Analysis> & { error?: string };
+      if (response.ok) {
+        relationshipsRef.current = payload.relationships ?? null;
+        setAnalysis(payload as Analysis);
+      } else {
+        const relationships = payload.relationships?.length ? payload.relationships : relationshipsRef.current;
+        const target = relationships?.find((item) => item.id === relationship);
+        if (!relationships || !target) throw new Error(payload.error || "Relative-value data is unavailable.");
+        relationshipsRef.current = relationships;
+        setAnalysis(await analyzeInBrowser(target, relationships, start, end));
+      }
     } catch (requestError) {
       if ((requestError as Error).name !== "AbortError") setError(requestError instanceof Error ? requestError.message : "Relative-value data is unavailable.");
     } finally {
