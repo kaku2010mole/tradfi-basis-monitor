@@ -129,19 +129,21 @@ const persistSnapshots = (database: IDBDatabase, snapshots: StoredSnapshot[]) =>
   transaction.onabort = () => reject(transaction.error);
 });
 
-function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, viewEnd, minViewEnd, maxViewEnd, onViewEndChange }: {
+function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, verticalPan, viewEnd, minViewEnd, maxViewEnd, onViewEndChange, onVerticalPanChange }: {
   snapshots: StoredSnapshot[];
   windowMs: number;
   symbol: string;
   axisMode: AxisMode;
   oracleRangePct: number;
+  verticalPan: number;
   viewEnd: number;
   minViewEnd: number;
   maxViewEnd: number;
   onViewEndChange: (value: number) => void;
+  onVerticalPanChange: (value: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const dragRef = useRef<{ x: number; end: number; width: number } | null>(null);
+  const dragRef = useRef<{ x: number; y: number; end: number; verticalPan: number; width: number; height: number } | null>(null);
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
@@ -190,14 +192,19 @@ function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, vi
       let priceMax: number;
       if (axisMode === "oracle" && latestOracle) {
         const span = Math.max(latestOracle * oracleRangePct / 100, Math.abs(latestOracle) * .00001, .000001);
-        priceMin = latestOracle - span;
-        priceMax = latestOracle + span;
+        const center = latestOracle + span * verticalPan;
+        priceMin = center - span;
+        priceMax = center + span;
       } else {
         priceMin = Math.min(...prices);
         priceMax = Math.max(...prices);
         const padding = Math.max((priceMax - priceMin) * .06, Math.abs(priceMax) * .0001, .000001);
         priceMin -= padding;
         priceMax += padding;
+        const span = (priceMax - priceMin) / 2;
+        const center = (priceMax + priceMin) / 2 + span * verticalPan;
+        priceMin = center - span;
+        priceMax = center + span;
       }
       const x = (time: number) => margin.left + ((time - start) / windowMs) * plotWidth;
       const y = (price: number) => margin.top + ((priceMax - price) / (priceMax - priceMin)) * plotHeight;
@@ -289,23 +296,25 @@ function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, vi
     const observer = new ResizeObserver(render);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [axisMode, oracleRangePct, snapshots, symbol, viewEnd, windowMs]);
+  }, [axisMode, oracleRangePct, snapshots, symbol, verticalPan, viewEnd, windowMs]);
 
   return <canvas
     ref={canvasRef}
     className={`${styles.depthCanvas} ${dragging ? styles.draggingCanvas : ""}`}
-    aria-label={`${symbol} local orderbook liquidity heatmap. Drag horizontally to move through time.`}
+    aria-label={`${symbol} local orderbook liquidity heatmap. Drag horizontally through time and vertically through price.`}
     onPointerDown={(event) => {
       const rect = event.currentTarget.getBoundingClientRect();
-      dragRef.current = { x: event.clientX, end: viewEnd, width: rect.width };
+      dragRef.current = { x: event.clientX, y: event.clientY, end: viewEnd, verticalPan, width: rect.width, height: rect.height };
       event.currentTarget.setPointerCapture(event.pointerId);
       setDragging(true);
     }}
     onPointerMove={(event) => {
       const drag = dragRef.current;
       if (!drag) return;
-      const delta = ((event.clientX - drag.x) / Math.max(1, drag.width)) * windowMs;
-      onViewEndChange(Math.max(minViewEnd, Math.min(maxViewEnd, drag.end - delta)));
+      const timeDelta = ((event.clientX - drag.x) / Math.max(1, drag.width)) * windowMs;
+      const priceDelta = ((event.clientY - drag.y) / Math.max(1, drag.height)) * 2;
+      onViewEndChange(Math.max(minViewEnd, Math.min(maxViewEnd, drag.end - timeDelta)));
+      onVerticalPanChange(Math.max(-8, Math.min(8, drag.verticalPan + priceDelta)));
     }}
     onPointerUp={(event) => {
       dragRef.current = null;
@@ -316,7 +325,7 @@ function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, vi
       dragRef.current = null;
       setDragging(false);
     }}
-    onDoubleClick={() => onViewEndChange(maxViewEnd)}
+    onDoubleClick={() => { onViewEndChange(maxViewEnd); onVerticalPanChange(0); }}
   />;
 }
 
@@ -329,6 +338,7 @@ export default function ParaDepthHeatmap() {
   const [windowMs, setWindowMs] = useState<number>(WINDOWS[1].ms);
   const [axisMode, setAxisMode] = useState<AxisMode>("auto");
   const [oracleRangePct, setOracleRangePct] = useState(.5);
+  const [verticalPan, setVerticalPan] = useState(0);
   const [status, setStatus] = useState<RecorderStatus>("starting");
   const [lastCapture, setLastCapture] = useState<number | null>(null);
   const [viewEnd, setViewEnd] = useState<number | null>(null);
@@ -517,7 +527,7 @@ export default function ParaDepthHeatmap() {
 
       <div className={styles.depthToolbar}>
         <div className={styles.depthTabs} aria-label="Para contract">
-          {SYMBOLS.map((symbol) => <button key={symbol.api} className={selectedSymbol === symbol.api ? styles.activeDepthTab : ""} onClick={() => { setSelectedSymbol(symbol.api); setViewEnd(null); }}>{symbol.label}</button>)}
+          {SYMBOLS.map((symbol) => <button key={symbol.api} className={selectedSymbol === symbol.api ? styles.activeDepthTab : ""} onClick={() => { setSelectedSymbol(symbol.api); setViewEnd(null); setVerticalPan(0); }}>{symbol.label}</button>)}
         </div>
         <div className={styles.depthTools}>
           <div className={styles.depthWindows} aria-label="Heatmap time window">
@@ -526,6 +536,7 @@ export default function ParaDepthHeatmap() {
           <div className={styles.depthAxis}>
             <label>Y axis<select value={axisMode} onChange={(event) => setAxisMode(event.target.value as AxisMode)}><option value="auto">Auto depth</option><option value="oracle">Oracle range</option></select></label>
             <label className={axisMode === "auto" ? styles.disabledAxis : ""}>Range<div><span>±</span><input aria-label="Vertical axis range around oracle in percent" type="number" min="0.01" max="20" step="0.05" disabled={axisMode === "auto"} value={oracleRangePct} onChange={(event) => setOracleRangePct(Math.max(.01, Math.min(20, Number(event.target.value) || .01)))} /><span>%</span></div></label>
+            <button className={styles.resetAxis} disabled={verticalPan === 0} onClick={() => setVerticalPan(0)}>Reset Y</button>
           </div>
         </div>
       </div>
@@ -542,10 +553,10 @@ export default function ParaDepthHeatmap() {
         <span><i className={styles.bidLegend} />Bid liquidity</span>
         <span><i className={styles.askLegend} />Ask liquidity</span>
         <span><i className={styles.oracleLegend} />Oracle price</span>
-        <small>Drag the chart horizontally to move through time · double-click to return live</small>
+        <small>Drag left/right through time · drag up/down through price · double-click to reset</small>
       </div>
       <div className={styles.depthCanvasWrap}>
-        <DepthCanvas snapshots={selectedSnapshots} windowMs={windowMs} symbol={SYMBOLS.find((symbol) => symbol.api === selectedSymbol)?.label ?? selectedSymbol} axisMode={axisMode} oracleRangePct={oracleRangePct} viewEnd={resolvedViewEnd} minViewEnd={minViewEnd} maxViewEnd={latestTime} onViewEndChange={updateViewEnd} />
+        <DepthCanvas snapshots={selectedSnapshots} windowMs={windowMs} symbol={SYMBOLS.find((symbol) => symbol.api === selectedSymbol)?.label ?? selectedSymbol} axisMode={axisMode} oracleRangePct={oracleRangePct} verticalPan={verticalPan} viewEnd={resolvedViewEnd} minViewEnd={minViewEnd} maxViewEnd={latestTime} onViewEndChange={updateViewEnd} onVerticalPanChange={setVerticalPan} />
       </div>
       <div className={styles.timeNavigator}>
         <div><span>{resolvedViewEnd ? `${formatDateTime(resolvedViewEnd - windowMs)} — ${formatDateTime(resolvedViewEnd)} HKT` : "Waiting for history"}</span><button className={viewEnd === null ? styles.liveTime : ""} onClick={() => setViewEnd(null)}>● Live</button></div>
