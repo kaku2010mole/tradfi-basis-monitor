@@ -17,6 +17,7 @@ export type Relationship = {
 
 export type PricePoint = { t: number; value: number };
 export type TrainedModel = {
+  method: "reference" | "regression";
   alphaHourly: number;
   beta: number;
   referenceBeta: number | null;
@@ -66,7 +67,7 @@ export const RELATIONSHIPS: Relationship[] = [
     asset1: { venue: "binance", symbol: "SPYUSDT", label: "Binance SPY" }, asset2: { venue: "hyperliquid", symbol: "mkts:US500", label: "Hyperliquid US500" },
     referenceBeta: 1, leveraged: false,
     thesis: "Use SPY as the liquid US large-cap input and estimate the Hyperliquid US500 return.",
-    caveat: "The contracts can use different reference and funding mechanics, so the learned coefficient is tested rather than assumed to equal one.",
+    caveat: "The contracts can use different reference and funding mechanics, so the locked one-for-one formula is validated against history before use.",
   },
   {
     id: "spy-qqq", title: "SPY → QQQ", short: "US large caps to Nasdaq growth", kind: "cross-index",
@@ -80,7 +81,7 @@ export const RELATIONSHIPS: Relationship[] = [
     asset1: { venue: "binance", symbol: "TBTUSDT", label: "Binance TBT" }, asset2: { venue: "binance", symbol: "TMFUSDT", label: "Binance TMF" },
     referenceBeta: -1.5, leveraged: true,
     thesis: "TBT targets −2× while TMF targets +3× daily long-duration Treasury performance; TMF should move about −1.5 times TBT before frictions.",
-    caveat: "Both reset daily. The learned hourly relationship is used only for observation windows up to three days.",
+    caveat: "Both reset daily. The structural −1.5 ratio is used only for observation windows up to three days and is separately validated against history.",
   },
   {
     id: "qqq-uvxy", title: "QQQ → UVXY", short: "Growth risk to short-volatility futures", kind: "risk-regime",
@@ -114,7 +115,7 @@ export const RELATIONSHIPS: Relationship[] = [
     id: "qqq-tqqq", title: "QQQ → TQQQ", short: "Nasdaq-100 +1× to +3×", kind: "leveraged-long",
     asset1: { venue: "binance", symbol: "QQQUSDT", label: "Binance QQQ" }, asset2: { venue: "binance", symbol: "TQQQUSDT", label: "Binance TQQQ" },
     referenceBeta: 3, leveraged: true,
-    thesis: "Predict TQQQ from QQQ and compare the learned coefficient with the +3 daily reference.",
+    thesis: "Apply TQQQ's explicit +3 daily objective directly to QQQ's move.",
     caveat: "The +3 objective resets daily; cumulative returns beyond three days are intentionally excluded.",
   },
   {
@@ -153,13 +154,6 @@ export const RELATIONSHIPS: Relationship[] = [
     caveat: "Daily compounding and separate perpetual liquidity make +2 a reference rather than a guaranteed fillable relationship.",
   },
   {
-    id: "mu-muu", title: "MU → MUU", short: "Single stock to +2× daily ETF", kind: "leveraged-long",
-    asset1: { venue: "binance", symbol: "MUUSDT", label: "Binance MU" }, asset2: { venue: "binance", symbol: "MUUUSDT", label: "Binance MUU" },
-    referenceBeta: 2, leveraged: true,
-    thesis: "MUU targets twice Micron's daily performance, so MU supplies the explanatory return.",
-    caveat: "The +2 target resets daily and may be distorted by perpetual funding or thin off-hours trading.",
-  },
-  {
     id: "hk0700-tencent", title: "HK0700 → TENCENT", short: "Same company, two Binance references", kind: "same-company",
     asset1: { venue: "binance", symbol: "HK0700USDT", label: "Binance HK0700" }, asset2: { venue: "binance", symbol: "TENCENTUSDT", label: "Binance TENCENT" },
     referenceBeta: 1, leveraged: false,
@@ -167,32 +161,11 @@ export const RELATIONSHIPS: Relationship[] = [
     caveat: "Contract denomination, oracle methodology and market availability can differ even for the same company.",
   },
   {
-    id: "skhynix-skhy", title: "SKHYNIX → SKHY", short: "Korean listing to US ADR proxy", kind: "same-company",
-    asset1: { venue: "binance", symbol: "SKHYNIXUSDT", label: "Binance SKHYNIX" }, asset2: { venue: "binance", symbol: "SKHYUSDT", label: "Binance SKHY ADR" },
-    referenceBeta: 1, leveraged: false,
-    thesis: "Estimate the US ADR-style contract from the Korean SK Hynix reference.",
-    caveat: "FX, market-hour gaps and ADR conversion effects mean a one-for-one return must be validated empirically.",
-  },
-  {
     id: "smh-soxl", title: "SMH → SOXL", short: "Semiconductor basket to +3× sector ETF", kind: "sector-proxy",
     asset1: { venue: "binance", symbol: "SMHUSDT", label: "Binance SMH" }, asset2: { venue: "binance", symbol: "SOXLUSDT", label: "Binance SOXL" },
     referenceBeta: null, leveraged: true,
     thesis: "Both represent US-listed semiconductor companies; the model learns the mapping despite different indexes.",
     caveat: "SMH and SOXL do not track the same semiconductor index, so the coefficient is empirical rather than a formal +3 ratio.",
-  },
-  {
-    id: "cl-bz", title: "WTI CL → Brent BZ", short: "Two global crude-oil benchmarks", kind: "commodity-proxy",
-    asset1: { venue: "binance", symbol: "CLUSDT", label: "Binance WTI CL" }, asset2: { venue: "binance", symbol: "BZUSDT", label: "Binance Brent BZ" },
-    referenceBeta: null, leveraged: false,
-    thesis: "Use WTI crude returns to estimate the related Brent benchmark move.",
-    caveat: "Regional supply, transport constraints and futures curves can legitimately move the WTI-Brent spread.",
-  },
-  {
-    id: "xau-xag", title: "Gold XAU → Silver XAG", short: "Precious-metals macro relationship", kind: "commodity-proxy",
-    asset1: { venue: "binance", symbol: "XAUUSDT", label: "Binance Gold XAU" }, asset2: { venue: "binance", symbol: "XAGUSDT", label: "Binance Silver XAG" },
-    referenceBeta: null, leveraged: false,
-    thesis: "Estimate silver's typically higher-beta response to gold's macro move.",
-    caveat: "Silver has substantial industrial demand, so the relationship can weaken during growth or supply shocks.",
   },
 ];
 
@@ -242,18 +215,22 @@ export function trainRelationshipModel(asset1Rows: PricePoint[], asset2Rows: Pri
   const trainY = y.slice(0, split);
   const validationX = x.slice(split);
   const validationY = y.slice(split);
-  const fitted = regression(trainX, trainY);
+  const trainFit = regression(trainX, trainY);
   const validationFit = regression(validationX, validationY);
-  const trainMetrics = modelMetrics(trainX, trainY, fitted.alpha, fitted.beta);
-  const validationMetrics = modelMetrics(validationX, validationY, fitted.alpha, fitted.beta);
-  const betaDrift = Math.abs(validationFit.beta - fitted.beta) / Math.max(Math.abs(fitted.beta), .1);
+  const method = relationship.referenceBeta === null ? "regression" as const : "reference" as const;
+  const alphaHourly = method === "reference" ? 0 : trainFit.alpha;
+  const beta = method === "reference" ? relationship.referenceBeta : trainFit.beta;
+  const trainMetrics = modelMetrics(trainX, trainY, alphaHourly, beta);
+  const validationMetrics = modelMetrics(validationX, validationY, alphaHourly, beta);
+  const betaDrift = Math.abs(validationFit.beta - beta) / Math.max(Math.abs(beta), .1);
   const absoluteCorrelation = Math.abs(validationFit.correlation);
   const quality = absoluteCorrelation >= .75 && validationMetrics.r2 >= .45 && betaDrift <= .6 ? "validated"
     : absoluteCorrelation >= .5 && validationMetrics.r2 >= .18 && betaDrift <= 1.2 ? "usable"
       : "weak";
   return {
-    alphaHourly: fitted.alpha,
-    beta: fitted.beta,
+    method,
+    alphaHourly,
+    beta,
     referenceBeta: relationship.referenceBeta,
     trainedAt: Date.now(),
     trainingStart,
@@ -261,7 +238,7 @@ export function trainRelationshipModel(asset1Rows: PricePoint[], asset2Rows: Pri
     validationStart: aligned[split]?.t ?? trainingEnd,
     trainSamples: trainX.length,
     validationSamples: validationX.length,
-    trainCorrelation: fitted.correlation,
+    trainCorrelation: trainFit.correlation,
     validationCorrelation: validationFit.correlation,
     trainR2: trainMetrics.r2,
     validationR2: validationMetrics.r2,

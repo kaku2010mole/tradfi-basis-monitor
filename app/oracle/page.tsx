@@ -1,8 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import BroadcastAlert from "../components/BroadcastAlert";
 import PageSwitcher from "../components/PageSwitcher";
+import {
+  DEFAULT_ORACLE_BINANCE,
+  DEFAULT_ORACLE_PARA,
+  ORACLE_CUSTOM_PAIRS_KEY,
+  ORACLE_PAIRS_CHANGED_EVENT,
+  ORACLE_THRESHOLD_CHANGED_EVENT,
+  ORACLE_THRESHOLD_KEY,
+} from "../lib/oracleAlerts";
 import ParaDepthHeatmap from "./ParaDepthHeatmap";
 import styles from "./page.module.css";
 
@@ -33,7 +40,6 @@ type OraclePoint = { t: number; live: number; oracle: number; deviation: number 
 type SourceState = { binance: boolean; hyperliquid: boolean };
 type StreamStatus = "connecting" | "live" | "reconnecting";
 type BinanceStreamState = { book: StreamStatus; oracle: StreamStatus };
-type BroadcastState = { title: string; message: string; tone: "positive" | "negative" };
 type CustomPair = { venue: "Binance" | "Hyperliquid"; apiSymbol: string };
 type BinanceStreamEnvelope = {
   data?: {
@@ -55,9 +61,9 @@ type BinancePremiumSnapshot = { symbol?: string; indexPrice?: string; markPrice?
 const REFRESH_MS = 5000;
 const STALE_AFTER_MS = 8_000;
 const HIDE_AFTER_MS = 20_000;
-const CUSTOM_PAIRS_KEY = "oracle-monitor-custom-pairs-v1";
-const DEFAULT_BINANCE = ["HK1810USDT", "HK0700USDT", "TENCENTUSDT"];
-const DEFAULT_PARA = ["para:OTHERS", "para:TOTAL2", "para:BTCD"];
+const CUSTOM_PAIRS_KEY = ORACLE_CUSTOM_PAIRS_KEY;
+const DEFAULT_BINANCE = DEFAULT_ORACLE_BINANCE;
+const DEFAULT_PARA = DEFAULT_ORACLE_PARA;
 
 const hktDateValue = (offsetDays = 0) => {
   const date = new Date(Date.now() + 8 * 3600_000 + offsetDays * 24 * 3600_000);
@@ -256,7 +262,6 @@ export default function OracleMonitor() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState("");
   const [lastRefresh, setLastRefresh] = useState<number | null>(null);
-  const [broadcast, setBroadcast] = useState<BroadcastState | null>(null);
   const [customPairs, setCustomPairs] = useState<CustomPair[]>([]);
   const [pairsReady, setPairsReady] = useState(false);
   const [pairManagerOpen, setPairManagerOpen] = useState(false);
@@ -266,19 +271,18 @@ export default function OracleMonitor() {
   const [clock, setClock] = useState(0);
   const [binanceStreams, setBinanceStreams] = useState<BinanceStreamState>({ book: "connecting", oracle: "connecting" });
   const [binanceBrowserRest, setBinanceBrowserRest] = useState(false);
-  const triggerDirections = useRef<Record<string, -1 | 0 | 1>>({});
   const requestInFlight = useRef(false);
   const streamCache = useRef<Record<string, Partial<OracleQuote>>>({});
   const quotesRef = useRef<OracleQuote[]>([]);
-  const thresholdRef = useRef(threshold);
-  const dismissBroadcast = useCallback(() => setBroadcast(null), []);
 
   useEffect(() => {
     let saved: CustomPair[] = [];
+    const savedThreshold = Number(window.localStorage.getItem(ORACLE_THRESHOLD_KEY));
     try {
       saved = JSON.parse(window.localStorage.getItem(CUSTOM_PAIRS_KEY) || "[]") as CustomPair[];
     } catch { /* Device has no usable saved pairs. */ }
     const frame = window.requestAnimationFrame(() => {
+      if (Number.isFinite(savedThreshold) && savedThreshold >= .001) setThreshold(Math.min(savedThreshold, 10));
       setCustomPairs(saved.filter((pair) => pair && (pair.venue === "Binance" || pair.venue === "Hyperliquid") && typeof pair.apiSymbol === "string").slice(0, 24));
       setPairsReady(true);
     });
@@ -310,25 +314,6 @@ export default function OracleMonitor() {
     const next = update(quotesRef.current);
     quotesRef.current = next;
     setQuotes(next);
-
-    const nextDirections: Record<string, -1 | 0 | 1> = {};
-    const crossings: OracleQuote[] = [];
-    for (const quote of next) {
-      const direction: -1 | 0 | 1 = quote.deviation >= thresholdRef.current ? 1 : quote.deviation <= -thresholdRef.current ? -1 : 0;
-      nextDirections[quote.id] = direction;
-      const previous = triggerDirections.current[quote.id] ?? 0;
-      if (direction !== 0 && direction !== previous) crossings.push(quote);
-    }
-    triggerDirections.current = nextDirections;
-    if (crossings.length) {
-      const strongest = crossings.reduce((best, quote) => Math.abs(quote.deviation) > Math.abs(best.deviation) ? quote : best);
-      const tone = strongest.deviation >= 0 ? "positive" : "negative";
-      setBroadcast({
-        tone,
-        title: `${strongest.symbol} ${tone === "positive" ? "POSITIVE" : "NEGATIVE"} ORACLE TRIGGER`,
-        message: `${strongest.venue} live midpoint is ${formatPct(strongest.deviation)} from oracle, outside the ±${thresholdRef.current.toFixed(3)}% band${crossings.length > 1 ? ` · ${crossings.length - 1} additional trigger${crossings.length > 2 ? "s" : ""}` : ""}.`,
-      });
-    }
 
     setSessionPoints((current) => {
       const points = { ...current };
@@ -567,6 +552,7 @@ export default function OracleMonitor() {
     const next = [...customPairs, { venue: newVenue, apiSymbol: normalized }].slice(0, 24);
     setCustomPairs(next);
     window.localStorage.setItem(CUSTOM_PAIRS_KEY, JSON.stringify(next));
+    window.dispatchEvent(new Event(ORACLE_PAIRS_CHANGED_EVENT));
     setNewSymbol("");
     setPairError("");
   };
@@ -575,11 +561,11 @@ export default function OracleMonitor() {
     const next = customPairs.filter((item) => item.venue !== pair.venue || item.apiSymbol !== pair.apiSymbol);
     setCustomPairs(next);
     window.localStorage.setItem(CUSTOM_PAIRS_KEY, JSON.stringify(next));
+    window.dispatchEvent(new Event(ORACLE_PAIRS_CHANGED_EVENT));
   };
 
   return (
     <main className={styles.shell}>
-      <BroadcastAlert open={broadcast !== null} title={broadcast?.title ?? ""} message={broadcast?.message ?? ""} tone={broadcast?.tone ?? "positive"} onDismiss={dismissBroadcast} />
       <div className={styles.frame}>
         <header className={styles.topbar}>
           <div>
@@ -601,9 +587,9 @@ export default function OracleMonitor() {
             Alert threshold
             <div><input type="number" min="0.001" max="10" step="0.01" value={threshold} onChange={(event) => {
               const nextThreshold = Math.max(.001, Number(event.target.value) || .1);
-              thresholdRef.current = nextThreshold;
               setThreshold(nextThreshold);
-              triggerDirections.current = {};
+              window.localStorage.setItem(ORACLE_THRESHOLD_KEY, String(nextThreshold));
+              window.dispatchEvent(new CustomEvent(ORACLE_THRESHOLD_CHANGED_EVENT, { detail: nextThreshold }));
             }} /><span>%</span></div>
           </label>
           <button onClick={() => void loadQuotes()}>Refresh now</button>

@@ -49,7 +49,7 @@ const QUICK_WINDOWS = [
 ] as const;
 const INITIAL_NOW = Date.now();
 const DIRECT_BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
-const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v3";
+const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v4";
 
 const toHktInput = (timestamp: number) => new Date(timestamp + 8 * 60 * 60_000).toISOString().slice(0, 16);
 const fromHktInput = (value: string) => Date.parse(`${value}:00+08:00`);
@@ -264,7 +264,7 @@ export default function RelativeValueBlog() {
 
   return <main className={styles.shell}><div className={styles.frame}>
     <header className={styles.topbar}>
-      <div><p className={styles.eyebrow}>FIXED-COEFFICIENT RELATIVE VALUE</p><h1>Relative Value Blog</h1><p>Asset 1 explains the move. A separately trained and validated model estimates Asset 2&apos;s theoretical return.</p></div>
+      <div><p className={styles.eyebrow}>FIXED-COEFFICIENT RELATIVE VALUE</p><h1>Relative Value Blog</h1><p>Asset 1 explains the move. Explicit structural betas are applied directly; only relationships without one use regression.</p></div>
       <div className={styles.topActions}><span className={`${styles.connection} ${analysis && !error ? styles.online : ""}`}><i />{loading ? "Updating prediction" : analysis && !error ? "Prediction live" : "Data retry needed"}</span><PageSwitcher active="blog" /></div>
     </header>
 
@@ -279,7 +279,7 @@ export default function RelativeValueBlog() {
       <aside className={styles.relationships}>
         <div className={styles.sectionLabel}><span>ASSET 1 → ASSET 2</span><small>{RELATIONSHIPS.length} models</small></div>
         <div className={styles.relationshipList}>{RELATIONSHIPS.map((relationship) => <button key={relationship.id} className={relationshipId === relationship.id ? styles.activeRelationship : ""} disabled={availability.get(relationship.id) === false} onClick={() => chooseRelationship(relationship.id)}>
-          <span>{relationship.title}</span><small>{relationship.short}</small>{relationship.referenceBeta !== null && <b>Reference β {formatNumber(relationship.referenceBeta, 2)}</b>}{availability.get(relationship.id) === false && <em>Not listed</em>}
+          <span>{relationship.title}</span><small>{relationship.short}</small>{relationship.referenceBeta !== null && <b>Locked β {formatNumber(relationship.referenceBeta, 2)}</b>}{availability.get(relationship.id) === false && <em>Not listed</em>}
         </button>)}</div>
         {analysis?.universe && <div className={styles.scanBreakdown}><span>LIVE UNIVERSE BREAKDOWN</span>{Object.entries(analysis.universe.typeCounts).sort((a, b) => b[1] - a[1]).map(([type, count]) => <div key={type}><b>{type.replaceAll("_", " ")}</b><strong>{count}</strong></div>)}<details><summary>View all {analysis.universe.count} symbols</summary><p>{analysis.universe.symbols.join(" · ")}</p></details></div>}
       </aside>
@@ -303,20 +303,20 @@ export default function RelativeValueBlog() {
 
           <section className={styles.predictionGrid}>
             <article><span>Asset 1 observed move</span><strong className={analysis.stats.asset1Return >= 0 ? styles.positive : styles.negative}>{formatPct(analysis.stats.asset1Return)}</strong><small>{selected.asset1.label} · model input</small></article>
-            <article className={styles.theoryMetric}><span>Asset 2 theoretical move</span><strong>{formatPct(analysis.stats.asset2Theoretical)}</strong><small>α × hours + β × Asset 1</small></article>
+            <article className={styles.theoryMetric}><span>Asset 2 theoretical move</span><strong>{formatPct(analysis.stats.asset2Theoretical)}</strong><small>{analysis.model.method === "reference" ? "Locked β × Asset 1 · zero intercept" : "α × hours + fitted β × Asset 1"}</small></article>
             <article><span>Asset 2 actual move</span><strong className={analysis.stats.asset2Actual >= 0 ? styles.positive : styles.negative}>{formatPct(analysis.stats.asset2Actual)}</strong><small>{selected.asset2.label} · observed</small></article>
             <article><span>Prediction error</span><strong className={Math.abs(analysis.stats.zScore) >= 2 ? styles.negative : ""}>{formatPct(analysis.stats.predictionError, 3)}</strong><small>Actual − theoretical · {formatNumber(analysis.stats.zScore)}σ</small></article>
           </section>
 
           <section className={styles.modelPanel}>
-            <div className={styles.modelHead}><div><span>FROZEN MODEL CARD</span><h3>Trained once, validated out of sample</h3><p>{formatDate(analysis.model.trainingStart)} — {formatDate(analysis.model.trainingEnd)} HKT · first 75% train / final 25% validation · hourly log returns</p></div><b className={styles[analysis.model.quality]}>{analysis.model.quality}</b></div>
+            <div className={styles.modelHead}><div><span>{analysis.model.method === "reference" ? "LOCKED STRUCTURAL RULE" : "FROZEN MODEL CARD"}</span><h3>{analysis.model.method === "reference" ? "Direct formula, validated out of sample" : "Trained once, validated out of sample"}</h3><p>{formatDate(analysis.model.trainingStart)} — {formatDate(analysis.model.trainingEnd)} HKT · {analysis.model.method === "reference" ? "β fixed from the stated product relationship · zero intercept · history used only for validation" : "first 75% train / final 25% validation"} · hourly log returns</p></div><b className={styles[analysis.model.quality]}>{analysis.model.quality}</b></div>
             <div className={styles.modelMetrics}>
-              <div><span>Learned β</span><strong>{formatNumber(analysis.model.beta, 3)}</strong><small>Asset 2 per Asset 1</small></div>
-              <div><span>Reference β</span><strong>{analysis.model.referenceBeta === null ? "Empirical" : formatNumber(analysis.model.referenceBeta, 2)}</strong><small>Issuer / structural target</small></div>
+              <div><span>{analysis.model.method === "reference" ? "Locked β" : "Learned β"}</span><strong>{formatNumber(analysis.model.beta, 3)}</strong><small>{analysis.model.method === "reference" ? "Used directly, not regressed" : "Estimated on training sample"}</small></div>
+              <div><span>Formula type</span><strong>{analysis.model.method === "reference" ? "Structural" : "Empirical"}</strong><small>{analysis.model.method === "reference" ? "Issuer / benchmark relationship" : "Historical regression"}</small></div>
               <div><span>Holdout correlation</span><strong>{analysis.model.validationCorrelation.toFixed(3)}</strong><small>{analysis.model.validationSamples} unseen samples</small></div>
               <div><span>Holdout R²</span><strong>{analysis.model.validationR2.toFixed(3)}</strong><small>Explained Asset 2 variance</small></div>
               <div><span>Holdout MAE</span><strong>{analysis.model.validationMaePct.toFixed(3)}%</strong><small>Per hourly prediction</small></div>
-              <div><span>β drift</span><strong>{(analysis.model.betaDrift * 100).toFixed(1)}%</strong><small>Train versus holdout</small></div>
+              <div><span>β drift</span><strong>{(analysis.model.betaDrift * 100).toFixed(1)}%</strong><small>{analysis.model.method === "reference" ? "Observed holdout β versus locked β" : "Train versus holdout"}</small></div>
             </div>
           </section>
 
@@ -325,8 +325,8 @@ export default function RelativeValueBlog() {
           <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>PREDICTION ERROR MONITOR</span><h3>Actual Asset 2 minus theory</h3></div><p>Watch at ±1.5σ · dislocation at ±2σ · suppressed when model quality is weak.</p></div><ResidualChart points={analysis.points} /></section>
 
           <section className={styles.methodPanel}>
-            <div><span>MODEL TRAINING</span><h3>The selected window is not a backtest.</h3><p>Each coefficient is estimated from a fixed 45-day hourly history ending three days before the live observation period. The final 25% is kept out of training and used to report correlation, R², error and coefficient drift. The same daily-cached coefficient is then reused for every refresh.</p></div>
-            <div><span>PREDICTION EQUATION</span><h3>Asset 2 = α × time + β × Asset 1.</h3><p>The model works in log-return space. It converts Asset 1&apos;s cumulative move over the selected period into Asset 2&apos;s theoretical move, then compares that number with Asset 2&apos;s actual return. Funding, liquidity and oracle timing remain outside the regression.</p></div>
+            <div><span>{analysis.model.method === "reference" ? "RULE VALIDATION" : "MODEL TRAINING"}</span><h3>The selected window is not a backtest.</h3><p>{analysis.model.method === "reference" ? "This relationship has an explicit beta, so the site does not fit a coefficient. The fixed 45-day hourly history and holdout sample only test how reliably the zero-intercept structural formula has behaved." : "The coefficient is estimated from a fixed 45-day hourly history ending three days before the live observation period. The final 25% is kept out of training and reports correlation, R², error and coefficient drift. The daily-cached coefficient is reused for every refresh."}</p></div>
+            <div><span>PREDICTION EQUATION</span><h3>{analysis.model.method === "reference" ? "Asset 2 = locked β × Asset 1." : "Asset 2 = α × time + fitted β × Asset 1."}</h3><p>The engine works in log-return space. It converts Asset 1&apos;s cumulative move over the selected period into Asset 2&apos;s theoretical move, then compares that number with Asset 2&apos;s actual return. Funding, liquidity and oracle timing remain outside the formula.</p></div>
           </section>
 
           <section className={styles.sources}><div><span>RELATIONSHIP RESEARCH</span><h3>Issuer objectives and underlying links</h3></div><div className={styles.sourceGrid}>
@@ -336,7 +336,6 @@ export default function RelativeValueBlog() {
             <a href="https://www.direxion.com/product/daily-small-cap-bull-bear-3x-etfs" target="_blank" rel="noreferrer"><b>Direxion TZA</b><small>−3× Russell 2000 daily target ↗</small></a>
             <a href="https://graniteshares.com/etfs/mvll/" target="_blank" rel="noreferrer"><b>GraniteShares MVLL</b><small>+2× MRVL daily target ↗</small></a>
             <a href="https://www.sec.gov/Archives/edgar/data/1587982/000121390026057930/ea0291169-05_497.htm" target="_blank" rel="noreferrer"><b>Tradr SNXX filing</b><small>+2× SNDK daily fund ↗</small></a>
-            <a href="https://www.sec.gov/Archives/edgar/data/1424958/000119312526078542/d51121d497k.htm" target="_blank" rel="noreferrer"><b>Direxion MUU filing</b><small>+2× MU daily objective ↗</small></a>
             <a href="https://www.vaneck.com/us/en/investments/semiconductor-etf-smh-fact-sheet.pdf" target="_blank" rel="noreferrer"><b>VanEck SMH</b><small>Semiconductor basket composition ↗</small></a>
           </div></section>
         </>}
