@@ -49,7 +49,19 @@ const QUICK_WINDOWS = [
 ] as const;
 const INITIAL_NOW = Date.now();
 const DIRECT_BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
-const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v4";
+const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v5";
+const CUSTOM_RELATIONSHIPS_KEY = "relative-value-custom-relationships-v1";
+const HIDDEN_RELATIONSHIPS_KEY = "relative-value-hidden-relationships-v1";
+
+type CustomDraft = {
+  asset1Venue: "binance" | "hyperliquid";
+  asset1Symbol: string;
+  asset2Venue: "binance" | "hyperliquid";
+  asset2Symbol: string;
+  referenceBeta: string;
+};
+
+const EMPTY_DRAFT: CustomDraft = { asset1Venue: "binance", asset1Symbol: "", asset2Venue: "binance", asset2Symbol: "", referenceBeta: "" };
 
 const toHktInput = (timestamp: number) => new Date(timestamp + 8 * 60 * 60_000).toISOString().slice(0, 16);
 const fromHktInput = (value: string) => Date.parse(`${value}:00+08:00`);
@@ -117,7 +129,7 @@ async function directFixedModel(relationship: Relationship, now: number) {
 async function analyzeInBrowser(relationship: Relationship, start: number, end: number): Promise<Analysis> {
   const interval = observationInterval(end - start);
   const [model, asset1Rows, asset2Rows, exchangeInfo] = await Promise.all([
-    directFixedModel(relationship, Date.now()),
+    directFixedModel(relationship, start),
     directSeries(relationship.asset1, start, end, interval),
     directSeries(relationship.asset2, start, end, interval),
     directBinance<{ symbols?: Array<{ symbol?: string; status?: string; underlyingType?: string; underlyingSubType?: string[] }> }>("/fapi/v1/exchangeInfo"),
@@ -128,8 +140,8 @@ async function analyzeInBrowser(relationship: Relationship, start: number, end: 
   const active = new Set(symbols);
   const typeCounts = tradFi.reduce<Record<string, number>>((counts, item) => { const type = item.underlyingType || "OTHER"; counts[type] = (counts[type] ?? 0) + 1; return counts; }, {});
   return {
-    generatedAt: Date.now(), interval, observation: { start, end, maxDurationMs: MAX_OBSERVATION_MS }, relationship, relationships: RELATIONSHIPS, model,
-    universe: { count: symbols.length, symbols, typeCounts, candidates: RELATIONSHIPS.map((item) => ({ id: item.id, available: [item.asset1, item.asset2].every((leg) => leg.venue === "hyperliquid" || active.has(leg.symbol)) })) },
+    generatedAt: Date.now(), interval, observation: { start, end, maxDurationMs: MAX_OBSERVATION_MS }, relationship, relationships: RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship], model,
+    universe: { count: symbols.length, symbols, typeCounts, candidates: (RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship]).map((item) => ({ id: item.id, available: [item.asset1, item.asset2].every((leg) => leg.venue === "hyperliquid" || active.has(leg.symbol)) })) },
     ...projection,
   };
 }
@@ -200,23 +212,56 @@ export default function RelativeValueBlog() {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [customRelationships, setCustomRelationships] = useState<Relationship[]>([]);
+  const [hiddenRelationshipIds, setHiddenRelationshipIds] = useState<string[]>([]);
+  const [pairManagerOpen, setPairManagerOpen] = useState(false);
+  const [customDraft, setCustomDraft] = useState<CustomDraft>(EMPTY_DRAFT);
+  const [pairError, setPairError] = useState("");
+  const relationships = useMemo(() => [...RELATIONSHIPS.filter((item) => !hiddenRelationshipIds.includes(item.id)), ...customRelationships], [customRelationships, hiddenRelationshipIds]);
 
-  const load = useCallback(async (options?: { relationship?: string; start?: number; end?: number }) => {
+  useEffect(() => {
+    let savedCustom: Relationship[] = [];
+    let savedHidden: string[] = [];
+    try { savedCustom = JSON.parse(window.localStorage.getItem(CUSTOM_RELATIONSHIPS_KEY) || "[]") as Relationship[]; } catch { /* Start without malformed saved relationships. */ }
+    try { savedHidden = JSON.parse(window.localStorage.getItem(HIDDEN_RELATIONSHIPS_KEY) || "[]") as string[]; } catch { /* Start with all built-in relationships. */ }
+    const frame = window.requestAnimationFrame(() => {
+      const validCustom = savedCustom.filter((item) => item?.kind === "custom"
+        && /^custom-[a-z0-9-]{4,32}$/i.test(item.id)
+        && (item.asset1?.venue === "binance" || item.asset1?.venue === "hyperliquid")
+        && (item.asset2?.venue === "binance" || item.asset2?.venue === "hyperliquid")
+        && typeof item.asset1?.symbol === "string" && typeof item.asset2?.symbol === "string").slice(0, 30);
+      const validHidden = savedHidden.filter((id) => RELATIONSHIPS.some((item) => item.id === id));
+      setCustomRelationships(validCustom);
+      setHiddenRelationshipIds(validHidden);
+      if (validHidden.includes("qqq-ustech")) setRelationshipId(RELATIONSHIPS.find((item) => !validHidden.includes(item.id))?.id ?? validCustom[0]?.id ?? "");
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  const load = useCallback(async (options?: { relationship?: string; definition?: Relationship; start?: number; end?: number }) => {
     requestRef.current?.abort();
     const controller = new AbortController();
     requestRef.current = controller;
     const start = options?.start ?? fromHktInput(startInput);
     const end = options?.end ?? fromHktInput(endInput);
     const relationshipIdToLoad = options?.relationship ?? relationshipId;
-    const relationship = RELATIONSHIPS.find((item) => item.id === relationshipIdToLoad);
+    const relationship = options?.definition ?? relationships.find((item) => item.id === relationshipIdToLoad);
     if (!relationship || !Number.isFinite(start) || !Number.isFinite(end) || start >= end || end - start > MAX_OBSERVATION_MS + 60_000) {
-      setError("Choose a valid observation window of three days or less.");
+      setError("Choose a valid historical window of three days or less.");
+      setLoading(false);
       return;
     }
     setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams({ relationship: relationshipIdToLoad, start: String(start), end: String(end) });
+      if (relationship.kind === "custom") {
+        params.set("asset1Venue", relationship.asset1.venue);
+        params.set("asset1Symbol", relationship.asset1.symbol);
+        params.set("asset2Venue", relationship.asset2.venue);
+        params.set("asset2Symbol", relationship.asset2.symbol);
+        if (relationship.referenceBeta !== null) params.set("referenceBeta", String(relationship.referenceBeta));
+      }
       const response = await fetch(`/api/blog/analysis?${params}`, { cache: "no-store", signal: controller.signal });
       const payload = await response.json() as Partial<Analysis> & { error?: string };
       if (response.ok) setAnalysis(payload as Analysis);
@@ -226,7 +271,7 @@ export default function RelativeValueBlog() {
     } finally {
       if (requestRef.current === controller) setLoading(false);
     }
-  }, [endInput, relationshipId, startInput]);
+  }, [endInput, relationshipId, relationships, startInput]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => void load({ start: INITIAL_NOW - 24 * 60 * 60_000, end: INITIAL_NOW }));
@@ -260,7 +305,84 @@ export default function RelativeValueBlog() {
     setEndInput(toHktInput(end));
     void load({ start, end });
   };
-  const chooseRelationship = (id: string) => { setRelationshipId(id); void load({ relationship: id }); };
+  const chooseRelationship = (id: string) => {
+    const relationship = relationships.find((item) => item.id === id);
+    if (!relationship) return;
+    setRelationshipId(id);
+    void load({ relationship: id, definition: relationship });
+  };
+
+  const normalizeSymbol = (venue: CustomDraft["asset1Venue"], value: string) => {
+    const trimmed = value.trim();
+    if (venue === "binance") return trimmed.toUpperCase();
+    const colon = trimmed.indexOf(":");
+    return colon > 0 ? `${trimmed.slice(0, colon).toLowerCase()}:${trimmed.slice(colon + 1).toUpperCase()}` : trimmed.toUpperCase();
+  };
+
+  const addRelationship = () => {
+    const asset1Symbol = normalizeSymbol(customDraft.asset1Venue, customDraft.asset1Symbol);
+    const asset2Symbol = normalizeSymbol(customDraft.asset2Venue, customDraft.asset2Symbol);
+    const valid = (venue: CustomDraft["asset1Venue"], symbol: string) => venue === "binance" ? /^[A-Z0-9_]{2,32}$/.test(symbol) : /^[A-Z0-9._:-]{2,40}$/i.test(symbol);
+    const referenceBeta = customDraft.referenceBeta.trim() === "" ? null : Number(customDraft.referenceBeta);
+    if (!valid(customDraft.asset1Venue, asset1Symbol) || !valid(customDraft.asset2Venue, asset2Symbol)) {
+      setPairError("Enter valid Binance symbols or Hyperliquid coins such as mkts:USTECH.");
+      return;
+    }
+    if (referenceBeta !== null && (!Number.isFinite(referenceBeta) || Math.abs(referenceBeta) > 20)) {
+      setPairError("Reference beta must be between −20 and +20, or left blank for regression.");
+      return;
+    }
+    if (relationships.some((item) => item.asset1.venue === customDraft.asset1Venue && item.asset1.symbol === asset1Symbol && item.asset2.venue === customDraft.asset2Venue && item.asset2.symbol === asset2Symbol)) {
+      setPairError("This relationship is already in the list.");
+      return;
+    }
+    const id = `custom-${Date.now().toString(36)}`;
+    const relationship: Relationship = {
+      id,
+      title: `${asset1Symbol} → ${asset2Symbol}`,
+      short: "Custom relative-value relationship",
+      kind: "custom",
+      asset1: { venue: customDraft.asset1Venue, symbol: asset1Symbol, label: `${customDraft.asset1Venue === "binance" ? "Binance" : "Hyperliquid"} ${asset1Symbol}` },
+      asset2: { venue: customDraft.asset2Venue, symbol: asset2Symbol, label: `${customDraft.asset2Venue === "binance" ? "Binance" : "Hyperliquid"} ${asset2Symbol}` },
+      referenceBeta,
+      leveraged: referenceBeta !== null && Math.abs(referenceBeta) > 1,
+      thesis: referenceBeta === null ? "Estimate Asset 2 from Asset 1 with a historical regression coefficient." : `Apply the user-defined structural beta ${referenceBeta} directly to Asset 1's move.`,
+      caveat: "This custom relationship is a monitoring assumption. Validate market structure, liquidity and reference timing before acting on it.",
+    };
+    const next = [...customRelationships, relationship].slice(-30);
+    setCustomRelationships(next);
+    window.localStorage.setItem(CUSTOM_RELATIONSHIPS_KEY, JSON.stringify(next));
+    setCustomDraft(EMPTY_DRAFT);
+    setPairError("");
+    setRelationshipId(id);
+    void load({ relationship: id, definition: relationship });
+  };
+
+  const removeRelationship = (relationship: Relationship) => {
+    const custom = relationship.kind === "custom";
+    const nextCustom = custom ? customRelationships.filter((item) => item.id !== relationship.id) : customRelationships;
+    const nextHidden = custom ? hiddenRelationshipIds : [...new Set([...hiddenRelationshipIds, relationship.id])];
+    setCustomRelationships(nextCustom);
+    setHiddenRelationshipIds(nextHidden);
+    window.localStorage.setItem(CUSTOM_RELATIONSHIPS_KEY, JSON.stringify(nextCustom));
+    window.localStorage.setItem(HIDDEN_RELATIONSHIPS_KEY, JSON.stringify(nextHidden));
+    if (relationshipId !== relationship.id) return;
+    const nextRelationships = [...RELATIONSHIPS.filter((item) => !nextHidden.includes(item.id)), ...nextCustom];
+    const next = nextRelationships[0];
+    if (!next) {
+      setRelationshipId("");
+      setAnalysis(null);
+      setError("Add a relationship to begin a backtest.");
+      return;
+    }
+    setRelationshipId(next.id);
+    void load({ relationship: next.id, definition: next });
+  };
+
+  const restoreBuiltIns = () => {
+    setHiddenRelationshipIds([]);
+    window.localStorage.setItem(HIDDEN_RELATIONSHIPS_KEY, "[]");
+  };
 
   return <main className={styles.shell}><div className={styles.frame}>
     <header className={styles.topbar}>
@@ -270,27 +392,36 @@ export default function RelativeValueBlog() {
 
     <section className={styles.universeStrip}>
       <div><span>BINANCE TRADEFI SCAN</span><strong>{analysis?.universe ? `${analysis.universe.count} active contracts` : "Scanning universe…"}</strong></div>
-      <div><span>CURATED MODELS</span><strong>{analysis?.universe ? `${analysis.universe.candidates.filter((item) => item.available).length}/${analysis.universe.candidates.length} available` : `${RELATIONSHIPS.length} defined`}</strong></div>
+      <div><span>VISIBLE MODELS</span><strong>{analysis?.universe ? `${relationships.filter((item) => availability.get(item.id) !== false).length}/${relationships.length} available` : `${relationships.length} defined`}</strong></div>
       <div><span>FIXED TRAINING CUTOFF</span><strong>{analysis ? `${formatDate(analysis.model.trainingEnd)} HKT` : "Three days before current session"}</strong></div>
       <div><span>MODEL QUALITY</span><strong className={analysis ? styles[analysis.model.quality] : ""}>{analysis ? analysis.model.quality.toUpperCase() : "—"}</strong></div>
     </section>
 
     <section className={styles.workspace}>
       <aside className={styles.relationships}>
-        <div className={styles.sectionLabel}><span>ASSET 1 → ASSET 2</span><small>{RELATIONSHIPS.length} models</small></div>
-        <div className={styles.relationshipList}>{RELATIONSHIPS.map((relationship) => <button key={relationship.id} className={relationshipId === relationship.id ? styles.activeRelationship : ""} disabled={availability.get(relationship.id) === false} onClick={() => chooseRelationship(relationship.id)}>
+        <div className={styles.sectionLabel}><span>ASSET 1 → ASSET 2</span><div><small>{relationships.length} models</small><button onClick={() => setPairManagerOpen((open) => !open)}>{pairManagerOpen ? "Close" : "Manage"}</button></div></div>
+        {pairManagerOpen && <div className={styles.pairManager}>
+          <strong>Add relationship</strong>
+          <div className={styles.legFields}><label>Asset 1 venue<select value={customDraft.asset1Venue} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset1Venue: event.target.value as CustomDraft["asset1Venue"] }))}><option value="binance">Binance</option><option value="hyperliquid">Hyperliquid</option></select></label><label>Asset 1 symbol<input value={customDraft.asset1Symbol} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset1Symbol: event.target.value }))} placeholder={customDraft.asset1Venue === "binance" ? "QQQUSDT" : "mkts:USTECH"} /></label></div>
+          <div className={styles.legFields}><label>Asset 2 venue<select value={customDraft.asset2Venue} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset2Venue: event.target.value as CustomDraft["asset2Venue"] }))}><option value="binance">Binance</option><option value="hyperliquid">Hyperliquid</option></select></label><label>Asset 2 symbol<input value={customDraft.asset2Symbol} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset2Symbol: event.target.value }))} placeholder={customDraft.asset2Venue === "binance" ? "TQQQUSDT" : "mkts:US500"} /></label></div>
+          <label>Reference beta · optional<input type="number" min="-20" max="20" step="0.1" value={customDraft.referenceBeta} onChange={(event) => setCustomDraft((draft) => ({ ...draft, referenceBeta: event.target.value }))} placeholder="Blank = regression" /></label>
+          <button className={styles.addPairButton} onClick={addRelationship}>Add and analyze</button>
+          {pairError && <p>{pairError}</p>}
+          {hiddenRelationshipIds.length > 0 && <button className={styles.restoreButton} onClick={restoreBuiltIns}>Restore {hiddenRelationshipIds.length} deleted built-in model{hiddenRelationshipIds.length === 1 ? "" : "s"}</button>}
+        </div>}
+        <div className={styles.relationshipList}>{relationships.map((relationship) => <div key={relationship.id} className={styles.relationshipItem}><button className={relationshipId === relationship.id ? styles.activeRelationship : ""} disabled={availability.get(relationship.id) === false} onClick={() => chooseRelationship(relationship.id)}>
           <span>{relationship.title}</span><small>{relationship.short}</small>{relationship.referenceBeta !== null && <b>Locked β {formatNumber(relationship.referenceBeta, 2)}</b>}{availability.get(relationship.id) === false && <em>Not listed</em>}
-        </button>)}</div>
+        </button><button className={styles.removeRelationship} aria-label={`Delete ${relationship.title}`} title={`Delete ${relationship.title}`} onClick={() => removeRelationship(relationship)}>×</button></div>)}</div>
         {analysis?.universe && <div className={styles.scanBreakdown}><span>LIVE UNIVERSE BREAKDOWN</span>{Object.entries(analysis.universe.typeCounts).sort((a, b) => b[1] - a[1]).map(([type, count]) => <div key={type}><b>{type.replaceAll("_", " ")}</b><strong>{count}</strong></div>)}<details><summary>View all {analysis.universe.count} symbols</summary><p>{analysis.universe.symbols.join(" · ")}</p></details></div>}
       </aside>
 
       <div className={styles.analysisColumn}>
         <section className={styles.controls}>
           <div className={styles.quickWindows}>{QUICK_WINDOWS.map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
-          <label>Observation start · HKT<input type="datetime-local" value={startInput} max={endInput} onChange={(event) => { setStartInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
-          <label>Observation end · HKT<input type="datetime-local" value={endInput} min={startInput} onChange={(event) => { setEndInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
+          <label>Backtest start · HKT<input type="datetime-local" value={startInput} max={endInput} onChange={(event) => { setStartInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
+          <label>Backtest end · HKT<input type="datetime-local" value={endInput} min={startInput} onChange={(event) => { setEndInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
           <button className={styles.runButton} disabled={loading} onClick={() => void load()}>{loading ? "Updating…" : "Update prediction"}</button>
-          <p className={styles.windowRule}>Observation is capped at 3D because leveraged ETFs reset daily. Changing this window never refits the model.</p>
+          <p className={styles.windowRule}>{followingLive ? "Following the latest market window." : "Historical backtest selected."} Each run is capped at 3D because leveraged ETFs reset daily. The training sample ends before the chosen backtest, so future data is never used.</p>
         </section>
 
         {error && <div className={styles.errorBox}><strong>Prediction unavailable</strong><span>{error}</span><button onClick={() => void load()}>Retry</button></div>}
@@ -325,7 +456,7 @@ export default function RelativeValueBlog() {
           <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>PREDICTION ERROR MONITOR</span><h3>Actual Asset 2 minus theory</h3></div><p>Watch at ±1.5σ · dislocation at ±2σ · suppressed when model quality is weak.</p></div><ResidualChart points={analysis.points} /></section>
 
           <section className={styles.methodPanel}>
-            <div><span>{analysis.model.method === "reference" ? "RULE VALIDATION" : "MODEL TRAINING"}</span><h3>The selected window is not a backtest.</h3><p>{analysis.model.method === "reference" ? "This relationship has an explicit beta, so the site does not fit a coefficient. The fixed 45-day hourly history and holdout sample only test how reliably the zero-intercept structural formula has behaved." : "The coefficient is estimated from a fixed 45-day hourly history ending three days before the live observation period. The final 25% is kept out of training and reports correlation, R², error and coefficient drift. The daily-cached coefficient is reused for every refresh."}</p></div>
+            <div><span>{analysis.model.method === "reference" ? "RULE VALIDATION" : "MODEL TRAINING"}</span><h3>The backtest never refits on its own result.</h3><p>{analysis.model.method === "reference" ? "This relationship has an explicit beta, so the site does not fit a coefficient. The preceding 45-day hourly history and holdout sample only test how reliably the zero-intercept structural formula behaved before the selected backtest." : "The coefficient is estimated from a 45-day hourly history ending three days before the selected backtest. The final 25% is kept out of training and reports correlation, R², error and coefficient drift."}</p></div>
             <div><span>PREDICTION EQUATION</span><h3>{analysis.model.method === "reference" ? "Asset 2 = locked β × Asset 1." : "Asset 2 = α × time + fitted β × Asset 1."}</h3><p>The engine works in log-return space. It converts Asset 1&apos;s cumulative move over the selected period into Asset 2&apos;s theoretical move, then compares that number with Asset 2&apos;s actual return. Funding, liquidity and oracle timing remain outside the formula.</p></div>
           </section>
 

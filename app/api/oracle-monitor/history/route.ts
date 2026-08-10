@@ -1,10 +1,7 @@
 const BINANCE_API = "https://fapi.binance.com";
-const HYPERLIQUID_INFO_API = "https://api.hyperliquid.xyz/info";
 const SYMBOL_PATTERN = /^[A-Z0-9_]{2,32}$/;
-const PARA_PATTERN = /^para:[A-Z0-9._-]{1,28}$/i;
 
 type BinanceKline = [number, string, string, string, string, string, number, string, number, string, string, string];
-type HyperliquidCandle = { t?: number; c?: string };
 
 const intervalForRange = (durationMs: number) => {
   const hour = 60 * 60 * 1000;
@@ -31,41 +28,12 @@ async function getKlines(path: "klines" | "indexPriceKlines", symbol: string, st
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const venue = url.searchParams.get("venue") === "Hyperliquid" ? "Hyperliquid" : "Binance";
-  const rawSymbol = url.searchParams.get("symbol") || "";
-  const symbol = venue === "Binance" ? rawSymbol.toUpperCase() : rawSymbol.replace(/^para:/i, "para:");
+  const symbol = (url.searchParams.get("symbol") || "").toUpperCase();
   const start = Number(url.searchParams.get("start"));
   const end = Math.min(Number(url.searchParams.get("end") || Date.now()), Date.now());
-  if (venue === "Binance" && !SYMBOL_PATTERN.test(symbol)) return Response.json({ error: "Unsupported Binance oracle symbol." }, { status: 400 });
-  if (venue === "Hyperliquid" && !PARA_PATTERN.test(symbol)) return Response.json({ error: "Unsupported Hyperliquid para symbol." }, { status: 400 });
+  if (!SYMBOL_PATTERN.test(symbol)) return Response.json({ error: "Unsupported Binance oracle symbol." }, { status: 400 });
   if (!Number.isFinite(start) || start <= 0 || start >= end) {
     return Response.json({ error: "A valid start time is required." }, { status: 400 });
-  }
-
-  if (venue === "Hyperliquid") {
-    const interval = "5m";
-    const earliest = Math.max(start, end - 5_000 * 5 * 60_000);
-    try {
-      const response = await fetch(HYPERLIQUID_INFO_API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "candleSnapshot", req: { coin: symbol, interval, startTime: earliest, endTime: end } }),
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(`${symbol} market history unavailable.`);
-      const rows = await response.json() as HyperliquidCandle[];
-      const points = rows.flatMap((row) => {
-        const t = Number(row.t);
-        const live = Number(row.c);
-        return Number.isFinite(t) && Number.isFinite(live) && live > 0
-          ? [{ t, live, oracle: null, deviation: null, source: "exchange-candle" as const }]
-          : [];
-      });
-      if (!points.length) throw new Error(`${symbol} has no 5-minute candles in this window.`);
-      return Response.json({ symbol, venue, interval, mode: "price", oracleHistory: false, points }, { headers: { "Cache-Control": "no-store" } });
-    } catch (error) {
-      return Response.json({ error: error instanceof Error ? error.message : "History unavailable." }, { status: 502 });
-    }
   }
 
   const interval = intervalForRange(end - start);
@@ -79,9 +47,9 @@ export async function GET(request: Request) {
       const oracle = oracleByTime.get(row[0]);
       const live = Number(row[4]);
       if (!Number.isFinite(live) || !Number.isFinite(oracle)) return [];
-      return [{ t: row[0], live, oracle: oracle as number, deviation: (live / (oracle as number) - 1) * 100, source: "binance-history" as const }];
+      return [{ t: row[0], live, oracle: oracle as number, deviation: (live / (oracle as number) - 1) * 100 }];
     });
-    return Response.json({ symbol, venue, interval, mode: "deviation", oracleHistory: true, points }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ symbol, interval, points }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "History unavailable." }, { status: 502 });
   }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
-  active: "basis" | "pairs" | "oracle" | "trade" | "blog";
+  active: "basis" | "pairs" | "oracle" | "blog";
 };
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
@@ -31,10 +31,6 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         <Link href="/blog" aria-current={active === "blog" ? "page" : undefined}>
           <span>Relative value blog</span>
           <small>TradFi relationships and dislocations</small>
-        </Link>
-        <Link href="/trade" aria-current={active === "trade" ? "page" : undefined}>
-          <span>Order desk</span>
-          <small>Protected Binance oracle-limit execution</small>
         </Link>
       </nav>
     </details>

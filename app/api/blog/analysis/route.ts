@@ -86,7 +86,7 @@ async function getFixedModel(relationship: Relationship, now: number) {
   return model;
 }
 
-async function scanUniverse() {
+async function scanUniverse(relationships: Relationship[]) {
   const payload = await fetchBinance<ExchangeInfo>("/fapi/v1/exchangeInfo");
   const symbols = (payload.symbols ?? []).filter((item) => item.status === "TRADING" && item.underlyingSubType?.some((tag) => tag.toLowerCase() === "tradfi"));
   const active = new Set(symbols.map((item) => item.symbol).filter(Boolean) as string[]);
@@ -99,30 +99,60 @@ async function scanUniverse() {
     count: symbols.length,
     symbols: [...active].sort(),
     typeCounts,
-    candidates: RELATIONSHIPS.map((relationship) => ({
+    candidates: relationships.map((relationship) => ({
       id: relationship.id,
       available: [relationship.asset1, relationship.asset2].every((leg) => leg.venue === "hyperliquid" || active.has(leg.symbol)),
     })),
   };
 }
 
+const BINANCE_SYMBOL = /^[A-Z0-9_]{2,32}$/;
+const HYPERLIQUID_SYMBOL = /^[A-Z0-9._:-]{2,40}$/i;
+
+function customRelationship(url: URL): Relationship | null {
+  const id = url.searchParams.get("relationship") || "";
+  if (!/^custom-[a-z0-9-]{4,32}$/i.test(id)) return null;
+  const asset1Venue = url.searchParams.get("asset1Venue") === "hyperliquid" ? "hyperliquid" : "binance";
+  const asset2Venue = url.searchParams.get("asset2Venue") === "hyperliquid" ? "hyperliquid" : "binance";
+  const asset1Symbol = url.searchParams.get("asset1Symbol") || "";
+  const asset2Symbol = url.searchParams.get("asset2Symbol") || "";
+  const validAsset1 = (asset1Venue === "binance" ? BINANCE_SYMBOL : HYPERLIQUID_SYMBOL).test(asset1Symbol);
+  const validAsset2 = (asset2Venue === "binance" ? BINANCE_SYMBOL : HYPERLIQUID_SYMBOL).test(asset2Symbol);
+  if (!validAsset1 || !validAsset2) return null;
+  const betaValue = url.searchParams.get("referenceBeta");
+  const parsedBeta = betaValue === null || betaValue === "" ? null : Number(betaValue);
+  if (parsedBeta !== null && (!Number.isFinite(parsedBeta) || Math.abs(parsedBeta) > 20)) return null;
+  return {
+    id,
+    title: `${asset1Symbol} → ${asset2Symbol}`,
+    short: "Custom relative-value relationship",
+    kind: "custom",
+    asset1: { venue: asset1Venue, symbol: asset1Symbol, label: `${asset1Venue === "binance" ? "Binance" : "Hyperliquid"} ${asset1Symbol}` },
+    asset2: { venue: asset2Venue, symbol: asset2Symbol, label: `${asset2Venue === "binance" ? "Binance" : "Hyperliquid"} ${asset2Symbol}` },
+    referenceBeta: parsedBeta,
+    leveraged: parsedBeta !== null && Math.abs(parsedBeta) > 1,
+    thesis: parsedBeta === null ? "Estimate Asset 2 from Asset 1 with a historical regression coefficient." : `Apply the user-defined structural beta ${parsedBeta} directly to Asset 1's move.`,
+    caveat: "This custom relationship is a monitoring assumption. Validate market structure, liquidity and reference timing before acting on it.",
+  };
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const now = Date.now();
-  const relationship = RELATIONSHIPS.find((item) => item.id === (url.searchParams.get("relationship") || "qqq-ustech"));
+  const relationship = RELATIONSHIPS.find((item) => item.id === (url.searchParams.get("relationship") || "qqq-ustech")) ?? customRelationship(url);
   const end = Math.min(Number(url.searchParams.get("end") || now), now);
   const start = Number(url.searchParams.get("start") || end - 24 * 60 * 60_000);
   if (!relationship) return Response.json({ error: "Unknown relationship." }, { status: 400 });
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || start >= end || end - start > MAX_OBSERVATION_MS + 60_000 || start < now - MAX_OBSERVATION_MS - 5 * 60_000) {
-    return Response.json({ error: "Choose an observation window within the most recent three days." }, { status: 400 });
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || start >= end || end > now + 60_000 || end - start > MAX_OBSERVATION_MS + 60_000) {
+    return Response.json({ error: "Choose any historical window up to three days, ending no later than now." }, { status: 400 });
   }
   const interval = observationInterval(end - start);
   try {
     const [model, asset1Rows, asset2Rows, universe] = await Promise.all([
-      getFixedModel(relationship, now),
+      getFixedModel(relationship, start),
       getSeries(relationship.asset1, start, end, interval),
       getSeries(relationship.asset2, start, end, interval),
-      scanUniverse().catch(() => null),
+      scanUniverse(RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship]).catch(() => null),
     ]);
     const projection = projectRelationship(asset1Rows, asset2Rows, model);
     return Response.json({
@@ -130,7 +160,7 @@ export async function GET(request: Request) {
       interval,
       observation: { start, end, maxDurationMs: MAX_OBSERVATION_MS },
       relationship,
-      relationships: RELATIONSHIPS,
+      relationships: RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship],
       universe,
       model,
       ...projection,

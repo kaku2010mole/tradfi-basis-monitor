@@ -36,13 +36,7 @@ type OracleQuote = {
   executableUsd: number | null;
 };
 
-type OraclePoint = {
-  t: number;
-  live: number;
-  oracle: number | null;
-  deviation: number | null;
-  source?: "binance-history" | "exchange-candle" | "live-snapshot";
-};
+type OraclePoint = { t: number; live: number; oracle: number; deviation: number };
 type SourceState = { binance: boolean; hyperliquid: boolean };
 type StreamStatus = "connecting" | "live" | "reconnecting";
 type BinanceStreamState = { book: StreamStatus; oracle: StreamStatus };
@@ -70,9 +64,6 @@ const HIDE_AFTER_MS = 20_000;
 const CUSTOM_PAIRS_KEY = ORACLE_CUSTOM_PAIRS_KEY;
 const DEFAULT_BINANCE = DEFAULT_ORACLE_BINANCE;
 const DEFAULT_PARA = DEFAULT_ORACLE_PARA;
-const PARA_HISTORY_KEY = "oracle-monitor-para-history-v1";
-const FIVE_MINUTES = 5 * 60_000;
-const MAX_PARA_SNAPSHOTS = 576;
 
 const hktDateValue = (offsetDays = 0) => {
   const date = new Date(Date.now() + 8 * 3600_000 + offsetDays * 24 * 3600_000);
@@ -232,65 +223,6 @@ function DeviationChart({ points, threshold, symbol }: { points: OraclePoint[]; 
   );
 }
 
-function PriceHistoryChart({ points, symbol }: { points: OraclePoint[]; symbol: string }) {
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const width = 1240;
-  const height = 500;
-  const left = 82;
-  const right = 26;
-  const top = 38;
-  const bottom = 438;
-  const values = points.flatMap((point) => point.oracle === null ? [point.live] : [point.live, point.oracle]);
-  const rawMin = Math.min(...values);
-  const rawMax = Math.max(...values);
-  const padding = Math.max((rawMax - rawMin) * .12, rawMax * .0005, .000001);
-  const yMin = rawMin - padding;
-  const yMax = rawMax + padding;
-  const start = points[0]?.t ?? 0;
-  const end = points.at(-1)?.t ?? start + 1;
-  const x = (t: number) => left + ((t - start) / Math.max(1, end - start)) * (width - left - right);
-  const y = (value: number) => top + ((yMax - value) / Math.max(.000001, yMax - yMin)) * (bottom - top);
-  const marketPath = points.map((point, index) => `${index ? "L" : "M"} ${x(point.t).toFixed(2)} ${y(point.live).toFixed(2)}`).join(" ");
-  const oracleSegments: string[] = [];
-  let segment = "";
-  let previousTime = 0;
-  for (const point of points) {
-    if (point.oracle === null) {
-      if (segment) oracleSegments.push(segment);
-      segment = "";
-      previousTime = 0;
-      continue;
-    }
-    const command = !segment || point.t - previousTime > FIVE_MINUTES * 2 ? "M" : "L";
-    if (command === "M" && segment) oracleSegments.push(segment);
-    segment = `${command === "L" ? `${segment} ` : ""}${command} ${x(point.t).toFixed(2)} ${y(point.oracle).toFixed(2)}`;
-    previousTime = point.t;
-  }
-  if (segment) oracleSegments.push(segment);
-  const yTicks = Array.from({ length: 5 }, (_, index) => yMin + ((yMax - yMin) * index) / 4);
-  const timeTicks = Array.from(new Set([0, Math.floor((points.length - 1) / 4), Math.floor((points.length - 1) / 2), Math.floor((points.length - 1) * .75), points.length - 1]));
-  const selected = hoverIndex === null ? null : points[hoverIndex];
-
-  return <div className={styles.chartWrap} onMouseLeave={() => setHoverIndex(null)} onMouseMove={(event) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const chartX = ((event.clientX - rect.left) / rect.width) * width;
-    const targetTime = start + ((chartX - left) / (width - left - right)) * (end - start);
-    let best = 0;
-    for (let index = 1; index < points.length; index += 1) if (Math.abs(points[index].t - targetTime) < Math.abs(points[best].t - targetTime)) best = index;
-    setHoverIndex(best);
-  }}>
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${symbol} Hyperliquid market and captured oracle history`}>
-      <rect x={left} y={top} width={width - left - right} height={bottom - top} fill="#f8fcfb" />
-      {yTicks.map((tick) => <g key={tick}><line x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} stroke="#dce8e5" /><text x={left - 10} y={y(tick) + 4} textAnchor="end" fill="#748197" fontSize="11">{formatPrice(tick)}</text></g>)}
-      {timeTicks.map((index) => <text key={index} x={x(points[index].t)} y={height - 14} textAnchor={index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"} fill="#748197" fontSize="11">{formatTime(points[index].t, true)}</text>)}
-      <path d={marketPath} fill="none" stroke="#0aa383" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
-      {oracleSegments.map((path, index) => <path key={index} d={path} fill="none" stroke="#2476e5" strokeWidth="4.5" strokeLinejoin="round" strokeLinecap="round" />)}
-      {selected && hoverIndex !== null && <><line x1={x(selected.t)} x2={x(selected.t)} y1={top} y2={bottom} stroke="#8090a6" strokeDasharray="4 4" /><circle cx={x(selected.t)} cy={y(selected.live)} r="5" fill="#0aa383" stroke="#fff" strokeWidth="2" />{selected.oracle !== null && <circle cx={x(selected.t)} cy={y(selected.oracle)} r="5" fill="#2476e5" stroke="#fff" strokeWidth="2" />}</>}
-    </svg>
-    {selected && hoverIndex !== null && <div className={styles.tooltip} style={{ left: `${Math.min(77, Math.max(4, ((selected.t - start) / Math.max(1, end - start)) * 100))}%` }}><strong>{formatTime(selected.t, true)} HKT</strong><span>Market {formatPrice(selected.live)}</span><span>Oracle {formatPrice(selected.oracle)}</span>{selected.deviation !== null && <span>Deviation {formatPct(selected.deviation)}</span>}</div>}
-  </div>;
-}
-
 function QuoteCard({ quote, threshold, selected, stale, onSelect }: { quote: OracleQuote; threshold: number; selected: boolean; stale: boolean; onSelect: () => void }) {
   const triggered = Math.abs(quote.deviation) >= threshold;
   return (
@@ -327,7 +259,6 @@ export default function OracleMonitor() {
   const [sessionPoints, setSessionPoints] = useState<Record<string, OraclePoint[]>>({});
   const [history, setHistory] = useState<OraclePoint[]>([]);
   const [historyInterval, setHistoryInterval] = useState("1m");
-  const [capturedHistory, setCapturedHistory] = useState<Record<string, OraclePoint[]>>({});
   const [startValue, setStartValue] = useState(hktDateValue(-1));
   const [appliedStartValue, setAppliedStartValue] = useState(hktDateValue(-1));
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -345,8 +276,6 @@ export default function OracleMonitor() {
   const requestInFlight = useRef(false);
   const streamCache = useRef<Record<string, Partial<OracleQuote>>>({});
   const quotesRef = useRef<OracleQuote[]>([]);
-  const capturedHistoryRef = useRef<Record<string, OraclePoint[]>>({});
-  const lastParaPersistRef = useRef(0);
 
   useEffect(() => {
     let saved: CustomPair[] = [];
@@ -354,14 +283,9 @@ export default function OracleMonitor() {
     try {
       saved = JSON.parse(window.localStorage.getItem(CUSTOM_PAIRS_KEY) || "[]") as CustomPair[];
     } catch { /* Device has no usable saved pairs. */ }
-    try {
-      const parsed = JSON.parse(window.localStorage.getItem(PARA_HISTORY_KEY) || "{}") as Record<string, OraclePoint[]>;
-      capturedHistoryRef.current = Object.fromEntries(Object.entries(parsed).map(([id, points]) => [id, Array.isArray(points) ? points.filter((point) => Number.isFinite(point?.t) && Number.isFinite(point?.live) && Number.isFinite(point?.oracle)).slice(-MAX_PARA_SNAPSHOTS) : []]));
-    } catch { /* Start a fresh local para history if saved data is malformed. */ }
     const frame = window.requestAnimationFrame(() => {
       if (Number.isFinite(savedThreshold) && savedThreshold >= .001) setThreshold(Math.min(savedThreshold, 10));
       setCustomPairs(saved.filter((pair) => pair && (pair.venue === "Binance" || pair.venue === "Hyperliquid") && typeof pair.apiSymbol === "string").slice(0, 24));
-      setCapturedHistory(capturedHistoryRef.current);
       setPairsReady(true);
     });
     return () => window.cancelAnimationFrame(frame);
@@ -406,25 +330,6 @@ export default function OracleMonitor() {
       return changed ? points : current;
     });
 
-    const now = Date.now();
-    if (typeof window !== "undefined" && now - lastParaPersistRef.current >= 30_000) {
-      lastParaPersistRef.current = now;
-      const stored = { ...capturedHistoryRef.current };
-      let changed = false;
-      for (const quote of next) {
-        if (quote.venue !== "Hyperliquid") continue;
-        const t = Math.floor(quote.updatedAt / FIVE_MINUTES) * FIVE_MINUTES;
-        const point: OraclePoint = { t, live: quote.live, oracle: quote.oracle, deviation: quote.deviation, source: "live-snapshot" };
-        const existing = stored[quote.id] ?? [];
-        stored[quote.id] = existing.at(-1)?.t === t ? [...existing.slice(0, -1), point] : [...existing, point].slice(-MAX_PARA_SNAPSHOTS);
-        changed = true;
-      }
-      if (changed) {
-        capturedHistoryRef.current = stored;
-        try { window.localStorage.setItem(PARA_HISTORY_KEY, JSON.stringify(stored)); } catch { /* Browser storage can be unavailable or full. */ }
-        setCapturedHistory(stored);
-      }
-    }
   }, []);
 
   const applyBinanceStreamPatch = useCallback((symbol: string, patch: Partial<OracleQuote>) => {
@@ -589,7 +494,7 @@ export default function OracleMonitor() {
   const selectedApiSymbol = selected?.apiSymbol;
 
   const loadHistory = useCallback(async () => {
-    if (!selectedApiSymbol || !selectedVenue) {
+    if (!selectedApiSymbol || selectedVenue !== "Binance") {
       setHistory([]);
       return;
     }
@@ -597,7 +502,7 @@ export default function OracleMonitor() {
     if (!Number.isFinite(start) || start >= Date.now()) return;
     setLoadingHistory(true);
     try {
-      const params = new URLSearchParams({ venue: selectedVenue, symbol: selectedApiSymbol, start: String(start), end: String(Date.now()) });
+      const params = new URLSearchParams({ symbol: selectedApiSymbol, start: String(start), end: String(Date.now()) });
       const response = await fetch(`/api/oracle-monitor/history?${params}`, { cache: "no-store" });
       const payload = await response.json() as { points?: OraclePoint[]; interval?: string; error?: string };
       if (!response.ok || !payload.points?.length) throw new Error(payload.error || "No history returned.");
@@ -618,27 +523,10 @@ export default function OracleMonitor() {
 
   const selectedSession = useMemo(() => selected ? sessionPoints[selected.id] ?? [] : [], [selected, sessionPoints]);
   const chartPoints = useMemo(() => {
-    if (!selected) return [];
-    if (selected.venue === "Binance") {
-      if (!history.length) return selectedSession;
-      const lastHistoryTime = history.at(-1)?.t ?? 0;
-      return [...history, ...selectedSession.filter((point) => point.t > lastHistoryTime)];
-    }
-    const byBucket = new Map<number, OraclePoint>();
-    for (const point of history) byBucket.set(Math.floor(point.t / FIVE_MINUTES) * FIVE_MINUTES, point);
-    const captured = capturedHistory[selected.id] ?? [];
-    const windowStart = toEpoch(appliedStartValue);
-    for (const point of captured) {
-      if (point.t < windowStart || point.oracle === null) continue;
-      const bucket = Math.floor(point.t / FIVE_MINUTES) * FIVE_MINUTES;
-      const candle = byBucket.get(bucket);
-      const live = candle?.live ?? point.live;
-      byBucket.set(bucket, { ...(candle ?? point), t: bucket, live, oracle: point.oracle, deviation: (live / point.oracle - 1) * 100, source: "live-snapshot" });
-    }
-    const merged = [...byBucket.values()].sort((a, b) => a.t - b.t);
-    const lastHistoryTime = merged.at(-1)?.t ?? 0;
-    return [...merged, ...selectedSession.filter((point) => point.t > lastHistoryTime)].sort((a, b) => a.t - b.t);
-  }, [appliedStartValue, capturedHistory, history, selected, selectedSession]);
+    if (!selected || selected.venue !== "Binance" || !history.length) return selectedSession;
+    const lastHistoryTime = history.at(-1)?.t ?? 0;
+    return [...history, ...selectedSession.filter((point) => point.t > lastHistoryTime)];
+  }, [history, selected, selectedSession]);
   const positive = visibleQuotes.filter((quote) => quote.deviation >= 0).sort((a, b) => a.symbol.localeCompare(b.symbol));
   const negative = visibleQuotes.filter((quote) => quote.deviation < 0).sort((a, b) => a.symbol.localeCompare(b.symbol));
   const triggered = visibleQuotes.filter((quote) => Math.abs(quote.deviation) >= threshold);
@@ -717,7 +605,7 @@ export default function OracleMonitor() {
           <div className={styles.pairManagerCopy}>
             <p className={styles.eyebrow}>CUSTOM UNIVERSE</p>
             <h2>Add an Oracle pair</h2>
-            <p>Pairs are saved on this device. Binance loads synchronized market/index history. Hyperliquid loads official 5-minute candles and saves oracle snapshots locally.</p>
+            <p>Pairs are saved on this device. Binance symbols receive synchronized historical charts; Hyperliquid para symbols collect a live session deviation trail.</p>
           </div>
           <div className={styles.pairForm}>
             <label>Venue<select value={newVenue} onChange={(event) => setNewVenue(event.target.value as CustomPair["venue"])}><option>Binance</option><option>Hyperliquid</option></select></label>
@@ -755,18 +643,17 @@ export default function OracleMonitor() {
 
         <section className={`${styles.chartPanel} ${selected?.venue === "Binance" ? styles.binancePanel : styles.hyperliquidPanel}`}>
           <div className={styles.panelHead}>
-            <div><p className={styles.eyebrow}>{selected?.venue === "Hyperliquid" ? "PRICE + ORACLE HISTORY" : "DEVIATION HISTORY"}</p><div className={styles.chartTitle}><h2>{selected?.symbol ?? "Select a contract"}</h2>{selected && <span className={selected.venue === "Binance" ? styles.binanceBadge : styles.hyperliquidBadge}>{selected.venue}</span>}</div></div>
-            {selected ? <div className={styles.historyControls}>
+            <div><p className={styles.eyebrow}>DEVIATION HISTORY</p><div className={styles.chartTitle}><h2>{selected?.symbol ?? "Select a contract"}</h2>{selected && <span className={selected.venue === "Binance" ? styles.binanceBadge : styles.hyperliquidBadge}>{selected.venue}</span>}</div></div>
+            {selected?.venue === "Binance" ? <div className={styles.historyControls}>
               <label>Window start · HKT<input type="datetime-local" value={startValue} onChange={(event) => setStartValue(event.target.value)} /></label>
               <button onClick={() => startValue === appliedStartValue ? void loadHistory() : setAppliedStartValue(startValue)}>Apply</button>
-            </div> : null}
+            </div> : <span className={styles.sessionLabel}>Live session trail · starts when this page opens</span>}
           </div>
-          {selected?.venue === "Hyperliquid" && <div className={styles.chartLegend}><span><i className={styles.marketLegend} />Hyperliquid market · official 5m candles</span><span><i className={styles.oracleLineLegend} />Oracle · saved on this device</span></div>}
           {loadingHistory ? <div className={styles.emptyChart}>Loading market and oracle history…</div>
-            : chartPoints.length > 1 && selected ? selected.venue === "Hyperliquid" ? <PriceHistoryChart points={chartPoints} symbol={selected.symbol} /> : <DeviationChart points={chartPoints} threshold={threshold} symbol={selected.symbol} />
-              : <div className={styles.emptyChart}>{selected?.venue === "Hyperliquid" ? "Waiting for the first 5-minute market candles…" : "Waiting for synchronized history…"}</div>}
+            : chartPoints.length > 1 && selected ? <DeviationChart points={chartPoints} threshold={threshold} symbol={selected.symbol} />
+              : <div className={styles.emptyChart}>{selected?.venue === "Hyperliquid" ? "Collecting synchronized live para deviation samples…" : "Waiting for synchronized history…"}</div>}
           <footer className={styles.chartFooter}>
-            <span>{selected?.venue === "Binance" ? `Binance market and index-price klines · ${historyInterval}` : `Hyperliquid official candles · ${historyInterval} · oracle snapshots persist on this device`}</span>
+            <span>{selected?.venue === "Binance" ? `Binance market and index-price klines · ${historyInterval}` : "Hyperliquid metaAndAssetCtxs · live midpoint / oracle"}</span>
             <span>{chartPoints.length.toLocaleString()} points</span>
           </footer>
         </section>

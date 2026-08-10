@@ -1,6 +1,6 @@
 export type Venue = "binance" | "hyperliquid";
 export type MarketLeg = { venue: Venue; symbol: string; label: string };
-export type RelationshipKind = "same-benchmark" | "leveraged-inverse" | "leveraged-long" | "risk-regime" | "cross-index" | "same-company" | "sector-proxy" | "commodity-proxy";
+export type RelationshipKind = "same-benchmark" | "leveraged-inverse" | "leveraged-long" | "risk-regime" | "cross-index" | "same-company" | "sector-proxy" | "commodity-proxy" | "custom";
 
 export type Relationship = {
   id: string;

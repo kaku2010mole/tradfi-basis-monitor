@@ -17,14 +17,27 @@
 .relationships { position:sticky; top:12px; max-height:calc(100vh - 24px); overflow:auto; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,.94); box-shadow:0 18px 52px rgba(25,52,39,.055); scrollbar-width:thin; }
 .sectionLabel { display:flex; justify-content:space-between; gap:10px; padding:16px; border-bottom:1px solid var(--line); }
 .sectionLabel small { color:#99a49e; font-size:9px; }
+.sectionLabel>div { display:flex; align-items:center; gap:7px; }
+.sectionLabel button { min-height:25px; padding:0 8px; border:1px solid #cbd9d1; border-radius:999px; background:#fff; color:var(--green); cursor:pointer; font-size:8px; font-weight:850; }
+.pairManager { display:grid; gap:9px; padding:13px; border-bottom:1px solid var(--line); background:#f4f8f5; }
+.pairManager>strong { font-size:11px; }
+.pairManager label { display:grid; gap:4px; color:#7e8c84; font-size:7px; font-weight:850; letter-spacing:.07em; text-transform:uppercase; }
+.pairManager input,.pairManager select { width:100%; min-width:0; height:34px; padding:0 7px; border:1px solid #cad8d0; border-radius:6px; background:#fff; color:var(--ink); outline:0; font:8px monospace; }
+.legFields { display:grid; grid-template-columns:.85fr 1.15fr; gap:6px; }
+.pairManager .addPairButton { min-height:35px; border:0; border-radius:6px; background:var(--green); color:#fff; cursor:pointer; font-size:9px; font-weight:850; }
+.pairManager>p { margin:0; color:var(--red); font-size:8px; line-height:1.4; }
+.pairManager .restoreButton { min-height:31px; border:1px solid #cbd9d1; border-radius:6px; background:#fff; color:var(--muted); cursor:pointer; font-size:8px; font-weight:800; }
 .relationshipList { display:grid; gap:5px; padding:8px; }
-.relationshipList button { position:relative; width:100%; min-height:58px; display:grid; align-content:center; gap:4px; padding:10px 11px; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--ink); text-align:left; }
-.relationshipList button:hover { background:#f2f7f3; }
-.relationshipList button:disabled { opacity:.42; cursor:not-allowed; }
-.relationshipList button span { font:850 12px monospace; }
-.relationshipList button small { color:var(--muted); font-size:9px; }
-.relationshipList button>b { margin-top:3px; color:#89968f; font:750 7px monospace; }
-.relationshipList button em { position:absolute; top:8px; right:8px; color:var(--red); font:800 7px monospace; text-transform:uppercase; }
+.relationshipItem { position:relative; min-width:0; }
+.relationshipItem>button:first-child { position:relative; width:100%; min-height:58px; display:grid; align-content:center; gap:4px; padding:10px 34px 10px 11px; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--ink); text-align:left; }
+.relationshipItem>button:first-child:hover { background:#f2f7f3; }
+.relationshipItem>button:first-child:disabled { opacity:.42; cursor:not-allowed; }
+.relationshipItem>button:first-child span { font:850 12px monospace; }
+.relationshipItem>button:first-child small { color:var(--muted); font-size:9px; }
+.relationshipItem>button:first-child>b { margin-top:3px; color:#89968f; font:750 7px monospace; }
+.relationshipItem>button:first-child em { position:absolute; top:8px; right:28px; color:var(--red); font:800 7px monospace; text-transform:uppercase; }
+.removeRelationship { position:absolute; z-index:2; top:8px; right:7px; width:23px; height:23px; border:0; border-radius:50%; background:#eef3ef; color:#8b9891; cursor:pointer; font-size:15px; line-height:1; }
+.removeRelationship:hover { background:#fde9e7; color:var(--red); }
 .relationshipList .activeRelationship { border-color:#b6dfd0; background:#eaf8f2; box-shadow:inset 3px 0 0 var(--green); }
 .activeRelationship span { color:#076c4e; }
 .scanBreakdown { padding:16px; border-top:1px solid var(--line); background:#f7f9f6; }
@@ -134,5 +147,5 @@
 .footer { padding:20px 4px 0; color:#7e8c84; font-size:9px; line-height:1.5; text-align:center; }
 
 @media(max-width:1180px){.workspace{grid-template-columns:220px minmax(0,1fr)}.controls{grid-template-columns:1fr 1fr}.quickWindows{grid-column:1/-1}.runButton{width:100%}.metricGrid{grid-template-columns:repeat(3,1fr)}.metricGrid article:nth-child(3){border-right:0}.metricGrid article:nth-child(-n+3){border-bottom:1px solid var(--line)}.predictionGrid{grid-template-columns:1fr 1fr}.predictionGrid article:nth-child(2){border-right:0}.predictionGrid article:nth-child(-n+2){border-bottom:1px solid var(--line)}.modelMetrics{grid-template-columns:repeat(3,1fr)}.modelMetrics>div:nth-child(3){border-right:0}.modelMetrics>div:nth-child(-n+3){border-bottom:1px solid var(--line)}.sources{grid-template-columns:1fr}}
-@media(max-width:820px){.shell{padding:19px 12px 32px}.topbar{align-items:flex-start}.topActions{flex-direction:column-reverse;align-items:flex-end}.universeStrip{grid-template-columns:1fr 1fr}.universeStrip div:nth-child(2){border-right:0}.universeStrip div:nth-child(-n+2){border-bottom:1px solid var(--line)}.workspace{grid-template-columns:1fr}.relationships{position:static;max-height:none}.relationshipList{display:flex;overflow-x:auto}.relationshipList button{flex:0 0 175px}.scanBreakdown{display:none}.heroCard{grid-template-columns:1fr}.signal{border-top:1px solid rgba(255,255,255,.1);border-left:0}.methodPanel{grid-template-columns:1fr}.sourceGrid{grid-template-columns:1fr 1fr}}
+@media(max-width:820px){.shell{padding:19px 12px 32px}.topbar{align-items:flex-start}.topActions{flex-direction:column-reverse;align-items:flex-end}.universeStrip{grid-template-columns:1fr 1fr}.universeStrip div:nth-child(2){border-right:0}.universeStrip div:nth-child(-n+2){border-bottom:1px solid var(--line)}.workspace{grid-template-columns:1fr}.relationships{position:static;max-height:none}.relationshipList{display:flex;overflow-x:auto}.relationshipItem{flex:0 0 190px}.scanBreakdown{display:none}.heroCard{grid-template-columns:1fr}.signal{border-top:1px solid rgba(255,255,255,.1);border-left:0}.methodPanel{grid-template-columns:1fr}.sourceGrid{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){.topbar{gap:12px}.topbar h1{font-size:39px}.topbar p:last-child{font-size:11px}.connection{display:none}.universeStrip{grid-template-columns:1fr}.universeStrip div,.universeStrip div:nth-child(2){border-right:0;border-bottom:1px solid var(--line)}.universeStrip div:last-child{border-bottom:0}.controls{grid-template-columns:1fr}.quickWindows{grid-column:1;overflow-x:auto}.quickWindows button{flex:1;min-width:48px}.heroCopy{padding:20px}.signal{padding:20px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid article,.metricGrid article:nth-child(3){border-right:1px solid var(--line);border-bottom:1px solid var(--line)}.metricGrid article:nth-child(even){border-right:0}.metricGrid article:nth-last-child(-n+2){border-bottom:0}.predictionGrid{grid-template-columns:1fr}.predictionGrid article,.predictionGrid article:nth-child(2){border-right:0;border-bottom:1px solid var(--line)}.predictionGrid article:last-child{border-bottom:0}.modelHead{align-items:flex-start;flex-direction:column}.modelMetrics{grid-template-columns:1fr 1fr}.modelMetrics>div,.modelMetrics>div:nth-child(3){border-right:1px solid var(--line);border-bottom:1px solid var(--line)}.modelMetrics>div:nth-child(even){border-right:0}.modelMetrics>div:nth-last-child(-n+2){border-bottom:0}.panelHead{align-items:flex-start;flex-direction:column}.legend{justify-content:flex-start}.chartScroll svg{min-width:590px}.sourceGrid{grid-template-columns:1fr}.sources{padding:18px}.errorBox{grid-template-columns:1fr}.errorBox button{grid-column:1;grid-row:3;min-height:34px}}
