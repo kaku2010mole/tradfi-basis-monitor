@@ -1,0 +1,79 @@
+.shell { --ink:#142033; --muted:#6c788d; --line:#dce3ed; --panel:#fff; --purple:#6e49d8; --purple-soft:#f1edff; --green:#06876a; --red:#d34f55; min-height:100vh; padding:28px clamp(13px,3vw,44px) 44px; color:var(--ink); background:radial-gradient(circle at 90% 0,rgba(110,73,216,.16),transparent 34rem),radial-gradient(circle at 0 34%,rgba(34,175,148,.08),transparent 30rem),#f4f6fa; font-family:Arial,"PingFang SC",sans-serif; }
+.frame { width:min(1540px,100%); margin:0 auto; }
+.topbar { display:flex; align-items:flex-start; justify-content:space-between; gap:28px; }
+.eyebrow { margin:0 0 9px; color:var(--purple); font:850 9px/1 monospace; letter-spacing:.15em; }
+.topbar h1 { margin:0; font-size:clamp(40px,5.5vw,74px); line-height:.94; letter-spacing:-.06em; }
+.topbar>div:first-child>p:last-child { max-width:760px; margin:15px 0 0; color:var(--muted); font-size:13px; line-height:1.55; }
+.topActions { display:flex; align-items:center; gap:9px; }
+.connections { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+.connections span { min-height:35px; display:flex; align-items:center; gap:7px; padding:0 11px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.86); color:var(--muted); font-size:9px; font-weight:800; white-space:nowrap; }
+.connections i { width:7px; height:7px; border-radius:50%; background:#c39745; box-shadow:0 0 0 4px rgba(195,151,69,.1); }
+.connections .online i { background:#12a880; box-shadow:0 0 0 4px rgba(18,168,128,.1); }
+.stats { display:grid; grid-template-columns:repeat(4,1fr); margin-top:24px; border:1px solid var(--line); border-radius:11px; background:rgba(255,255,255,.94); overflow:hidden; box-shadow:0 18px 55px rgba(25,37,57,.055); }
+.stats article { min-width:0; min-height:124px; padding:18px 20px; border-right:1px solid var(--line); }
+.stats article:last-child { border-right:0; }
+.stats span,.stats small { display:block; overflow:hidden; color:var(--muted); font-size:8px; font-weight:800; letter-spacing:.08em; text-overflow:ellipsis; text-transform:uppercase; white-space:nowrap; }
+.stats strong { display:block; margin:13px 0 10px; overflow:hidden; font:900 clamp(25px,3vw,39px)/1 monospace; letter-spacing:-.055em; text-overflow:ellipsis; white-space:nowrap; }
+.positive { color:var(--green)!important; }
+.negative { color:var(--red)!important; }
+.filters { display:grid; grid-template-columns:minmax(180px,.8fr) 180px auto auto minmax(200px,1fr); align-items:end; gap:9px; margin-top:11px; padding:13px; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,.94); }
+.filters label { display:grid; gap:5px; color:#8490a2; font-size:8px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
+.filters input[type="text"],.filters input:not([type]),.filters select { width:100%; height:39px; padding:0 10px; border:1px solid #ccd6e3; border-radius:7px; background:#fff; color:var(--ink); outline:0; font:10px monospace; }
+.filters .matchToggle { min-height:39px; display:flex; align-items:center; grid-template-columns:auto 1fr; gap:7px; padding:0 10px; border:1px solid #d6deea; border-radius:7px; background:#f8f9fc; color:var(--ink); letter-spacing:0; text-transform:none; white-space:nowrap; }
+.matchToggle input { accent-color:var(--purple); }
+.filters>button { height:39px; padding:0 14px; border:0; border-radius:7px; background:var(--ink); color:#fff; cursor:pointer; font-size:9px; font-weight:850; white-space:nowrap; }
+.filters>p { align-self:center; margin:0; color:var(--muted); font-size:9px; line-height:1.4; text-align:right; }
+.marketGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-top:11px; }
+.marketCard { width:100%; min-width:0; padding:16px; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,.96); color:var(--ink); cursor:pointer; text-align:left; box-shadow:0 10px 28px rgba(25,37,57,.035); transition:transform .15s,border-color .15s,box-shadow .15s; }
+.marketCard:hover { transform:translateY(-1px); border-color:#bfc9d8; }
+.selectedCard { border-color:var(--purple); box-shadow:0 0 0 3px rgba(110,73,216,.1),0 14px 35px rgba(45,30,90,.08); }
+.cardHead { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.cardHead>div { display:grid; gap:5px; min-width:0; }
+.cardHead>div small { color:#8a95a6; font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.cardHead>div strong { overflow:hidden; font:900 17px monospace; text-overflow:ellipsis; white-space:nowrap; }
+.cardHead>span { min-width:116px; display:grid; justify-items:end; gap:2px; padding:8px 9px; border-radius:8px; font:900 14px monospace; }
+.cardHead>span small { font:750 7px Arial,sans-serif; letter-spacing:.07em; text-transform:uppercase; }
+.positiveFunding { background:#e8f7f2; color:var(--green); }
+.negativeFunding { background:#fdecee; color:var(--red); }
+.rateMeta { display:flex; justify-content:space-between; gap:10px; margin-top:10px; color:var(--muted); font-size:8px; }
+.rateMeta b { color:#536074; font-family:monospace; }
+.priceGrid { display:grid; grid-template-columns:repeat(4,1fr); margin-top:13px; border-top:1px solid #e6ebf2; border-bottom:1px solid #e6ebf2; }
+.priceGrid>div { min-width:0; padding:10px 7px; border-right:1px solid #e6ebf2; }
+.priceGrid>div:first-child { padding-left:0; }
+.priceGrid>div:last-child { border-right:0; padding-right:0; }
+.priceGrid span,.comparison span { display:block; color:#8a95a6; font-size:7px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
+.priceGrid b { display:block; margin-top:5px; overflow:hidden; font:850 11px monospace; text-overflow:ellipsis; }
+.comparison { display:grid; grid-template-columns:1fr auto; align-items:end; gap:12px; margin-top:11px; padding:10px 11px; border:1px solid #ddd7f1; border-radius:8px; background:linear-gradient(110deg,var(--purple-soft),#fff); }
+.comparison>div:last-child { text-align:right; }
+.comparison strong { display:block; margin-top:5px; font:900 15px monospace; }
+.noComparison { grid-template-columns:1fr; border-color:#e1e5eb; background:#f7f8fa; }
+.noComparison>div:last-child { display:none; }
+.marketCard footer { display:flex; justify-content:space-between; gap:10px; margin-top:10px; color:#7d899b; font:8px monospace; }
+.noMarkets { grid-column:1/-1; min-height:180px; display:grid; place-items:center; border:1px dashed #cdd5e1; border-radius:10px; color:var(--muted); font-size:10px; }
+.historyPanel { margin-top:11px; overflow:hidden; border:1px solid var(--line); border-top:4px solid var(--purple); border-radius:11px; background:#fff; box-shadow:0 18px 55px rgba(25,37,57,.055); }
+.historyHead { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; padding:20px 22px 7px; }
+.historyHead h2 { margin:0; font-size:26px; letter-spacing:-.04em; }
+.historyHead>div:first-child>span { display:block; margin-top:7px; color:var(--muted); font-size:9px; }
+.historyWindows { display:flex; gap:5px; padding:3px; border:1px solid var(--line); border-radius:8px; background:#f5f6fa; }
+.historyWindows button { min-width:46px; height:34px; border:0; border-radius:6px; background:transparent; color:#788497; cursor:pointer; font:800 9px monospace; }
+.historyWindows .activeWindow { background:var(--purple); color:#fff; }
+.chartWrap { position:relative; overflow-x:auto; padding:0 10px 7px; }
+.chartWrap svg { display:block; width:100%; height:auto; min-width:720px; }
+.plotBackground { fill:#faf9fe; }
+.gridLine { stroke:#e6e8ef; stroke-width:1; }
+.zeroLine { stroke:#8290a5; stroke-width:1.4; }
+.axisText { fill:#7f8b9d; font:9px monospace; }
+.fundingLine { fill:none; stroke:var(--purple); stroke-width:3.2; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+.hoverLine { stroke:#8c98aa; stroke-width:1; stroke-dasharray:4 4; }
+.positiveDot,.negativeDot { stroke:#fff; stroke-width:2; }
+.positiveDot { fill:var(--green); }
+.negativeDot { fill:var(--red); }
+.tooltip { position:absolute; z-index:3; top:62px; min-width:180px; display:grid; gap:4px; padding:10px 12px; border:1px solid #d6ddea; border-radius:8px; background:rgba(255,255,255,.97); box-shadow:0 14px 40px rgba(20,32,51,.15); color:#536074; pointer-events:none; font:9px/1.4 monospace; }
+.tooltip strong { color:var(--ink); font-family:Arial,sans-serif; }
+.emptyChart { min-height:320px; display:grid; place-items:center; color:var(--muted); font-size:10px; }
+.historyPanel>footer { display:flex; justify-content:space-between; gap:18px; padding:10px 22px 17px; color:#7d899b; font-size:8px; }
+.footer { padding:20px 4px 0; color:#7b8799; font-size:9px; line-height:1.5; text-align:center; }
+
+@media(max-width:1180px){.marketGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.filters{grid-template-columns:1fr 180px auto auto}.filters>p{grid-column:1/-1;text-align:left}.stats{grid-template-columns:1fr 1fr}.stats article:nth-child(2){border-right:0}.stats article:nth-child(-n+2){border-bottom:1px solid var(--line)}}
+@media(max-width:760px){.shell{padding:17px 10px 30px}.topbar{display:grid;gap:16px}.topActions{align-items:flex-start;flex-direction:column-reverse}.connections{justify-content:flex-start}.topbar h1{font-size:43px}.stats article{min-height:105px;padding:14px}.stats strong{font-size:26px}.filters{grid-template-columns:1fr 1fr}.filters .matchToggle,.filters>button{width:100%}.marketGrid{grid-template-columns:1fr}.historyHead{align-items:flex-start;flex-direction:column;padding:17px 14px 8px}.historyWindows{width:100%}.historyWindows button{flex:1}.historyPanel>footer{padding:9px 14px 15px}.chartWrap{padding:0 3px 6px}}
+@media(max-width:480px){.connections{display:grid;width:100%}.connections span{justify-content:flex-start}.stats{grid-template-columns:1fr 1fr}.filters{grid-template-columns:1fr}.cardHead>span{min-width:105px;font-size:12px}.priceGrid{grid-template-columns:1fr 1fr}.priceGrid>div{border-bottom:1px solid #e6ebf2}.priceGrid>div:nth-child(even){border-right:0}.priceGrid>div:nth-last-child(-n+2){border-bottom:0}.priceGrid>div:nth-child(3){padding-left:0}.comparison{grid-template-columns:1fr auto}.marketCard footer{flex-direction:column}.historyWindows button{min-width:0}.historyPanel>footer{flex-direction:column;gap:4px}}
