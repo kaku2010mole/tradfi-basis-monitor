@@ -21,6 +21,8 @@ type Market = {
 type Anchor = { price: number | null; timestamp: number | null; loading?: boolean; error?: boolean };
 type LinkHealth = { online: boolean; lastActivity: number | null };
 type BroadcastState = { title: string; message: string; tone: "positive" | "negative" };
+type NewsArticle = { id: string; title: string; url: string; source: string; feed: "Yahoo Finance" | "Google News"; publishedAt: number };
+type NewsSource = { name: string; ok: boolean; count: number };
 
 const REFRESH_MS = 5000;
 const LIVE_QUOTE_MAX_AGE_MS = 30_000;
@@ -62,6 +64,15 @@ const formatBeijing = (timestamp: number | null, withDate = true) =>
         minute: "2-digit",
         hour12: false,
       }).format(timestamp);
+
+const formatNewsAge = (timestamp: number, checkedAt: number) => {
+  const minutes = Math.max(0, Math.floor((checkedAt - timestamp) / 60_000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+};
 
 const toDateInput = (timestamp: number) => {
   const date = new Date(timestamp + 8 * 3600_000);
@@ -573,6 +584,7 @@ type AlertRow = Market & { anchor?: Anchor; deviation: number | null };
 
 function DeviationCard({ row }: { row: AlertRow }) {
   const isPositive = (row.deviation ?? 0) >= 0;
+  const [newsOpen, setNewsOpen] = useState(false);
   return (
     <article className={`alert-card ${isPositive ? "is-positive" : "is-negative"}`}>
       <div className="alert-identity">
@@ -586,7 +598,90 @@ function DeviationCard({ row }: { row: AlertRow }) {
         <div><dt>Funding / {row.fundingHours}h</dt><dd className={(row.funding ?? 0) >= 0 ? "positive" : "negative"}>{formatPct(row.funding == null ? null : row.funding * 100, 4)}</dd></div>
       </dl>
       <div className="alert-quote"><span>Bid {formatPrice(row.bid)}</span><span>Ask {formatPrice(row.ask)}</span></div>
+      <div className="news-control">
+        <button
+          type="button"
+          className={`news-toggle ${newsOpen ? "active" : ""}`}
+          aria-expanded={newsOpen}
+          aria-pressed={newsOpen}
+          onClick={() => setNewsOpen((open) => !open)}
+        >
+          <span><i />Live news</span>
+          <b>{newsOpen ? "ON · 60S" : "OFF"}</b>
+        </button>
+        {!newsOpen && <small>No news request until enabled</small>}
+      </div>
+      {newsOpen && <PairNews row={row} />}
     </article>
+  );
+}
+
+function PairNews({ row }: { row: AlertRow }) {
+  const [articles, setArticles] = useState<NewsArticle[]>([]);
+  const [sources, setSources] = useState<NewsSource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+
+  const loadNews = useCallback(async () => {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    setRefreshing(true);
+    try {
+      const params = new URLSearchParams({ venue: row.venue, symbol: row.symbol });
+      const response = await fetch(`/api/pair-news?${params}`, { cache: "no-store", signal: controller.signal });
+      const payload = await response.json() as { articles?: NewsArticle[]; sources?: NewsSource[]; generatedAt?: number; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Live news unavailable.");
+      setArticles(payload.articles ?? []);
+      setSources(payload.sources ?? []);
+      setUpdatedAt(payload.generatedAt ?? Date.now());
+      setError("");
+    } catch (newsError) {
+      if ((newsError as Error).name !== "AbortError") setError(newsError instanceof Error ? newsError.message : "Live news unavailable.");
+    } finally {
+      if (controllerRef.current === controller) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, [row.symbol, row.venue]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => void loadNews());
+    const timer = window.setInterval(() => void loadNews(), 60_000);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearInterval(timer);
+      const controller = controllerRef.current;
+      controllerRef.current = null;
+      controller?.abort();
+    };
+  }, [loadNews]);
+
+  return (
+    <section className="pair-news" aria-live="polite" aria-label={`Live news for ${row.displaySymbol}`}>
+      <header className="pair-news-head">
+        <div>
+          <span>RECENT COVERAGE · LAST 48H</span>
+          <small>{updatedAt ? `Checked ${formatBeijing(updatedAt, false)} BJT` : "Searching live sources…"}</small>
+        </div>
+        <button type="button" disabled={refreshing} onClick={() => void loadNews()}>{refreshing ? "Checking…" : "Refresh"}</button>
+      </header>
+      {!!sources.length && <div className="news-sources">{sources.map((source) => <span key={source.name} className={source.ok ? "online" : "offline"}><i />{source.name}</span>)}</div>}
+      {loading && <div className="news-loading"><i /><span>Searching only this pair…</span></div>}
+      {!loading && error && !articles.length && <div className="news-empty"><strong>News feed unavailable</strong><span>{error}</span></div>}
+      {!loading && !error && !articles.length && <div className="news-empty"><strong>No fresh matching coverage</strong><span>No relevant article was published in the last 48 hours.</span></div>}
+      {!!articles.length && <div className="news-list">{articles.map((article) => (
+        <a key={article.id} href={article.url} target="_blank" rel="noreferrer">
+          <div><strong>{article.source}</strong><time dateTime={new Date(article.publishedAt).toISOString()} title={`${formatBeijing(article.publishedAt)} BJT`}>{formatNewsAge(article.publishedAt, updatedAt ?? article.publishedAt)}</time></div>
+          <h4>{article.title}</h4>
+          <small>via {article.feed} ↗</small>
+        </a>
+      ))}</div>}
+    </section>
   );
 }
 
