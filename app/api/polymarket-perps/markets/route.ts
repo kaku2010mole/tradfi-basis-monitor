@@ -1,5 +1,6 @@
 const POLYMARKET_API = "https://api.perpetuals.polymarket.com";
 const BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
+const HYPERLIQUID_INFO = "https://api.hyperliquid.xyz/info";
 
 type Instrument = {
   instrument_id: number;
@@ -26,6 +27,10 @@ type Ticker = {
 
 type BinanceExchangeInfo = { symbols?: Array<{ symbol?: string; status?: string }> };
 type BinanceBook = { symbol?: string; bidPrice?: string; askPrice?: string; time?: number };
+type HyperMetaAndContexts = [
+  { universe?: Array<{ name?: string; isDelisted?: boolean }> },
+  Array<{ midPx?: string }>,
+];
 
 const EXPLICIT_BINANCE_MAP: Record<string, { symbol: string; kind: "direct" | "reference" } | null> = {
   SP500: null,
@@ -36,6 +41,14 @@ const EXPLICIT_BINANCE_MAP: Record<string, { symbol: string; kind: "direct" | "r
   GOOGL: { symbol: "GOOGLUSDT", kind: "direct" },
   KPEPE: { symbol: "1000PEPEUSDT", kind: "direct" },
 };
+
+const EXPLICIT_HYPER_MAP: Record<string, { symbol: string; dex: string; kind: "direct" | "reference" }> = {
+  NAS100: { symbol: "xyz:XYZ100", dex: "xyz", kind: "reference" },
+  WTIOIL: { symbol: "xyz:CL", dex: "xyz", kind: "reference" },
+  SKHYNIX: { symbol: "xyz:SKHX", dex: "xyz", kind: "direct" },
+  KPEPE: { symbol: "kPEPE", dex: "", kind: "direct" },
+};
+const HYPER_MAIN_BASES = new Set(["BTC", "ETH", "SOL", "HYPE", "PUMP", "ZEC", "XRP", "LIT"]);
 
 const positive = (value: unknown) => {
   const parsed = Number(value);
@@ -62,6 +75,18 @@ async function fetchBinance<T>(path: string) {
   throw lastError instanceof Error ? lastError : new Error("Binance unavailable.");
 }
 
+async function fetchHyper(dex: string) {
+  const response = await fetch(HYPERLIQUID_INFO, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "metaAndAssetCtxs", ...(dex ? { dex } : {}) }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!response.ok) throw new Error(`Hyperliquid HTTP ${response.status}`);
+  return response.json() as Promise<HyperMetaAndContexts>;
+}
+
 export async function GET() {
   try {
     const [instruments, tickers] = await Promise.all([
@@ -72,6 +97,9 @@ export async function GET() {
     let activeBinance = new Set<string>();
     let bookBySymbol = new Map<string, BinanceBook>();
     let binanceOnline = false;
+    const hyperBySymbol = new Map<string, { mid: number | null; dex: string }>();
+    const onlineHyperDexes = new Set<string>();
+    let hyperliquidOnline = false;
     try {
       const [exchange, books] = await Promise.all([
         fetchBinance<BinanceExchangeInfo>("/fapi/v1/exchangeInfo"),
@@ -81,6 +109,20 @@ export async function GET() {
       bookBySymbol = new Map(books.flatMap((book) => book.symbol ? [[book.symbol, book] as const] : []));
       binanceOnline = activeBinance.size > 0;
     } catch { /* Polymarket remains usable when Binance is regionally unavailable. */ }
+
+    try {
+      const snapshots = await Promise.allSettled(["", "xyz"].map(async (dex) => ({ dex, data: await fetchHyper(dex) })));
+      snapshots.forEach((snapshot) => {
+        if (snapshot.status !== "fulfilled") return;
+        const { dex, data: [meta, contexts] } = snapshot.value;
+        onlineHyperDexes.add(dex);
+        (meta.universe ?? []).forEach((asset, index) => {
+          if (!asset.name || asset.isDelisted) return;
+          hyperBySymbol.set(asset.name, { mid: positive(contexts[index]?.midPx), dex });
+        });
+      });
+      hyperliquidOnline = hyperBySymbol.size > 0;
+    } catch { /* Polymarket and Binance remain usable when Hyperliquid is unavailable. */ }
 
     const markets = instruments.flatMap((instrument) => {
       const ticker = tickerById.get(instrument.instrument_id);
@@ -93,6 +135,16 @@ export async function GET() {
       const binanceAsk = positive(book?.askPrice);
       const binanceMid = binanceBid !== null && binanceAsk !== null ? (binanceBid + binanceAsk) / 2 : null;
       const midPrice = positive(ticker.mid_price);
+      const explicitHyper = EXPLICIT_HYPER_MAP[instrument.base_asset];
+      const defaultHyperSymbol = instrument.base_asset;
+      const xyzHyperSymbol = `xyz:${instrument.base_asset}`;
+      const hyperCandidate = explicitHyper
+        ?? (HYPER_MAIN_BASES.has(instrument.base_asset)
+          ? { symbol: defaultHyperSymbol, dex: "", kind: "direct" as const }
+          : { symbol: xyzHyperSymbol, dex: "xyz", kind: "direct" as const });
+      const hyperSnapshot = hyperBySymbol.get(hyperCandidate.symbol);
+      const hyperMapping = onlineHyperDexes.has(hyperCandidate.dex) && !hyperSnapshot ? null : hyperCandidate;
+      const hyperMid = hyperSnapshot?.mid ?? null;
       return [{
         instrumentId: instrument.instrument_id,
         category: instrument.category,
@@ -117,9 +169,16 @@ export async function GET() {
         binanceMid,
         binanceUpdatedAt: finite(book?.time),
         spreadPct: midPrice !== null && binanceMid !== null ? (midPrice / binanceMid - 1) * 100 : null,
+        hyperSymbol: hyperMapping?.symbol ?? null,
+        hyperDex: hyperMapping?.dex ?? null,
+        hyperMappingKind: hyperMapping?.kind ?? null,
+        hyperMappingVerified: Boolean(hyperMapping && hyperSnapshot),
+        hyperMid,
+        hyperUpdatedAt: hyperSnapshot ? Date.now() : null,
+        hyperSpreadPct: midPrice !== null && hyperMid !== null ? (midPrice / hyperMid - 1) * 100 : null,
       }];
     });
-    return Response.json({ markets, timestamp: Date.now(), sources: { polymarket: true, binance: binanceOnline } }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ markets, timestamp: Date.now(), sources: { polymarket: true, binance: binanceOnline, hyperliquid: hyperliquidOnline } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Polymarket Perps market data unavailable." }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }

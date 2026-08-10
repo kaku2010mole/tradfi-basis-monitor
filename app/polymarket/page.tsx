@@ -28,6 +28,13 @@ type Market = {
   binanceMid: number | null;
   binanceUpdatedAt: number | null;
   spreadPct: number | null;
+  hyperSymbol: string | null;
+  hyperDex: string | null;
+  hyperMappingKind: "direct" | "reference" | null;
+  hyperMappingVerified: boolean;
+  hyperMid: number | null;
+  hyperUpdatedAt: number | null;
+  hyperSpreadPct: number | null;
 };
 
 type FundingPoint = { t: number; rate: number };
@@ -90,10 +97,11 @@ function FundingChart({ points, symbol }: { points: FundingPoint[]; symbol: stri
 
 export default function PolymarketPerpsPage() {
   const [markets, setMarkets] = useState<Market[]>([]);
-  const [sources, setSources] = useState({ polymarket: false, binance: false });
+  const [sources, setSources] = useState({ polymarket: false, binance: false, hyperliquid: false });
   const [polyStream, setPolyStream] = useState<StreamStatus>("connecting");
   const [binanceStream, setBinanceStream] = useState<StreamStatus>("connecting");
-  const [selectedId, setSelectedId] = useState(6);
+  const [hyperStream, setHyperStream] = useState<StreamStatus>("connecting");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [history, setHistory] = useState<FundingPoint[]>([]);
   const [historyWindow, setHistoryWindow] = useState(HISTORY_WINDOWS[2].ms);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -117,21 +125,32 @@ export default function PolymarketPerpsPage() {
     }));
   }, []);
 
+  const mergeHyperBook = useCallback((symbol: string, bidValue: unknown, askValue: unknown, timestamp: number) => {
+    const bid = positive(bidValue);
+    const ask = positive(askValue);
+    const mid = bid !== null && ask !== null ? (bid + ask) / 2 : null;
+    setMarkets((current) => current.map((market) => market.hyperSymbol === symbol
+      ? { ...market, hyperMappingVerified: mid !== null || market.hyperMappingVerified, hyperMid: mid, hyperUpdatedAt: timestamp, hyperSpreadPct: market.midPrice !== null && mid !== null ? (market.midPrice / mid - 1) * 100 : null }
+      : market));
+  }, []);
+
   const loadMarkets = useCallback(async () => {
     if (requestInFlight.current) return;
     requestInFlight.current = true;
     try {
       const response = await fetch("/api/polymarket-perps/markets", { cache: "no-store" });
-      const payload = await response.json() as { markets?: Market[]; sources?: { polymarket: boolean; binance: boolean }; timestamp?: number; error?: string };
+      const payload = await response.json() as { markets?: Market[]; sources?: { polymarket: boolean; binance: boolean; hyperliquid: boolean }; timestamp?: number; error?: string };
       if (!response.ok || !payload.markets?.length) throw new Error(payload.error || "Polymarket Perps data unavailable.");
       setMarkets((current) => payload.markets!.map((market) => {
         const live = current.find((item) => item.instrumentId === market.instrumentId);
         const keepPolyStream = polyStream === "live" && live && live.timestamp > market.timestamp;
         const keepBinanceStream = binanceStream === "live" && live?.binanceUpdatedAt && (!market.binanceUpdatedAt || live.binanceUpdatedAt > market.binanceUpdatedAt);
+        const keepHyperStream = hyperStream === "live" && live?.hyperUpdatedAt && (!market.hyperUpdatedAt || live.hyperUpdatedAt > market.hyperUpdatedAt);
         const merged = keepPolyStream ? { ...market, indexPrice: live.indexPrice, markPrice: live.markPrice, lastPrice: live.lastPrice, midPrice: live.midPrice, openInterest: live.openInterest, fundingRate: live.fundingRate, nextFunding: live.nextFunding, timestamp: live.timestamp } : market;
-        return keepBinanceStream ? { ...merged, mappingVerified: live.mappingVerified, binanceBid: live.binanceBid, binanceAsk: live.binanceAsk, binanceMid: live.binanceMid, binanceUpdatedAt: live.binanceUpdatedAt, spreadPct: merged.midPrice !== null && live.binanceMid !== null ? (merged.midPrice / live.binanceMid - 1) * 100 : null } : merged;
+        const withBinance = keepBinanceStream ? { ...merged, mappingVerified: live.mappingVerified, binanceBid: live.binanceBid, binanceAsk: live.binanceAsk, binanceMid: live.binanceMid, binanceUpdatedAt: live.binanceUpdatedAt, spreadPct: merged.midPrice !== null && live.binanceMid !== null ? (merged.midPrice / live.binanceMid - 1) * 100 : null } : merged;
+        return keepHyperStream ? { ...withBinance, hyperMappingVerified: live.hyperMappingVerified, hyperMid: live.hyperMid, hyperUpdatedAt: live.hyperUpdatedAt, hyperSpreadPct: withBinance.midPrice !== null && live.hyperMid !== null ? (withBinance.midPrice / live.hyperMid - 1) * 100 : null } : withBinance;
       }));
-      setSources(payload.sources ?? { polymarket: true, binance: false });
+      setSources(payload.sources ?? { polymarket: true, binance: false, hyperliquid: false });
       setLastUpdate(payload.timestamp ?? Date.now());
       setError("");
       if (payload.sources?.binance === false) {
@@ -146,7 +165,7 @@ export default function PolymarketPerpsPage() {
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Market data is reconnecting.");
     } finally { requestInFlight.current = false; }
-  }, [binanceStream, mergeBinanceBooks, polyStream]);
+  }, [binanceStream, hyperStream, mergeBinanceBooks, polyStream]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => void loadMarkets());
@@ -171,7 +190,7 @@ export default function PolymarketPerpsPage() {
           setMarkets((current) => current.map((market) => {
             if (market.instrumentId !== frame.data!.iid) return market;
             const midPrice = positive(frame.data!.mid);
-            return { ...market, indexPrice: positive(frame.data!.idx), markPrice: positive(frame.data!.mark), lastPrice: positive(frame.data!.last), midPrice, openInterest: positive(frame.data!.oi), fundingRate: finite(frame.data!.fr), nextFunding: finite(frame.data!.nxf), timestamp: finite(frame.ts) ?? Date.now(), spreadPct: midPrice !== null && market.binanceMid !== null ? (midPrice / market.binanceMid - 1) * 100 : null };
+            return { ...market, indexPrice: positive(frame.data!.idx), markPrice: positive(frame.data!.mark), lastPrice: positive(frame.data!.last), midPrice, openInterest: positive(frame.data!.oi), fundingRate: finite(frame.data!.fr), nextFunding: finite(frame.data!.nxf), timestamp: finite(frame.ts) ?? Date.now(), spreadPct: midPrice !== null && market.binanceMid !== null ? (midPrice / market.binanceMid - 1) * 100 : null, hyperSpreadPct: midPrice !== null && market.hyperMid !== null ? (midPrice / market.hyperMid - 1) * 100 : null };
           }));
           setLastUpdate(finite(frame.ts) ?? Date.now());
         } catch { /* Ignore acknowledgements and malformed frames. */ }
@@ -221,61 +240,116 @@ export default function PolymarketPerpsPage() {
     return () => { stopped = true; window.clearTimeout(timer); socket?.close(); };
   }, [mappedKey, mergeBinanceBooks]);
 
-  const selected = markets.find((market) => market.instrumentId === selectedId) ?? markets[0];
+  const hyperMappedKey = useMemo(() => [...new Set(markets.flatMap((market) => market.hyperSymbol ? [market.hyperSymbol] : []))].sort().join(","), [markets]);
+  useEffect(() => {
+    if (!hyperMappedKey) return;
+    let stopped = false;
+    let socket: WebSocket | null = null;
+    let timer = 0;
+    const symbols = hyperMappedKey.split(",");
+    const connect = (attempt = 0) => {
+      if (stopped) return;
+      setHyperStream(attempt ? "reconnecting" : "connecting");
+      socket = new WebSocket("wss://api.hyperliquid.xyz/ws");
+      const openedAt = Date.now();
+      socket.onopen = () => {
+        symbols.forEach((coin) => socket?.send(JSON.stringify({ method: "subscribe", subscription: { type: "l2Book", coin } })));
+        setHyperStream("live");
+      };
+      socket.onmessage = (event) => {
+        try {
+          const frame = JSON.parse(String(event.data)) as { channel?: string; data?: { coin?: string; time?: number; levels?: Array<Array<{ px?: string }>> } };
+          if (frame.channel !== "l2Book" || !frame.data?.coin) return;
+          mergeHyperBook(frame.data.coin, frame.data.levels?.[0]?.[0]?.px, frame.data.levels?.[1]?.[0]?.px, frame.data.time ?? Date.now());
+        } catch { /* Ignore subscription acknowledgements and malformed frames. */ }
+      };
+      socket.onerror = () => socket?.close();
+      socket.onclose = () => {
+        if (stopped) return;
+        setHyperStream("reconnecting");
+        const nextAttempt = Date.now() - openedAt > 20_000 ? 0 : attempt + 1;
+        timer = window.setTimeout(() => connect(nextAttempt), Math.min(8_000, 600 * 2 ** Math.min(4, nextAttempt)));
+      };
+    };
+    connect();
+    return () => { stopped = true; window.clearTimeout(timer); socket?.close(); };
+  }, [hyperMappedKey, mergeHyperBook]);
+
+  const selected = markets.find((market) => market.instrumentId === expandedId);
   const selectedInstrumentId = selected?.instrumentId;
-  const loadHistory = useCallback(async () => {
+  useEffect(() => {
     if (!selectedInstrumentId) return;
-    setLoadingHistory(true);
-    try {
+    const controller = new AbortController();
+    const frame = window.requestAnimationFrame(() => {
+      setLoadingHistory(true);
       const end = Date.now();
       const params = new URLSearchParams({ instrumentId: String(selectedInstrumentId), start: String(end - historyWindow), end: String(end) });
-      const response = await fetch(`/api/polymarket-perps/funding?${params}`, { cache: "no-store" });
-      const payload = await response.json() as { points?: FundingPoint[]; error?: string };
-      if (!response.ok) throw new Error(payload.error || "Funding history unavailable.");
-      setHistory(payload.points ?? []);
-    } catch (historyError) {
-      setHistory([]);
-      setError(historyError instanceof Error ? historyError.message : "Funding history unavailable.");
-    } finally { setLoadingHistory(false); }
+      void fetch(`/api/polymarket-perps/funding?${params}`, { cache: "no-store", signal: controller.signal }).then(async (response) => {
+        const payload = await response.json() as { points?: FundingPoint[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Funding history unavailable.");
+        setHistory(payload.points ?? []);
+        setError("");
+      }).catch((historyError: unknown) => {
+        if (controller.signal.aborted) return;
+        setHistory([]);
+        setError(historyError instanceof Error ? historyError.message : "Funding history unavailable.");
+      }).finally(() => { if (!controller.signal.aborted) setLoadingHistory(false); });
+    });
+    return () => { window.cancelAnimationFrame(frame); controller.abort(); };
   }, [historyWindow, selectedInstrumentId]);
 
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => void loadHistory());
-    return () => window.cancelAnimationFrame(frame);
-  }, [loadHistory]);
+  const toggleHistory = useCallback((instrumentId: number) => {
+    setHistory([]);
+    setLoadingHistory(false);
+    setExpandedId((current) => current === instrumentId ? null : instrumentId);
+  }, []);
 
   const categories = useMemo(() => [...new Set(markets.map((market) => market.category))].sort(), [markets]);
   const visible = useMemo(() => markets.filter((market) => {
     const needle = search.trim().toLowerCase();
-    return (!needle || market.symbol.toLowerCase().includes(needle) || market.binanceSymbol?.toLowerCase().includes(needle))
+    return (!needle || market.symbol.toLowerCase().includes(needle) || market.binanceSymbol?.toLowerCase().includes(needle) || market.hyperSymbol?.toLowerCase().includes(needle))
       && (category === "all" || market.category === category)
-      && (!matchedOnly || market.binanceMid !== null);
+      && (!matchedOnly || market.binanceMid !== null || market.hyperMid !== null);
   }).sort((a, b) => Math.abs(b.fundingRate ?? 0) - Math.abs(a.fundingRate ?? 0)), [category, markets, matchedOnly, search]);
   const matched = markets.filter((market) => market.binanceMid !== null).length;
+  const hyperMatched = markets.filter((market) => market.hyperMid !== null).length;
   const largestFunding = markets.reduce<Market | null>((best, market) => !best || Math.abs(market.fundingRate ?? 0) > Math.abs(best.fundingRate ?? 0) ? market : best, null);
-  const largestSpread = markets.reduce<Market | null>((best, market) => market.spreadPct === null ? best : !best || Math.abs(market.spreadPct) > Math.abs(best.spreadPct ?? 0) ? market : best, null);
+  const largestSpread = markets.reduce<{ market: Market; venue: "Binance" | "Hyperliquid"; value: number } | null>((best, market) => {
+    const candidates = [
+      market.spreadPct === null ? null : { market, venue: "Binance" as const, value: market.spreadPct },
+      market.hyperSpreadPct === null ? null : { market, venue: "Hyperliquid" as const, value: market.hyperSpreadPct },
+    ].filter((candidate): candidate is { market: Market; venue: "Binance" | "Hyperliquid"; value: number } => candidate !== null);
+    return candidates.reduce((current, candidate) => !current || Math.abs(candidate.value) > Math.abs(current.value) ? candidate : current, best);
+  }, null);
 
   return <main className={styles.shell}><div className={styles.frame}>
-    <header className={styles.topbar}><div><p className={styles.eyebrow}>POLYMARKET PERPS / CARRY INTELLIGENCE</p><h1>Funding & Basis</h1><p>Monitor hourly Polymarket Perps funding, settlement history, and live midpoint spreads against verified Binance equivalents.</p></div><div className={styles.topActions}><div className={styles.connections}><span className={polyStream === "live" || sources.polymarket ? styles.online : ""}><i />Polymarket {polyStream === "live" ? "WS live" : "REST fallback"}</span><span className={binanceStream === "live" || sources.binance ? styles.online : ""}><i />Binance {binanceStream === "live" ? "WS live" : sources.binance ? "REST fallback" : "reconnecting"}</span></div><PageSwitcher active="polymarket" /></div></header>
+    <header className={styles.topbar}><div><p className={styles.eyebrow}>POLYMARKET PERPS / CARRY INTELLIGENCE</p><h1>Funding & Basis</h1><p>Monitor hourly Polymarket Perps funding, card-level settlement history, and live midpoint spreads against verified Binance and Hyperliquid equivalents.</p></div><div className={styles.topActions}><div className={styles.connections}><span className={polyStream === "live" || sources.polymarket ? styles.online : ""}><i />Polymarket {polyStream === "live" ? "WS live" : "REST fallback"}</span><span className={binanceStream === "live" || sources.binance ? styles.online : ""}><i />Binance {binanceStream === "live" ? "WS live" : sources.binance ? "REST fallback" : "reconnecting"}</span><span className={hyperStream === "live" || sources.hyperliquid ? styles.online : ""}><i />Hyperliquid {hyperStream === "live" ? "WS live" : sources.hyperliquid ? "REST fallback" : "reconnecting"}</span></div><PageSwitcher active="polymarket" /></div></header>
 
-    <section className={styles.stats}><article><span>Active Perps</span><strong>{markets.length || "—"}</strong><small>{categories.length} market categories</small></article><article><span>Live Binance matches</span><strong>{matched}</strong><small>Exact or named reference symbols</small></article><article><span>Largest |1h funding|</span><strong className={(largestFunding?.fundingRate ?? 0) >= 0 ? styles.positive : styles.negative}>{formatFunding(largestFunding?.fundingRate ?? null)}</strong><small>{largestFunding?.symbol ?? "Waiting for data"}</small></article><article><span>Largest live spread</span><strong className={(largestSpread?.spreadPct ?? 0) >= 0 ? styles.positive : styles.negative}>{formatPct(largestSpread?.spreadPct ?? null, 3)}</strong><small>{largestSpread ? `${largestSpread.symbol} vs ${largestSpread.binanceSymbol}` : "No synchronized midpoint"}</small></article></section>
+    <section className={styles.stats}><article><span>Active Perps</span><strong>{markets.length || "—"}</strong><small>{categories.length} market categories</small></article><article><span>Binance matches</span><strong>{matched}</strong><small>Live midpoint comparisons</small></article><article><span>Hyperliquid matches</span><strong>{hyperMatched}</strong><small>Main and xyz DEXs</small></article><article><span>Largest |1h funding|</span><strong className={(largestFunding?.fundingRate ?? 0) >= 0 ? styles.positive : styles.negative}>{formatFunding(largestFunding?.fundingRate ?? null)}</strong><small>{largestFunding?.symbol ?? "Waiting for data"}</small></article><article><span>Largest venue spread</span><strong className={(largestSpread?.value ?? 0) >= 0 ? styles.positive : styles.negative}>{formatPct(largestSpread?.value ?? null, 3)}</strong><small>{largestSpread ? `${largestSpread.market.symbol} vs ${largestSpread.venue}` : "No synchronized midpoint"}</small></article></section>
 
-    <section className={styles.filters}><label>Search markets<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="BTC, AAPL, GOLD…" /></label><label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">All categories</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label className={styles.matchToggle}><input type="checkbox" checked={matchedOnly} onChange={(event) => setMatchedOnly(event.target.checked)} /><span>Binance midpoint available</span></label><button onClick={() => void loadMarkets()}>Refresh now</button><p>{error || (lastUpdate ? `Last market update ${formatTime(lastUpdate)} HKT` : "Connecting public market data…")}</p></section>
+    <section className={styles.filters}><label>Search markets<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="BTC, AAPL, GOLD…" /></label><label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">All categories</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label className={styles.matchToggle}><input type="checkbox" checked={matchedOnly} onChange={(event) => setMatchedOnly(event.target.checked)} /><span>Cross-venue midpoint available</span></label><button onClick={() => void loadMarkets()}>Refresh now</button><p>{error || (lastUpdate ? `Last market update ${formatTime(lastUpdate)} HKT` : "Connecting public market data…")}</p></section>
 
     <section className={styles.marketGrid}>{visible.map((market) => {
       const funding = market.fundingRate;
       const markBasis = market.markPrice !== null && market.indexPrice !== null ? (market.markPrice / market.indexPrice - 1) * 100 : null;
-      return <button key={market.instrumentId} className={`${styles.marketCard} ${selected?.instrumentId === market.instrumentId ? styles.selectedCard : ""}`} onClick={() => setSelectedId(market.instrumentId)}>
+      const expanded = expandedId === market.instrumentId;
+      return <article key={market.instrumentId} className={`${styles.marketCard} ${expanded ? styles.expandedCard : ""}`}>
         <div className={styles.cardHead}><div><small>{market.category} · #{market.instrumentId}</small><strong>{market.symbol}</strong></div><span className={(funding ?? 0) >= 0 ? styles.positiveFunding : styles.negativeFunding}>{formatFunding(funding)}<small>per 1h</small></span></div>
         <div className={styles.rateMeta}><span>{funding === null ? "Funding unavailable" : funding > 0 ? "Longs pay shorts" : funding < 0 ? "Shorts pay longs" : "Balanced funding"}</span><b>APR {funding === null ? "—" : formatPct(funding * 24 * 365 * 100, 2)}</b></div>
         <div className={styles.priceGrid}><div><span>Mid</span><b>{formatPrice(market.midPrice)}</b></div><div><span>Mark</span><b>{formatPrice(market.markPrice)}</b></div><div><span>Index</span><b>{formatPrice(market.indexPrice)}</b></div><div><span>Mark basis</span><b>{formatPct(markBasis, 3)}</b></div></div>
-        <div className={`${styles.comparison} ${market.binanceSymbol ? "" : styles.noComparison}`}><div><span>{market.binanceSymbol ? `BINANCE · ${market.binanceSymbol}` : "NO EXACT BINANCE SYMBOL"}</span><strong>{formatPrice(market.binanceMid)}</strong></div><div><span>POLY − BINANCE</span><strong className={(market.spreadPct ?? 0) >= 0 ? styles.positive : styles.negative}>{formatPct(market.spreadPct, 3)}</strong></div></div>
-        <footer><span>OI {formatCompact(market.openInterest)} {market.baseAsset}</span><span>Next {formatTime(market.nextFunding)} HKT</span></footer>
-      </button>;
+        <div className={styles.venueComparisons}>
+          <div className={`${styles.comparison} ${market.binanceSymbol ? "" : styles.noComparison}`}><div><span>{market.binanceSymbol ? `BINANCE · ${market.binanceSymbol}${market.mappingKind === "reference" ? " · REF" : ""}` : "NO VERIFIED BINANCE SYMBOL"}</span><strong>{formatPrice(market.binanceMid)}</strong></div><div><span>POLY − BINANCE</span><strong className={(market.spreadPct ?? 0) >= 0 ? styles.positive : styles.negative}>{formatPct(market.spreadPct, 3)}</strong></div></div>
+          <div className={`${styles.comparison} ${styles.hyperComparison} ${market.hyperSymbol ? "" : styles.noComparison}`}><div><span>{market.hyperSymbol ? `HYPERLIQUID · ${market.hyperSymbol}${market.hyperMappingKind === "reference" ? " · REF" : ""}` : "NO VERIFIED HYPERLIQUID SYMBOL"}</span><strong>{formatPrice(market.hyperMid)}</strong></div><div><span>POLY − HYPER</span><strong className={(market.hyperSpreadPct ?? 0) >= 0 ? styles.positive : styles.negative}>{formatPct(market.hyperSpreadPct, 3)}</strong></div></div>
+        </div>
+        <div className={styles.cardFooter}><div><span>OI {formatCompact(market.openInterest)} {market.baseAsset}</span><span>Next {formatTime(market.nextFunding)} HKT</span></div><button type="button" aria-expanded={expanded} aria-controls={`funding-history-${market.instrumentId}`} onClick={() => toggleHistory(market.instrumentId)}>{expanded ? "Close history" : "Open funding history"}<i aria-hidden="true">{expanded ? "−" : "+"}</i></button></div>
+        {expanded && <section id={`funding-history-${market.instrumentId}`} className={styles.inlineHistory}>
+          <div className={styles.historyHead}><div><p className={styles.eyebrow}>HOURLY FUNDING HISTORY</p><h2>{market.symbol}</h2><span>Current {formatFunding(market.fundingRate)} · next settlement {formatTime(market.nextFunding)} HKT</span></div><div className={styles.historyWindows}>{HISTORY_WINDOWS.map((window) => <button key={window.label} className={historyWindow === window.ms ? styles.activeWindow : ""} onClick={() => setHistoryWindow(window.ms)}>{window.label}</button>)}</div></div>
+          {loadingHistory ? <div className={styles.emptyChart}>Loading funding settlements…</div> : history.length > 1 ? <FundingChart points={history} symbol={market.symbol} /> : <div className={styles.emptyChart}>No settled funding observations are available in this window.</div>}
+          <footer><span>Polymarket public funding history · hourly settlements</span><span>{history.length} observations</span></footer>
+        </section>}
+      </article>;
     })}{!visible.length && <div className={styles.noMarkets}>No markets match the current filters.</div>}</section>
 
-    <section className={styles.historyPanel}><div className={styles.historyHead}><div><p className={styles.eyebrow}>HOURLY FUNDING HISTORY</p><h2>{selected?.symbol ?? "Select a market"}</h2><span>{selected ? `Current ${formatFunding(selected.fundingRate)} · next settlement ${formatTime(selected.nextFunding)} HKT` : "Waiting for market list"}</span></div><div className={styles.historyWindows}>{HISTORY_WINDOWS.map((window) => <button key={window.label} className={historyWindow === window.ms ? styles.activeWindow : ""} onClick={() => setHistoryWindow(window.ms)}>{window.label}</button>)}</div></div>{loadingHistory ? <div className={styles.emptyChart}>Loading funding settlements…</div> : history.length > 1 && selected ? <FundingChart points={history} symbol={selected.symbol} /> : <div className={styles.emptyChart}>No settled funding observations are available in this window.</div>}<footer><span>Polymarket public funding history · hourly settlements</span><span>{history.length} observations</span></footer></section>
-
-    <footer className={styles.footer}>Spread = Polymarket midpoint ÷ Binance midpoint − 1. A reference mapping may differ in session, contract construction, collateral and index methodology. Missing or zero midpoint data is never converted into a synthetic spread.</footer>
+    <footer className={styles.footer}>Spread = Polymarket midpoint ÷ comparison-venue midpoint − 1. Reference mappings may differ in session, contract construction, collateral and index methodology. Missing or zero midpoint data is never converted into a synthetic spread.</footer>
   </div></main>;
 }
