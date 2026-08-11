@@ -56,6 +56,20 @@ export const TRAINING_INTERVAL = "1h";
 
 export const RELATIONSHIPS: Relationship[] = [
   {
+    id: "skhynix-csop2l", title: "SKHYNIX → CSOP SKHYNIX 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
+    asset1: { venue: "binance", symbol: "SKHYNIXUSDT", label: "Binance SKHYNIX" }, asset2: { venue: "binance", symbol: "CSOPSKHYNIX2LUSDT", label: "Binance CSOP SKHYNIX 2L" },
+    referenceBeta: 2, leveraged: true,
+    thesis: "Apply the product's explicit +2 daily objective directly to SK Hynix's move.",
+    caveat: "The +2 relationship is a daily objective. Contract liquidity, oracle timing, fees and compounding can create a fillable deviation.",
+  },
+  {
+    id: "samsung-csop2l", title: "SAMSUNG → CSOP SAMSUNG 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
+    asset1: { venue: "binance", symbol: "SAMSUNGUSDT", label: "Binance SAMSUNG" }, asset2: { venue: "binance", symbol: "CSOPSAMSUNG2LUSDT", label: "Binance CSOP SAMSUNG 2L" },
+    referenceBeta: 2, leveraged: true,
+    thesis: "Apply the product's explicit +2 daily objective directly to Samsung Electronics' move.",
+    caveat: "The +2 relationship is a daily objective. Contract liquidity, oracle timing, fees and compounding can create a fillable deviation.",
+  },
+  {
     id: "qqq-ustech", title: "QQQ → USTECH", short: "Cross-venue Nasdaq technology proxy", kind: "same-benchmark",
     asset1: { venue: "binance", symbol: "QQQUSDT", label: "Binance QQQ" }, asset2: { venue: "hyperliquid", symbol: "mkts:USTECH", label: "Hyperliquid USTECH" },
     referenceBeta: 1, leveraged: false,
@@ -131,20 +145,6 @@ export const RELATIONSHIPS: Relationship[] = [
     referenceBeta: -1, leveraged: true,
     thesis: "Equal and opposite daily leverage on the same semiconductor benchmark should produce a coefficient near −1.",
     caveat: "Separate daily resets and market microstructure can still create prediction errors.",
-  },
-  {
-    id: "skhynix-csop2l", title: "SKHYNIX → CSOP SKHYNIX 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
-    asset1: { venue: "binance", symbol: "SKHYNIXUSDT", label: "Binance SKHYNIX" }, asset2: { venue: "binance", symbol: "CSOPSKHYNIX2LUSDT", label: "Binance CSOP SKHYNIX 2L" },
-    referenceBeta: 2, leveraged: true,
-    thesis: "Apply the product's explicit +2 daily objective directly to SK Hynix's move.",
-    caveat: "The +2 relationship is a daily objective. Contract liquidity, oracle timing, fees and compounding can create a fillable deviation.",
-  },
-  {
-    id: "samsung-csop2l", title: "SAMSUNG → CSOP SAMSUNG 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
-    asset1: { venue: "binance", symbol: "SAMSUNGUSDT", label: "Binance SAMSUNG" }, asset2: { venue: "binance", symbol: "CSOPSAMSUNG2LUSDT", label: "Binance CSOP SAMSUNG 2L" },
-    referenceBeta: 2, leveraged: true,
-    thesis: "Apply the product's explicit +2 daily objective directly to Samsung Electronics' move.",
-    caveat: "The +2 relationship is a daily objective. Contract liquidity, oracle timing, fees and compounding can create a fillable deviation.",
   },
   {
     id: "ewy-koru", title: "EWY → KORU", short: "Korea +1× to +3×", kind: "leveraged-long",

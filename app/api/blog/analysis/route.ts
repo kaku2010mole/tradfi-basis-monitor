@@ -40,14 +40,23 @@ async function fetchBinance<T>(path: string) {
   throw lastError instanceof Error ? lastError : new Error("Binance market data unavailable.");
 }
 
-const observationInterval = (durationMs: number) => durationMs <= 6 * 60 * 60_000 ? "1m"
-  : durationMs <= 24 * 60 * 60_000 ? "5m"
-    : "15m";
+const observationInterval = () => "1m";
+const INTERVAL_MS: Record<string, number> = { "1m": 60_000, "5m": 5 * 60_000, "15m": 15 * 60_000, "1h": 60 * 60_000 };
 
 async function getSeries(leg: Relationship["asset1"], start: number, end: number, interval: string): Promise<PricePoint[]> {
   if (leg.venue === "binance") {
-    const params = new URLSearchParams({ symbol: leg.symbol, interval, startTime: String(start), endTime: String(end), limit: "1500" });
-    const rows = await fetchBinance<BinanceKline[]>(`/fapi/v1/klines?${params}`);
+    const rows: BinanceKline[] = [];
+    const step = INTERVAL_MS[interval] ?? 60_000;
+    let cursor = start;
+    while (cursor <= end && rows.length < 5_000) {
+      const params = new URLSearchParams({ symbol: leg.symbol, interval, startTime: String(cursor), endTime: String(end), limit: "1500" });
+      const page = await fetchBinance<BinanceKline[]>(`/fapi/v1/klines?${params}`);
+      if (!page.length) break;
+      rows.push(...page);
+      const next = page.at(-1)![0] + step;
+      if (page.length < 1_500 || next <= cursor) break;
+      cursor = next;
+    }
     return rows.flatMap((row) => {
       const value = Number(row[4]);
       return Number.isFinite(value) && value > 0 ? [{ t: row[0], value }] : [];
@@ -150,7 +159,7 @@ export async function GET(request: Request) {
   if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || start >= end || end > now + 60_000 || end - start > MAX_OBSERVATION_MS + 60_000) {
     return Response.json({ error: "Choose any historical window up to three days, ending no later than now." }, { status: 400 });
   }
-  const interval = observationInterval(end - start);
+  const interval = observationInterval();
   try {
     const [model, asset1Rows, asset2Rows, universe] = await Promise.all([
       getFixedModel(relationship, start),

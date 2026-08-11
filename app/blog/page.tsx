@@ -48,7 +48,12 @@ const QUICK_WINDOWS = [
   { label: "24H", milliseconds: 24 * 60 * 60_000 },
   { label: "3D", milliseconds: MAX_OBSERVATION_MS },
 ] as const;
+const TODAY_ANCHORS = [
+  { label: "10:00", hour: 10 },
+  { label: "15:00", hour: 15 },
+] as const;
 const INITIAL_NOW = Date.now();
+const HKT_OFFSET_MS = 8 * 60 * 60_000;
 const DIRECT_BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
 const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v6";
 const CUSTOM_RELATIONSHIPS_KEY = "relative-value-custom-relationships-v1";
@@ -64,8 +69,15 @@ type CustomDraft = {
 
 const EMPTY_DRAFT: CustomDraft = { asset1Venue: "binance", asset1Symbol: "", asset2Venue: "binance", asset2Symbol: "", referenceBeta: "" };
 
-const toHktInput = (timestamp: number) => new Date(timestamp + 8 * 60 * 60_000).toISOString().slice(0, 16);
+const toHktInput = (timestamp: number) => new Date(timestamp + HKT_OFFSET_MS).toISOString().slice(0, 16);
 const fromHktInput = (value: string) => Date.parse(`${value}:00+08:00`);
+const hktTodayAt = (hour: number, timestamp: number) => {
+  const day = new Date(timestamp + HKT_OFFSET_MS).toISOString().slice(0, 10);
+  return Date.parse(`${day}T${String(hour).padStart(2, "0")}:00:00+08:00`);
+};
+const INITIAL_TEN = hktTodayAt(10, INITIAL_NOW);
+const INITIAL_START = INITIAL_TEN < INITIAL_NOW ? INITIAL_TEN : INITIAL_NOW - 60 * 60_000;
+const INITIAL_SELECTION = INITIAL_TEN < INITIAL_NOW ? "10:00" : "1H";
 const formatPct = (value: number, digits = 2) => `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 const formatNumber = (value: number, digits = 2) => `${value >= 0 ? "+" : ""}${value.toFixed(digits)}`;
 const formatTime = (value: number, includeDate = false) => new Intl.DateTimeFormat("en-GB", {
@@ -77,7 +89,8 @@ const formatTime = (value: number, includeDate = false) => new Intl.DateTimeForm
   hour12: false,
 }).format(value);
 const formatDate = (value: number) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: "short", day: "2-digit", year: "numeric" }).format(value);
-const observationInterval = (duration: number) => duration <= 6 * 60 * 60_000 ? "1m" : duration <= 24 * 60 * 60_000 ? "5m" : "15m";
+const observationInterval = () => "1m";
+const INTERVAL_MS: Record<string, number> = { "1m": 60_000, "5m": 5 * 60_000, "15m": 15 * 60_000, "1h": 60 * 60_000 };
 
 async function directBinance<T>(path: string) {
   let lastError: unknown;
@@ -95,8 +108,18 @@ async function directBinance<T>(path: string) {
 
 async function directSeries(leg: Relationship["asset1"], start: number, end: number, interval: string): Promise<PricePoint[]> {
   if (leg.venue === "binance") {
-    const params = new URLSearchParams({ symbol: leg.symbol, interval, startTime: String(start), endTime: String(end), limit: "1500" });
-    const rows = await directBinance<Array<[number, string, string, string, string]>>(`/fapi/v1/klines?${params}`);
+    const rows: Array<[number, string, string, string, string]> = [];
+    const step = INTERVAL_MS[interval] ?? 60_000;
+    let cursor = start;
+    while (cursor <= end && rows.length < 5_000) {
+      const params = new URLSearchParams({ symbol: leg.symbol, interval, startTime: String(cursor), endTime: String(end), limit: "1500" });
+      const page = await directBinance<Array<[number, string, string, string, string]>>(`/fapi/v1/klines?${params}`);
+      if (!page.length) break;
+      rows.push(...page);
+      const next = page.at(-1)![0] + step;
+      if (page.length < 1_500 || next <= cursor) break;
+      cursor = next;
+    }
     return rows.flatMap((row) => Number(row[4]) > 0 ? [{ t: row[0], value: Number(row[4]) }] : []);
   }
   const response = await fetch("https://api.hyperliquid.xyz/info", {
@@ -129,7 +152,7 @@ async function directFixedModel(relationship: Relationship, now: number) {
 }
 
 async function analyzeInBrowser(relationship: Relationship, start: number, end: number): Promise<Analysis> {
-  const interval = observationInterval(end - start);
+  const interval = observationInterval();
   const [model, asset1Rows, asset2Rows, exchangeInfo] = await Promise.all([
     directFixedModel(relationship, start),
     directSeries(relationship.asset1, start, end, interval),
@@ -208,10 +231,10 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
   const initialRelationshipId = trading ? "skhynix-csop2l" : "qqq-ustech";
   const requestRef = useRef<AbortController | null>(null);
   const [relationshipId, setRelationshipId] = useState(initialRelationshipId);
-  const [startInput, setStartInput] = useState(() => toHktInput(INITIAL_NOW - 24 * 60 * 60_000));
+  const [startInput, setStartInput] = useState(() => toHktInput(INITIAL_START));
   const [endInput, setEndInput] = useState(() => toHktInput(INITIAL_NOW));
   const [followingLive, setFollowingLive] = useState(true);
-  const [activeWindow, setActiveWindow] = useState("24H");
+  const [activeWindow, setActiveWindow] = useState(INITIAL_SELECTION);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -280,7 +303,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
   }, [endInput, relationshipId, relationships, startInput]);
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => void load({ start: INITIAL_NOW - 24 * 60 * 60_000, end: INITIAL_NOW }));
+    const frame = window.requestAnimationFrame(() => void load({ start: INITIAL_START, end: INITIAL_NOW }));
     return () => { window.cancelAnimationFrame(frame); requestRef.current?.abort(); };
     // Initial load is intentionally independent of editable input state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -289,9 +312,11 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
   useEffect(() => {
     if (!followingLive) return;
     const timer = window.setInterval(() => {
-      const windowConfig = QUICK_WINDOWS.find((item) => item.label === activeWindow) ?? QUICK_WINDOWS[2];
       const end = Date.now();
-      const start = end - windowConfig.milliseconds;
+      const anchor = TODAY_ANCHORS.find((item) => item.label === activeWindow);
+      const windowConfig = QUICK_WINDOWS.find((item) => item.label === activeWindow);
+      const start = anchor ? hktTodayAt(anchor.hour, end) : end - (windowConfig?.milliseconds ?? 60 * 60_000);
+      if (start >= end) return;
       setStartInput(toHktInput(start));
       setEndInput(toHktInput(end));
       void load({ start, end });
@@ -306,6 +331,15 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
 
   const applyQuickWindow = (label: string, milliseconds: number, end: number) => {
     const start = end - milliseconds;
+    setActiveWindow(label);
+    setFollowingLive(true);
+    setStartInput(toHktInput(start));
+    setEndInput(toHktInput(end));
+    void load({ start, end });
+  };
+  const applyTodayAnchor = (label: string, hour: number, end: number) => {
+    const start = hktTodayAt(hour, end);
+    if (start >= end) return;
     setActiveWindow(label);
     setFollowingLive(true);
     setStartInput(toHktInput(start));
@@ -424,11 +458,11 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
 
       <div className={styles.analysisColumn}>
         <section className={styles.controls}>
-          <div className={styles.quickWindows}>{QUICK_WINDOWS.map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
+          <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const unavailable = hktTodayAt(anchor.hour, analysis?.generatedAt ?? INITIAL_NOW) >= (analysis?.generatedAt ?? INITIAL_NOW); return <button key={anchor.label} className={`${styles.anchorWindow} ${followingLive && activeWindow === anchor.label ? styles.activeWindow : ""}`} disabled={unavailable} title={`Compare from today at ${anchor.label} HKT`} onClick={(event) => applyTodayAnchor(anchor.label, anchor.hour, performance.timeOrigin + event.timeStamp)}>{anchor.label}</button>; })}{QUICK_WINDOWS.map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
           <label>Backtest start · HKT<input type="datetime-local" value={startInput} max={endInput} onChange={(event) => { setStartInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
           <label>Backtest end · HKT<input type="datetime-local" value={endInput} min={startInput} onChange={(event) => { setEndInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
           <button className={styles.runButton} disabled={loading} onClick={() => void load()}>{loading ? "Updating…" : "Update prediction"}</button>
-          <p className={styles.windowRule}>{followingLive ? "Following the latest market window." : "Historical backtest selected."} Each run is capped at 3D because leveraged ETFs reset daily. A supplied beta always runs directly; history is validation only and is not required.</p>
+          <p className={styles.windowRule}>{followingLive ? `Following ${TODAY_ANCHORS.some((item) => item.label === activeWindow) ? `today at ${activeWindow} HKT` : `the latest ${activeWindow} window`}.` : "Historical backtest selected."} Observation curves use one-minute candles and each run is capped at 3D because leveraged ETFs reset daily. A supplied beta always runs directly; history is validation only and is not required.</p>
         </section>
 
         {error && <div className={styles.errorBox}><strong>Prediction unavailable</strong><span>{error}</span><button onClick={() => void load()}>Retry</button></div>}
@@ -460,7 +494,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
             </div>
           </section>
 
-          <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>THEORETICAL RETURN ENGINE</span><h3>Asset 2 actual versus model</h3></div><div className={styles.legend}><span><i className={styles.legendA} />Asset 1 actual</span><span><i className={styles.legendB} />Asset 2 actual</span><span><i className={styles.legendTheory} />Asset 2 theoretical</span></div></div><PredictionChart points={analysis.points} relationship={selected} /></section>
+          <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>THEORETICAL RETURN ENGINE</span><h3>Asset 2 actual versus model</h3><p>{analysis.points.length.toLocaleString()} aligned points · {analysis.interval} resolution</p></div><div className={styles.legend}><span><i className={styles.legendA} />Asset 1 actual</span><span><i className={styles.legendB} />Asset 2 actual</span><span><i className={styles.legendTheory} />Asset 2 theoretical</span></div></div><PredictionChart points={analysis.points} relationship={selected} /></section>
 
           {!formulaOnly && <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>PREDICTION ERROR MONITOR</span><h3>Actual Asset 2 minus theory</h3></div><p>Watch at ±1.5σ · dislocation at ±2σ · suppressed when model quality is weak.</p></div><ResidualChart points={analysis.points} /></section>}
 
