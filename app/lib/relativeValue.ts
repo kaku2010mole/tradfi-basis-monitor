@@ -133,6 +133,20 @@ export const RELATIONSHIPS: Relationship[] = [
     caveat: "Separate daily resets and market microstructure can still create prediction errors.",
   },
   {
+    id: "skhynix-csop2l", title: "SKHYNIX → CSOP SKHYNIX 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
+    asset1: { venue: "binance", symbol: "SKHYNIXUSDT", label: "Binance SKHYNIX" }, asset2: { venue: "binance", symbol: "CSOPSKHYNIX2LUSDT", label: "Binance CSOP SKHYNIX 2L" },
+    referenceBeta: 2, leveraged: true,
+    thesis: "Apply the product's explicit +2 daily objective directly to SK Hynix's move.",
+    caveat: "The +2 relationship is a daily objective. Contract liquidity, oracle timing, fees and compounding can create a fillable deviation.",
+  },
+  {
+    id: "samsung-csop2l", title: "SAMSUNG → CSOP SAMSUNG 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
+    asset1: { venue: "binance", symbol: "SAMSUNGUSDT", label: "Binance SAMSUNG" }, asset2: { venue: "binance", symbol: "CSOPSAMSUNG2LUSDT", label: "Binance CSOP SAMSUNG 2L" },
+    referenceBeta: 2, leveraged: true,
+    thesis: "Apply the product's explicit +2 daily objective directly to Samsung Electronics' move.",
+    caveat: "The +2 relationship is a daily objective. Contract liquidity, oracle timing, fees and compounding can create a fillable deviation.",
+  },
+  {
     id: "ewy-koru", title: "EWY → KORU", short: "Korea +1× to +3×", kind: "leveraged-long",
     asset1: { venue: "binance", symbol: "EWYUSDT", label: "Binance EWY" }, asset2: { venue: "binance", symbol: "KORUUSDT", label: "Binance KORU" },
     referenceBeta: 3, leveraged: true,

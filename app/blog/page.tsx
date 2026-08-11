@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
+import PairExecutionPanel from "../trade/PairExecutionPanel";
 import {
   fixedTrainingWindow,
   MAX_OBSERVATION_MS,
@@ -203,9 +204,10 @@ function ResidualChart({ points }: { points: ProjectionPoint[] }) {
   </svg></div>;
 }
 
-export default function RelativeValueBlog() {
+export default function RelativeValueBlog({ trading = false }: { trading?: boolean } = {}) {
+  const initialRelationshipId = trading ? "skhynix-csop2l" : "qqq-ustech";
   const requestRef = useRef<AbortController | null>(null);
-  const [relationshipId, setRelationshipId] = useState("qqq-ustech");
+  const [relationshipId, setRelationshipId] = useState(initialRelationshipId);
   const [startInput, setStartInput] = useState(() => toHktInput(INITIAL_NOW - 24 * 60 * 60_000));
   const [endInput, setEndInput] = useState(() => toHktInput(INITIAL_NOW));
   const [followingLive, setFollowingLive] = useState(true);
@@ -234,10 +236,13 @@ export default function RelativeValueBlog() {
       const validHidden = savedHidden.filter((id) => RELATIONSHIPS.some((item) => item.id === id));
       setCustomRelationships(validCustom);
       setHiddenRelationshipIds(validHidden);
-      if (validHidden.includes("qqq-ustech")) setRelationshipId(RELATIONSHIPS.find((item) => !validHidden.includes(item.id))?.id ?? validCustom[0]?.id ?? "");
+      if (validHidden.includes(initialRelationshipId)) {
+        const fallback = RELATIONSHIPS.find((item) => !validHidden.includes(item.id) && (!trading || (item.asset1.venue === "binance" && item.asset2.venue === "binance"))) ?? validCustom.find((item) => !trading || (item.asset1.venue === "binance" && item.asset2.venue === "binance"));
+        setRelationshipId(fallback?.id ?? "");
+      }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, []);
+  }, [initialRelationshipId, trading]);
 
   const load = useCallback(async (options?: { relationship?: string; definition?: Relationship; start?: number; end?: number }) => {
     requestRef.current?.abort();
@@ -388,8 +393,8 @@ export default function RelativeValueBlog() {
 
   return <main className={styles.shell}><div className={styles.frame}>
     <header className={styles.topbar}>
-      <div><p className={styles.eyebrow}>FIXED-COEFFICIENT RELATIVE VALUE</p><h1>Relative Value Blog</h1><p>Asset 1 explains the move. Explicit structural betas are applied immediately, even when a new contract has too little history for validation; only relationships without one require regression.</p></div>
-      <div className={styles.topActions}><span className={`${styles.connection} ${analysis && !error ? styles.online : ""}`}><i />{loading ? "Updating prediction" : analysis && !error ? "Prediction live" : "Data retry needed"}</span><PageSwitcher active="blog" /></div>
+      <div><p className={styles.eyebrow}>{trading ? "LIVE RELATIVE VALUE EXECUTION" : "FIXED-COEFFICIENT RELATIVE VALUE"}</p><h1>{trading ? "Relative Value Execution" : "Relative Value Blog"}</h1><p>{trading ? "Use the same relative-value models and charts, then submit a β-balanced two-leg Binance Futures order with a complete fill and spread report." : "Asset 1 explains the move. Explicit structural betas are applied immediately, even when a new contract has too little history for validation; only relationships without one require regression."}</p></div>
+      <div className={styles.topActions}><span className={`${styles.connection} ${analysis && !error ? styles.online : ""}`}><i />{loading ? "Updating prediction" : analysis && !error ? trading ? "Execution data live" : "Prediction live" : "Data retry needed"}</span><PageSwitcher active={trading ? "trade" : "blog"} /></div>
     </header>
 
     <section className={styles.universeStrip}>
@@ -433,6 +438,8 @@ export default function RelativeValueBlog() {
             <div className={styles.heroCopy}><span className={styles.kindPill}>{selected.kind.replaceAll("-", " ")}</span><h2>{selected.title}</h2><p>{selected.thesis}</p><small>{selected.caveat}</small></div>
             <div className={`${styles.signal} ${styles[formulaOnly ? "normal" : analysis.model.quality === "weak" ? "watch" : analysis.stats.status]}`}><span>PREDICTION SIGNAL</span><strong>{signalLabel}</strong><b>{formulaOnly ? `β ${formatNumber(analysis.model.beta, 2)}` : `${formatNumber(analysis.stats.zScore)}σ`}</b><small>{formulaOnly ? `Using the supplied multiplier without blocking on historical validation. Raw deviation from theory is ${formatPct(analysis.stats.predictionError)}.` : analysis.model.quality === "weak" ? "Holdout validation is too weak for a confident dislocation call." : `Asset 2 is ${formatPct(analysis.stats.predictionError)} away from theory.`}</small></div>
           </section>
+
+          {trading && <PairExecutionPanel relationship={selected} beta={analysis.model.beta} />}
 
           <section className={styles.predictionGrid}>
             <article><span>Asset 1 observed move</span><strong className={analysis.stats.asset1Return >= 0 ? styles.positive : styles.negative}>{formatPct(analysis.stats.asset1Return)}</strong><small>{selected.asset1.label} · model input</small></article>
