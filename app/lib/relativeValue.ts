@@ -207,7 +207,32 @@ const modelMetrics = (x: number[], y: number[], alpha: number, beta: number) => 
 
 export function trainRelationshipModel(asset1Rows: PricePoint[], asset2Rows: PricePoint[], relationship: Relationship, trainingStart: number, trainingEnd: number): TrainedModel {
   const aligned = alignPrices(asset1Rows, asset2Rows);
-  if (aligned.length < 80) throw new Error("Not enough aligned hourly candles to train and validate this relationship.");
+  const method = relationship.referenceBeta === null ? "regression" as const : "reference" as const;
+  if (aligned.length < 80) {
+    const referenceBeta = relationship.referenceBeta;
+    if (referenceBeta === null) throw new Error("Not enough aligned hourly candles to train and validate this relationship. Add a reference beta to use a fixed multiplier instead.");
+    return {
+      method,
+      alphaHourly: 0,
+      beta: referenceBeta,
+      referenceBeta,
+      trainedAt: Date.now(),
+      trainingStart,
+      trainingEnd,
+      validationStart: trainingEnd,
+      trainSamples: 0,
+      validationSamples: 0,
+      trainCorrelation: 0,
+      validationCorrelation: 0,
+      trainR2: 0,
+      validationR2: 0,
+      validationMaePct: 0,
+      validationResidualStd: 0,
+      validationBeta: referenceBeta,
+      betaDrift: 0,
+      quality: "weak",
+    };
+  }
   const x = aligned.slice(1).map((row, index) => Math.log(row.asset1 / aligned[index].asset1));
   const y = aligned.slice(1).map((row, index) => Math.log(row.asset2 / aligned[index].asset2));
   const split = Math.max(40, Math.min(x.length - 24, Math.floor(x.length * (1 - VALIDATION_FRACTION))));
@@ -217,7 +242,6 @@ export function trainRelationshipModel(asset1Rows: PricePoint[], asset2Rows: Pri
   const validationY = y.slice(split);
   const trainFit = regression(trainX, trainY);
   const validationFit = regression(validationX, validationY);
-  const method = relationship.referenceBeta === null ? "regression" as const : "reference" as const;
   const alphaHourly = method === "reference" ? 0 : trainFit.alpha;
   const beta = method === "reference" ? relationship.referenceBeta : trainFit.beta;
   const trainMetrics = modelMetrics(trainX, trainY, alphaHourly, beta);
@@ -262,7 +286,8 @@ export function projectRelationship(asset1Rows: PricePoint[], asset2Rows: PriceP
     const asset2Theoretical = Math.expm1(theoreticalLogReturn) * 100;
     const asset2Actual = (row.asset2 / first.asset2 - 1) * 100;
     const errorLog = actualLogReturn - theoreticalLogReturn;
-    const expectedError = model.validationResidualStd * Math.sqrt(Math.max(1, elapsedHours));
+    const hasValidation = model.validationSamples > 0 && model.validationResidualStd > 0;
+    const expectedError = hasValidation ? model.validationResidualStd * Math.sqrt(Math.max(1, elapsedHours)) : null;
     return {
       t: row.t,
       asset1: row.asset1,
@@ -271,7 +296,7 @@ export function projectRelationship(asset1Rows: PricePoint[], asset2Rows: PriceP
       asset2Actual,
       asset2Theoretical,
       predictionError: asset2Actual - asset2Theoretical,
-      z: errorLog / expectedError,
+      z: expectedError ? errorLog / expectedError : 0,
     };
   });
   const latest = points.at(-1)!;

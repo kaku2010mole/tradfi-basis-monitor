@@ -98,9 +98,11 @@
 .validated { color:#087f5b!important; }
 .usable { color:#bf741b!important; }
 .weak { color:#c8403d!important; }
+.locked { color:#6244c5!important; }
 .modelHead>b.validated { background:#e5f7f0; }
 .modelHead>b.usable { background:#fff1dc; }
 .modelHead>b.weak { background:#fde9e7; }
+.modelHead>b.locked { background:#eee9ff; }
 .modelMetrics { display:grid; grid-template-columns:repeat(6,1fr); }
 .modelMetrics>div { min-width:0; padding:15px 16px; border-right:1px solid var(--line); }
 .modelMetrics>div:last-child { border-right:0; }

@@ -74,9 +74,13 @@ async function getFixedModel(relationship: Relationship, now: number) {
   const key = `${relationship.id}:${trainingEnd}`;
   const cached = modelCache.get(key);
   if (cached) return cached;
+  const trainingSeries = (leg: Relationship["asset1"]) => getSeries(leg, trainingStart, trainingEnd, TRAINING_INTERVAL).catch((error) => {
+    if (relationship.referenceBeta !== null) return [];
+    throw error;
+  });
   const model = Promise.all([
-    getSeries(relationship.asset1, trainingStart, trainingEnd, TRAINING_INTERVAL),
-    getSeries(relationship.asset2, trainingStart, trainingEnd, TRAINING_INTERVAL),
+    trainingSeries(relationship.asset1),
+    trainingSeries(relationship.asset2),
   ]).then(([asset1Rows, asset2Rows]) => trainRelationshipModel(asset1Rows, asset2Rows, relationship, trainingStart, trainingEnd));
   for (const cachedKey of modelCache.keys()) {
     if (!cachedKey.endsWith(`:${trainingEnd}`)) modelCache.delete(cachedKey);
