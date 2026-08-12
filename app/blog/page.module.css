@@ -29,13 +29,21 @@
 .pairManager .restoreButton { min-height:31px; border:1px solid #cbd9d1; border-radius:6px; background:#fff; color:var(--muted); cursor:pointer; font-size:8px; font-weight:800; }
 .relationshipList { display:grid; gap:5px; padding:8px; }
 .relationshipItem { position:relative; min-width:0; }
-.relationshipItem>button:first-child { position:relative; width:100%; min-height:58px; display:grid; align-content:center; gap:4px; padding:10px 34px 10px 11px; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--ink); text-align:left; }
+.relationshipItem>button:first-child { position:relative; width:100%; min-height:73px; display:grid; align-content:center; gap:5px; padding:10px 34px 10px 11px; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--ink); text-align:left; }
 .relationshipItem>button:first-child:hover { background:#f2f7f3; }
 .relationshipItem>button:first-child:disabled { opacity:.42; cursor:not-allowed; }
-.relationshipItem>button:first-child span { font:850 12px monospace; }
+.relationshipItem>button:first-child span { font:850 11px monospace; }
 .relationshipItem>button:first-child small { color:var(--muted); font-size:9px; }
-.relationshipItem>button:first-child>b { margin-top:3px; color:#89968f; font:750 7px monospace; }
 .relationshipItem>button:first-child em { position:absolute; top:8px; right:28px; color:var(--red); font:800 7px monospace; text-transform:uppercase; }
+.relationshipTitle { display:flex; align-items:center; gap:6px; padding-right:2px; }
+.relationshipTitle i { flex:0 0 auto; color:#9aa69f; font:800 7px monospace; font-style:normal; }
+.relationshipMeta { display:flex; align-items:center; gap:7px; margin-top:2px; }
+.relationshipMeta b { color:#89968f; font:750 7px monospace; }
+.relationshipMeta strong { min-width:70px; font:900 13px/1 monospace; letter-spacing:-.035em; }
+.rankingError { padding:5px 7px; border-radius:5px; }
+.positiveError { color:#b83b38; background:#fdebea; }
+.negativeError { color:#365db4; background:#eaf0ff; }
+.pendingError { color:#9aa69f; font-size:7px!important; letter-spacing:.06em!important; }
 .removeRelationship { position:absolute; z-index:2; top:8px; right:7px; width:23px; height:23px; border:0; border-radius:50%; background:#eef3ef; color:#8b9891; cursor:pointer; font-size:15px; line-height:1; }
 .removeRelationship:hover { background:#fde9e7; color:var(--red); }
 .relationshipList .activeRelationship { border-color:#b6dfd0; background:#eaf8f2; box-shadow:inset 3px 0 0 var(--green); }
