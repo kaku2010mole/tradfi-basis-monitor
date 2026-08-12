@@ -15,6 +15,13 @@ import {
   trainRelationshipModel,
   TrainedModel,
 } from "../lib/relativeValue";
+import {
+  RELATIVE_VALUE_SIGNAL_EVENT,
+  RELATIVE_VALUE_SNAPSHOT_EVENT,
+  RELATIVE_VALUE_SNAPSHOT_KEY,
+  RelativeValueAlertSignal,
+  RelativeValueAlertSnapshot,
+} from "../lib/relativeValueAlerts";
 import styles from "./page.module.css";
 
 type Analysis = {
@@ -49,8 +56,8 @@ const QUICK_WINDOWS = [
   { label: "3D", milliseconds: MAX_OBSERVATION_MS },
 ] as const;
 const TODAY_ANCHORS = [
-  { label: "10:00", hour: 10 },
-  { label: "15:00", hour: 15 },
+  { label: "10:00", hour: 10, minute: 0 },
+  { label: "14:30", hour: 14, minute: 30 },
 ] as const;
 const INITIAL_NOW = Date.now();
 const HKT_OFFSET_MS = 8 * 60 * 60_000;
@@ -71,9 +78,9 @@ const EMPTY_DRAFT: CustomDraft = { asset1Venue: "binance", asset1Symbol: "", ass
 
 const toHktInput = (timestamp: number) => new Date(timestamp + HKT_OFFSET_MS).toISOString().slice(0, 16);
 const fromHktInput = (value: string) => Date.parse(`${value}:00+08:00`);
-const hktTodayAt = (hour: number, timestamp: number) => {
+const hktTodayAt = (hour: number, timestamp: number, minute = 0) => {
   const day = new Date(timestamp + HKT_OFFSET_MS).toISOString().slice(0, 10);
-  return Date.parse(`${day}T${String(hour).padStart(2, "0")}:00:00+08:00`);
+  return Date.parse(`${day}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+08:00`);
 };
 const INITIAL_TEN = hktTodayAt(10, INITIAL_NOW);
 const INITIAL_START = INITIAL_TEN < INITIAL_NOW ? INITIAL_TEN : INITIAL_NOW - 60 * 60_000;
@@ -273,6 +280,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
   const liveRequestRef = useRef(false);
   const [lastLiveAt, setLastLiveAt] = useState(0);
   const [liveError, setLiveError] = useState("");
+  const [livePrices, setLivePrices] = useState<{ relationshipId: string; asset1: number; asset2: number; updatedAt: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [customRelationships, setCustomRelationships] = useState<Relationship[]>([]);
@@ -283,6 +291,25 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
   const relationships = useMemo(() => [...RELATIONSHIPS.filter((item) => !hiddenRelationshipIds.includes(item.id)), ...customRelationships], [customRelationships, hiddenRelationshipIds]);
 
   useEffect(() => { analysisRef.current = analysis; }, [analysis]);
+
+  useEffect(() => {
+    const first = analysis?.points[0];
+    if (!analysis || !first) return;
+    const snapshot: RelativeValueAlertSnapshot = {
+      id: analysis.relationship.id,
+      title: analysis.relationship.title,
+      asset1: analysis.relationship.asset1,
+      asset2: analysis.relationship.asset2,
+      savedAt: Date.now(),
+      start: first.t,
+      baseAsset1: first.asset1,
+      baseAsset2: first.asset2,
+      alphaHourly: analysis.model.alphaHourly,
+      beta: analysis.model.beta,
+    };
+    window.localStorage.setItem(RELATIVE_VALUE_SNAPSHOT_KEY, JSON.stringify(snapshot));
+    window.dispatchEvent(new CustomEvent(RELATIVE_VALUE_SNAPSHOT_EVENT, { detail: snapshot }));
+  }, [analysis]);
 
   useEffect(() => {
     let savedCustom: Relationship[] = [];
@@ -354,7 +381,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
       const end = Date.now();
       const anchor = TODAY_ANCHORS.find((item) => item.label === activeWindow);
       const windowConfig = QUICK_WINDOWS.find((item) => item.label === activeWindow);
-      const start = anchor ? hktTodayAt(anchor.hour, end) : end - (windowConfig?.milliseconds ?? 60 * 60_000);
+      const start = anchor ? hktTodayAt(anchor.hour, end, anchor.minute) : end - (windowConfig?.milliseconds ?? 60 * 60_000);
       if (start >= end) return;
       setStartInput(toHktInput(start));
       setEndInput(toHktInput(end));
@@ -381,6 +408,27 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
           current.model,
         );
         const livePoint = liveProjection.points.at(-1)!;
+        const snapshot: RelativeValueAlertSnapshot = {
+          id: current.relationship.id,
+          title: current.relationship.title,
+          asset1: current.relationship.asset1,
+          asset2: current.relationship.asset2,
+          savedAt: now,
+          start: first.t,
+          baseAsset1: first.asset1,
+          baseAsset2: first.asset2,
+          alphaHourly: current.model.alphaHourly,
+          beta: current.model.beta,
+        };
+        const signal: RelativeValueAlertSignal = {
+          snapshot,
+          predictionError: liveProjection.stats.predictionError,
+          asset2Actual: liveProjection.stats.asset2Actual,
+          asset2Theoretical: liveProjection.stats.asset2Theoretical,
+          updatedAt: now,
+        };
+        window.dispatchEvent(new CustomEvent(RELATIVE_VALUE_SIGNAL_EVENT, { detail: signal }));
+        setLivePrices({ relationshipId: current.relationship.id, asset1: quote.asset1, asset2: quote.asset2, updatedAt: now });
         setAnalysis((previous) => {
           if (!previous || previous.relationship.id !== current.relationship.id) return previous;
           const withoutPreviousTick = previous.points.at(-1)?.t % 60_000 === 0 ? previous.points : previous.points.slice(0, -1);
@@ -412,8 +460,8 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
     setEndInput(toHktInput(end));
     void load({ start, end });
   };
-  const applyTodayAnchor = (label: string, hour: number, end: number) => {
-    const start = hktTodayAt(hour, end);
+  const applyTodayAnchor = (label: string, hour: number, minute: number, end: number) => {
+    const start = hktTodayAt(hour, end, minute);
     if (start >= end) return;
     setActiveWindow(label);
     setFollowingLive(true);
@@ -421,6 +469,16 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
     setEndInput(toHktInput(end));
     void load({ start, end });
   };
+
+  const neutralPrices = analysis && selected ? livePrices?.relationshipId === selected.id ? livePrices : {
+    relationshipId: selected.id,
+    asset1: analysis.points.at(-1)?.asset1 ?? 0,
+    asset2: analysis.points.at(-1)?.asset2 ?? 0,
+    updatedAt: analysis.points.at(-1)?.t ?? analysis.generatedAt,
+  } : null;
+  const neutralAsset1Shares = analysis && neutralPrices && neutralPrices.asset1 > 0 ? Math.abs(analysis.model.beta) * neutralPrices.asset2 / neutralPrices.asset1 : null;
+  const neutralAsset2Side = analysis?.stats.predictionError && analysis.stats.predictionError > 0 ? "SHORT" : "LONG";
+  const neutralAsset1Side = analysis ? analysis.model.beta >= 0 ? neutralAsset2Side === "LONG" ? "SHORT" : "LONG" : neutralAsset2Side : "—";
   const chooseRelationship = (id: string) => {
     const relationship = relationships.find((item) => item.id === id);
     if (!relationship) return;
@@ -533,7 +591,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
 
       <div className={styles.analysisColumn}>
         <section className={styles.controls}>
-          <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const unavailable = hktTodayAt(anchor.hour, analysis?.generatedAt ?? INITIAL_NOW) >= (analysis?.generatedAt ?? INITIAL_NOW); return <button key={anchor.label} className={`${styles.anchorWindow} ${followingLive && activeWindow === anchor.label ? styles.activeWindow : ""}`} disabled={unavailable} title={`Compare from today at ${anchor.label} HKT`} onClick={(event) => applyTodayAnchor(anchor.label, anchor.hour, performance.timeOrigin + event.timeStamp)}>{anchor.label}</button>; })}{QUICK_WINDOWS.map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
+          <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const unavailable = hktTodayAt(anchor.hour, analysis?.generatedAt ?? INITIAL_NOW, anchor.minute) >= (analysis?.generatedAt ?? INITIAL_NOW); return <button key={anchor.label} className={`${styles.anchorWindow} ${followingLive && activeWindow === anchor.label ? styles.activeWindow : ""}`} disabled={unavailable} title={`Compare from today at ${anchor.label} HKT`} onClick={(event) => applyTodayAnchor(anchor.label, anchor.hour, anchor.minute, performance.timeOrigin + event.timeStamp)}>{anchor.label}</button>; })}{QUICK_WINDOWS.map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
           <label>Backtest start · HKT<input type="datetime-local" value={startInput} max={endInput} onChange={(event) => { setStartInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
           <label>Backtest end · HKT<input type="datetime-local" value={endInput} min={startInput} onChange={(event) => { setEndInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
           <button className={styles.runButton} disabled={loading} onClick={() => void load()}>{loading ? "Updating…" : "Update prediction"}</button>
@@ -556,6 +614,13 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
             <article><span>Asset 2 actual move</span><strong className={analysis.stats.asset2Actual >= 0 ? styles.positive : styles.negative}>{formatPct(analysis.stats.asset2Actual)}</strong><small>{selected.asset2.label} · observed</small></article>
             <article><span>Prediction error</span><strong className={!formulaOnly && Math.abs(analysis.stats.zScore) >= 2 ? styles.negative : ""}>{formatPct(analysis.stats.predictionError, 3)}</strong><small>{formulaOnly ? "Actual − theoretical · significance unavailable" : `Actual − theoretical · ${formatNumber(analysis.stats.zScore)}σ`}</small></article>
           </section>
+
+          {neutralPrices && neutralAsset1Shares !== null && <section className={styles.neutralPanel}>
+            <div className={styles.neutralIntro}><span>LIVE β-NEUTRAL SHARE RATIO</span><h3>Hedge one Asset 2 share with {neutralAsset1Shares.toLocaleString("en-US", { maximumFractionDigits: 6 })} Asset 1 shares.</h3><p>The share ratio updates from both live midpoints. Target notionals remain |β| : 1; exchange quantity steps may introduce a small rounding error.</p></div>
+            <div className={styles.neutralLeg}><span>ASSET 2 SIGNAL LEG</span><strong className={neutralAsset2Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset2Side} 1.000000</strong><b>{selected.asset2.symbol}</b><small>@ {neutralPrices.asset2.toLocaleString("en-US", { maximumFractionDigits: 8 })}</small></div>
+            <div className={styles.neutralLeg}><span>ASSET 1 HEDGE LEG</span><strong className={neutralAsset1Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset1Side} {neutralAsset1Shares.toLocaleString("en-US", { maximumFractionDigits: 6 })}</strong><b>{selected.asset1.symbol}</b><small>@ {neutralPrices.asset1.toLocaleString("en-US", { maximumFractionDigits: 8 })}</small></div>
+            <div className={styles.neutralRatio}><span>NOTIONAL BALANCE</span><strong>{Math.abs(analysis.model.beta).toFixed(3)} : 1</strong><small>Asset 1 : Asset 2 · β {formatNumber(analysis.model.beta, 3)}</small></div>
+          </section>}
 
           <section className={styles.modelPanel}>
             <div className={styles.modelHead}><div><span>{analysis.model.method === "reference" ? "LOCKED STRUCTURAL RULE" : "FROZEN MODEL CARD"}</span><h3>{formulaOnly ? "Direct formula · no history required" : analysis.model.method === "reference" ? "Direct formula, validated out of sample" : "Trained once, validated out of sample"}</h3><p>{formulaOnly ? `β ${formatNumber(analysis.model.beta, 3)} supplied by the user · zero intercept · theoretical return remains active` : `${formatDate(analysis.model.trainingStart)} — ${formatDate(analysis.model.trainingEnd)} HKT · ${analysis.model.method === "reference" ? "β fixed from the stated product relationship · zero intercept · history used only for validation" : "first 75% train / final 25% validation"} · hourly log returns`}</p></div><b className={styles[formulaOnly ? "locked" : analysis.model.quality]}>{formulaOnly ? "locked" : analysis.model.quality}</b></div>
