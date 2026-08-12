@@ -106,6 +106,39 @@ async function directBinance<T>(path: string) {
   throw lastError instanceof Error ? lastError : new Error("Direct Binance history unavailable.");
 }
 
+async function directLivePrices(relationship: Relationship) {
+  const hyperliquidLegs = [relationship.asset1, relationship.asset2].filter((leg) => leg.venue === "hyperliquid");
+  const hyperliquidMids = new Map([...new Set(hyperliquidLegs.map((leg) => leg.symbol.includes(":") ? leg.symbol.split(":", 1)[0] : ""))].map((dex) => [dex, fetch("https://api.hyperliquid.xyz/info", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(dex ? { type: "allMids", dex } : { type: "allMids" }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(4_000),
+  }).then(async (response) => {
+    if (!response.ok) throw new Error(`Hyperliquid HTTP ${response.status}`);
+    return await response.json() as Record<string, string>;
+  })] as const));
+  const binancePrice = async (symbol: string) => {
+    const book = await directBinance<{ bidPrice?: string; askPrice?: string }>(`/fapi/v1/ticker/bookTicker?symbol=${encodeURIComponent(symbol)}`);
+    const bid = Number(book.bidPrice);
+    const ask = Number(book.askPrice);
+    if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) throw new Error(`${symbol} live midpoint unavailable.`);
+    return (bid + ask) / 2;
+  };
+  const legPrice = async (leg: Relationship["asset1"]) => {
+    if (leg.venue === "binance") return binancePrice(leg.symbol);
+    const dex = leg.symbol.includes(":") ? leg.symbol.split(":", 1)[0] : "";
+    const midsPromise = hyperliquidMids.get(dex);
+    if (!midsPromise) throw new Error(`${leg.symbol} live midpoint unavailable.`);
+    const mids = await midsPromise;
+    const value = Number(mids[leg.symbol]);
+    if (!Number.isFinite(value) || value <= 0) throw new Error(`${leg.symbol} live midpoint unavailable.`);
+    return value;
+  };
+  const [asset1, asset2] = await Promise.all([legPrice(relationship.asset1), legPrice(relationship.asset2)]);
+  return { asset1, asset2 };
+}
+
 async function directSeries(leg: Relationship["asset1"], start: number, end: number, interval: string): Promise<PricePoint[]> {
   if (leg.venue === "binance") {
     const rows: Array<[number, string, string, string, string]> = [];
@@ -236,6 +269,10 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
   const [followingLive, setFollowingLive] = useState(true);
   const [activeWindow, setActiveWindow] = useState(INITIAL_SELECTION);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const analysisRef = useRef<Analysis | null>(null);
+  const liveRequestRef = useRef(false);
+  const [lastLiveAt, setLastLiveAt] = useState(0);
+  const [liveError, setLiveError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [customRelationships, setCustomRelationships] = useState<Relationship[]>([]);
@@ -244,6 +281,8 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
   const [customDraft, setCustomDraft] = useState<CustomDraft>(EMPTY_DRAFT);
   const [pairError, setPairError] = useState("");
   const relationships = useMemo(() => [...RELATIONSHIPS.filter((item) => !hiddenRelationshipIds.includes(item.id)), ...customRelationships], [customRelationships, hiddenRelationshipIds]);
+
+  useEffect(() => { analysisRef.current = analysis; }, [analysis]);
 
   useEffect(() => {
     let savedCustom: Relationship[] = [];
@@ -323,6 +362,42 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
     }, 60_000);
     return () => window.clearInterval(timer);
   }, [activeWindow, followingLive, load]);
+
+  useEffect(() => {
+    if (!followingLive) return;
+    let stopped = false;
+    const updateLive = async () => {
+      const current = analysisRef.current;
+      if (stopped || liveRequestRef.current || document.visibilityState === "hidden" || !current || current.relationship.id !== relationshipId || current.points.length < 2) return;
+      liveRequestRef.current = true;
+      try {
+        const quote = await directLivePrices(current.relationship);
+        if (stopped || analysisRef.current?.relationship.id !== current.relationship.id) return;
+        const now = Date.now();
+        const first = current.points[0];
+        const liveProjection = projectRelationship(
+          [{ t: first.t, value: first.asset1 }, { t: now, value: quote.asset1 }],
+          [{ t: first.t, value: first.asset2 }, { t: now, value: quote.asset2 }],
+          current.model,
+        );
+        const livePoint = liveProjection.points.at(-1)!;
+        setAnalysis((previous) => {
+          if (!previous || previous.relationship.id !== current.relationship.id) return previous;
+          const withoutPreviousTick = previous.points.at(-1)?.t % 60_000 === 0 ? previous.points : previous.points.slice(0, -1);
+          return { ...previous, generatedAt: now, points: [...withoutPreviousTick, livePoint], stats: { ...liveProjection.stats, samples: withoutPreviousTick.length + 1 } };
+        });
+        setLastLiveAt(now);
+        setLiveError("");
+      } catch (quoteError) {
+        if (!stopped) setLiveError(quoteError instanceof Error ? quoteError.message : "Live quote unavailable.");
+      } finally {
+        liveRequestRef.current = false;
+      }
+    };
+    void updateLive();
+    const timer = window.setInterval(() => void updateLive(), 1_000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [followingLive, relationshipId]);
 
   const selected = analysis?.relationship;
   const availability = useMemo(() => new Map(analysis?.universe?.candidates.map((item) => [item.id, item.available]) ?? []), [analysis?.universe]);
@@ -427,8 +502,8 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
 
   return <main className={styles.shell}><div className={styles.frame}>
     <header className={styles.topbar}>
-      <div><p className={styles.eyebrow}>{trading ? "LIVE RELATIVE VALUE EXECUTION" : "FIXED-COEFFICIENT RELATIVE VALUE"}</p><h1>{trading ? "Relative Value Execution" : "Relative Value Blog"}</h1><p>{trading ? "Use the same relative-value models and charts, then submit a β-balanced two-leg Binance Futures order with a complete fill and spread report." : "Asset 1 explains the move. Explicit structural betas are applied immediately, even when a new contract has too little history for validation; only relationships without one require regression."}</p></div>
-      <div className={styles.topActions}><span className={`${styles.connection} ${analysis && !error ? styles.online : ""}`}><i />{loading ? "Updating prediction" : analysis && !error ? trading ? "Execution data live" : "Prediction live" : "Data retry needed"}</span><PageSwitcher active={trading ? "trade" : "blog"} /></div>
+      <div><p className={styles.eyebrow}>{trading ? "LIVE RELATIVE VALUE EXECUTION" : "ONE-SECOND RELATIVE VALUE"}</p><h1>{trading ? "Relative Value Execution" : "Relative Value Monitor"}</h1><p>{trading ? "Use the same real-time relative-value models and charts, then submit a β-balanced two-leg Binance Futures order with a complete fill and spread report." : "Asset 1 explains the move. Live midpoint, theoretical return and deviation refresh every second; the historical curve remains aligned to one-minute candles."}</p></div>
+      <div className={styles.topActions}><span title={liveError || (lastLiveAt ? `Last live update ${formatTime(lastLiveAt)} HKT` : "Waiting for live quote")} className={`${styles.connection} ${lastLiveAt && !liveError ? styles.online : ""}`}><i />{loading && !analysis ? "Loading history" : liveError ? "Live quote retrying" : lastLiveAt ? "Live · 1s" : "Connecting live"}</span><PageSwitcher active={trading ? "trade" : "blog"} /></div>
     </header>
 
     <section className={styles.universeStrip}>

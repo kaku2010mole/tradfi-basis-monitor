@@ -39,7 +39,7 @@ export default function TradeLogin({ configured }: { configured: boolean }) {
       </form>
       {!configured && <p className={styles.error}>Execution access is not configured on this deployment.</p>}
       {error && <p className={styles.error}>{error}</p>}
-      <Link href="/blog">← Return to Relative Value Blog</Link>
+      <Link href="/blog">← Return to Relative Value Monitor</Link>
     </section>
   </main>;
 }

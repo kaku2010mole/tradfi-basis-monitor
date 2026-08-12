@@ -29,8 +29,8 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
           <small>Live price, oracle drift and funding</small>
         </Link>
         <Link href="/blog" aria-current={active === "blog" ? "page" : undefined}>
-          <span>Relative value blog</span>
-          <small>TradFi relationships and dislocations</small>
+          <span>Relative value monitor</span>
+          <small>Live 1-second relationships and dislocations</small>
         </Link>
         <Link href="/trade" aria-current={active === "trade" ? "page" : undefined}>
           <span>Relative value execution</span>
