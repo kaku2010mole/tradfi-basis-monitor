@@ -48,6 +48,7 @@ type Analysis = {
     samples: number;
   };
 };
+type RankingRow = { id: string; predictionError: number; actual: number; theoretical: number; beta: number; updatedAt: number };
 
 const QUICK_WINDOWS = [
   { label: "1H", milliseconds: 60 * 60_000 },
@@ -146,6 +147,60 @@ async function directLivePrices(relationship: Relationship) {
   };
   const [asset1, asset2] = await Promise.all([legPrice(relationship.asset1), legPrice(relationship.asset2)]);
   return { asset1, asset2 };
+}
+
+async function rankInBrowser(relationships: Relationship[], start: number, end: number): Promise<RankingRow[]> {
+  type Book = { symbol?: string; bidPrice?: string; askPrice?: string };
+  const books = await directBinance<Book[]>("/fapi/v1/ticker/bookTicker");
+  const bookBySymbol = new Map(books.flatMap((book) => book.symbol ? [[book.symbol, book] as const] : []));
+  const hyperLegs = relationships.flatMap((item) => [item.asset1, item.asset2]).filter((leg) => leg.venue === "hyperliquid");
+  const dexNames = [...new Set(hyperLegs.map((leg) => leg.symbol.includes(":") ? leg.symbol.split(":", 1)[0] : ""))];
+  const dexMids = new Map(await Promise.all(dexNames.map(async (dex) => {
+    const response = await fetch("https://api.hyperliquid.xyz/info", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(dex ? { type: "allMids", dex } : { type: "allMids" }), cache: "no-store", signal: AbortSignal.timeout(8_000) });
+    if (!response.ok) throw new Error(`Hyperliquid HTTP ${response.status}`);
+    return [dex, await response.json() as Record<string, string>] as const;
+  })));
+  const baselineCache = new Map<string, Promise<number>>();
+  const baseline = (leg: Relationship["asset1"]) => {
+    const key = `${leg.venue}:${leg.symbol}:${start}`;
+    const saved = baselineCache.get(key);
+    if (saved) return saved;
+    const promise = leg.venue === "binance" ? directBinance<Array<[number, string, string, string, string]>>(`/fapi/v1/klines?${new URLSearchParams({ symbol: leg.symbol, interval: "1m", startTime: String(start), limit: "1" })}`).then((rows) => Number(rows[0]?.[4])) : fetch("https://api.hyperliquid.xyz/info", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "candleSnapshot", req: { coin: leg.symbol, interval: "1m", startTime: start, endTime: start + 5 * 60_000 } }), cache: "no-store", signal: AbortSignal.timeout(8_000),
+    }).then(async (response) => Number((await response.json() as Array<{ c?: string }>)[0]?.c));
+    baselineCache.set(key, promise);
+    return promise;
+  };
+  const live = (leg: Relationship["asset1"]) => {
+    if (leg.venue === "binance") {
+      const book = bookBySymbol.get(leg.symbol); const bid = Number(book?.bidPrice); const ask = Number(book?.askPrice);
+      return Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0 ? (bid + ask) / 2 : null;
+    }
+    const dex = leg.symbol.includes(":") ? leg.symbol.split(":", 1)[0] : "";
+    const value = Number(dexMids.get(dex)?.[leg.symbol]);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  };
+  const output: RankingRow[] = [];
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(5, relationships.length) }, async () => {
+    while (cursor < relationships.length) {
+      const relationship = relationships[cursor++];
+      try {
+        const current1 = live(relationship.asset1); const current2 = live(relationship.asset2);
+        if (!current1 || !current2) continue;
+        const [base1, base2, model] = await Promise.all([
+          baseline(relationship.asset1), baseline(relationship.asset2),
+          relationship.referenceBeta !== null ? Promise.resolve({ alphaHourly: 0, beta: relationship.referenceBeta }) : directFixedModel(relationship, start),
+        ]);
+        if (![base1, base2].every((value) => Number.isFinite(value) && value > 0)) continue;
+        const elapsedHours = Math.max(0, (end - start) / 60 / 60_000);
+        const theoretical = Math.expm1(model.alphaHourly * elapsedHours + model.beta * Math.log(current1 / base1)) * 100;
+        const actual = (current2 / base2 - 1) * 100;
+        output.push({ id: relationship.id, predictionError: actual - theoretical, actual, theoretical, beta: model.beta, updatedAt: Date.now() });
+      } catch { /* Leave unavailable relationships at the bottom until the next refresh. */ }
+    }
+  }));
+  return output;
 }
 
 async function directSeries(leg: Relationship["asset1"], start: number, end: number, interval: string): Promise<PricePoint[]> {
@@ -290,6 +345,9 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
   const [pairManagerOpen, setPairManagerOpen] = useState(false);
   const [customDraft, setCustomDraft] = useState<CustomDraft>(EMPTY_DRAFT);
   const [pairError, setPairError] = useState("");
+  const [rankings, setRankings] = useState<Map<string, RankingRow>>(new Map());
+  const [rankingLoading, setRankingLoading] = useState(true);
+  const [rankingUpdatedAt, setRankingUpdatedAt] = useState(0);
   const relationships = useMemo(() => [...RELATIONSHIPS.filter((item) => !hiddenRelationshipIds.includes(item.id)), ...customRelationships], [customRelationships, hiddenRelationshipIds]);
 
   useEffect(() => { analysisRef.current = analysis; }, [analysis]);
@@ -449,10 +507,62 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
     return () => { stopped = true; window.clearInterval(timer); };
   }, [followingLive, relationshipId]);
 
+  useEffect(() => {
+    let stopped = false;
+    let controller: AbortController | null = null;
+    const refreshRanking = async () => {
+      if (stopped || document.visibilityState === "hidden" || !relationships.length) return;
+      const start = fromHktInput(startInput);
+      const end = Date.now();
+      if (!Number.isFinite(start) || start >= end || end - start > MAX_OBSERVATION_MS + 60_000) return;
+      controller?.abort();
+      controller = new AbortController();
+      try {
+        const response = await fetch("/api/blog/ranking", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ start, end, relationships }),
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const payload = await response.json() as { generatedAt?: number; rankings?: RankingRow[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Prediction ranking unavailable.");
+        if (stopped) return;
+        setRankings(new Map((payload.rankings ?? []).map((row) => [row.id, row])));
+        setRankingUpdatedAt(payload.generatedAt ?? Date.now());
+        setRankingLoading(false);
+      } catch (rankingError) {
+        if ((rankingError as Error).name === "AbortError" || stopped) return;
+        try {
+          const directRows = await rankInBrowser(relationships, start, end);
+          if (!stopped) {
+            setRankings(new Map(directRows.map((row) => [row.id, row])));
+            setRankingUpdatedAt(Date.now());
+          }
+        } finally { if (!stopped) setRankingLoading(false); }
+      }
+    };
+    void refreshRanking();
+    const timer = window.setInterval(() => void refreshRanking(), LIVE_REFRESH_MS);
+    return () => { stopped = true; controller?.abort(); window.clearInterval(timer); };
+  }, [relationships, startInput]);
+
   const selected = analysis?.relationship;
   const availability = useMemo(() => new Map(analysis?.universe?.candidates.map((item) => [item.id, item.available]) ?? []), [analysis?.universe]);
   const formulaOnly = analysis?.model.method === "reference" && analysis.model.validationSamples === 0;
   const signalLabel = formulaOnly ? "BETA LOCKED" : analysis?.model.quality === "weak" ? "MODEL WEAK" : analysis?.stats.status === "dislocation" ? "DISLOCATION" : analysis?.stats.status === "watch" ? "WATCH" : "IN RANGE";
+  const rankedRelationships = useMemo(() => {
+    const originalOrder = new Map(relationships.map((item, index) => [item.id, index]));
+    return [...relationships].sort((left, right) => {
+      const leftError = left.id === analysis?.relationship.id ? analysis.stats.predictionError : rankings.get(left.id)?.predictionError;
+      const rightError = right.id === analysis?.relationship.id ? analysis.stats.predictionError : rankings.get(right.id)?.predictionError;
+      if (leftError === undefined && rightError !== undefined) return 1;
+      if (leftError !== undefined && rightError === undefined) return -1;
+      if (leftError !== undefined && rightError !== undefined && Math.abs(rightError) !== Math.abs(leftError)) return Math.abs(rightError) - Math.abs(leftError);
+      return (originalOrder.get(left.id) ?? 0) - (originalOrder.get(right.id) ?? 0);
+    });
+  }, [analysis, rankings, relationships]);
+  const rankingError = (id: string) => id === analysis?.relationship.id ? analysis.stats.predictionError : rankings.get(id)?.predictionError;
 
   const applyQuickWindow = (label: string, milliseconds: number, end: number) => {
     const start = end - milliseconds;
@@ -575,7 +685,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
 
     <section className={styles.workspace}>
       <aside className={styles.relationships}>
-        <div className={styles.sectionLabel}><span>PREDICTOR → TARGET</span><div><small>{relationships.length} models</small><button onClick={() => setPairManagerOpen((open) => !open)}>{pairManagerOpen ? "Close" : "Manage"}</button></div></div>
+        <div className={styles.sectionLabel}><span>|PREDICTION ERROR| RANKING</span><div><small>{rankingLoading ? "Updating…" : rankingUpdatedAt ? `${formatTime(rankingUpdatedAt)} HKT` : `${relationships.length} models`}</small><button onClick={() => setPairManagerOpen((open) => !open)}>{pairManagerOpen ? "Close" : "Manage"}</button></div></div>
         {pairManagerOpen && <div className={styles.pairManager}>
           <strong>Add relationship</strong>
           <div className={styles.legFields}><label>Predictor venue<select value={customDraft.asset1Venue} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset1Venue: event.target.value as CustomDraft["asset1Venue"] }))}><option value="binance">Binance</option><option value="hyperliquid">Hyperliquid</option></select></label><label>Predictor symbol<input value={customDraft.asset1Symbol} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset1Symbol: event.target.value }))} placeholder={customDraft.asset1Venue === "binance" ? "QQQUSDT" : "mkts:USTECH"} /></label></div>
@@ -585,9 +695,9 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
           {pairError && <p>{pairError}</p>}
           {hiddenRelationshipIds.length > 0 && <button className={styles.restoreButton} onClick={restoreBuiltIns}>Restore {hiddenRelationshipIds.length} deleted built-in model{hiddenRelationshipIds.length === 1 ? "" : "s"}</button>}
         </div>}
-        <div className={styles.relationshipList}>{relationships.map((relationship) => <div key={relationship.id} className={styles.relationshipItem}><button className={relationshipId === relationship.id ? styles.activeRelationship : ""} disabled={availability.get(relationship.id) === false} onClick={() => chooseRelationship(relationship.id)}>
-          <span>{relationship.title}</span><small>{relationship.short}</small>{relationship.referenceBeta !== null && <b>Locked β {formatNumber(relationship.referenceBeta, 2)}</b>}{availability.get(relationship.id) === false && <em>Not listed</em>}
-        </button><button className={styles.removeRelationship} aria-label={`Delete ${relationship.title}`} title={`Delete ${relationship.title}`} onClick={() => removeRelationship(relationship)}>×</button></div>)}</div>
+        <div className={styles.relationshipList}>{rankedRelationships.map((relationship, index) => { const predictionError = rankingError(relationship.id); return <div key={relationship.id} className={styles.relationshipItem}><button className={relationshipId === relationship.id ? styles.activeRelationship : ""} disabled={availability.get(relationship.id) === false} onClick={() => chooseRelationship(relationship.id)}>
+          <span className={styles.relationshipTitle}><i>#{index + 1}</i>{relationship.title}</span><small>{relationship.short}</small><div className={styles.relationshipMeta}>{predictionError !== undefined ? <strong className={`${styles.rankingError} ${predictionError >= 0 ? styles.positiveError : styles.negativeError}`}>{formatPct(predictionError, 3)}</strong> : <strong className={styles.pendingError}>CALCULATING</strong>}{relationship.referenceBeta !== null && <b>β {formatNumber(relationship.referenceBeta, 2)}</b>}</div>{availability.get(relationship.id) === false && <em>Not listed</em>}
+        </button><button className={styles.removeRelationship} aria-label={`Delete ${relationship.title}`} title={`Delete ${relationship.title}`} onClick={() => removeRelationship(relationship)}>×</button></div>; })}</div>
         {analysis?.universe && <div className={styles.scanBreakdown}><span>LIVE UNIVERSE BREAKDOWN</span>{Object.entries(analysis.universe.typeCounts).sort((a, b) => b[1] - a[1]).map(([type, count]) => <div key={type}><b>{type.replaceAll("_", " ")}</b><strong>{count}</strong></div>)}<details><summary>View all {analysis.universe.count} symbols</summary><p>{analysis.universe.symbols.join(" · ")}</p></details></div>}
       </aside>
 
