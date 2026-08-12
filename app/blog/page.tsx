@@ -68,6 +68,7 @@ const DIRECT_BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance
 const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v6";
 const CUSTOM_RELATIONSHIPS_KEY = "relative-value-custom-relationships-v1";
 const HIDDEN_RELATIONSHIPS_KEY = "relative-value-hidden-relationships-v1";
+const DIRECT_RANKING_BASELINE_CACHE = new Map<string, Promise<number>>();
 
 type CustomDraft = {
   asset1Venue: "binance" | "hyperliquid";
@@ -160,15 +161,16 @@ async function rankInBrowser(relationships: Relationship[], start: number, end: 
     if (!response.ok) throw new Error(`Hyperliquid HTTP ${response.status}`);
     return [dex, await response.json() as Record<string, string>] as const;
   })));
-  const baselineCache = new Map<string, Promise<number>>();
   const baseline = (leg: Relationship["asset1"]) => {
     const key = `${leg.venue}:${leg.symbol}:${start}`;
-    const saved = baselineCache.get(key);
+    const saved = DIRECT_RANKING_BASELINE_CACHE.get(key);
     if (saved) return saved;
+    if (DIRECT_RANKING_BASELINE_CACHE.size > 240) DIRECT_RANKING_BASELINE_CACHE.clear();
     const promise = leg.venue === "binance" ? directBinance<Array<[number, string, string, string, string]>>(`/fapi/v1/klines?${new URLSearchParams({ symbol: leg.symbol, interval: "1m", startTime: String(start), limit: "1" })}`).then((rows) => Number(rows[0]?.[4])) : fetch("https://api.hyperliquid.xyz/info", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "candleSnapshot", req: { coin: leg.symbol, interval: "1m", startTime: start, endTime: start + 5 * 60_000 } }), cache: "no-store", signal: AbortSignal.timeout(8_000),
     }).then(async (response) => Number((await response.json() as Array<{ c?: string }>)[0]?.c));
-    baselineCache.set(key, promise);
+    DIRECT_RANKING_BASELINE_CACHE.set(key, promise);
+    promise.catch(() => DIRECT_RANKING_BASELINE_CACHE.delete(key));
     return promise;
   };
   const live = (leg: Relationship["asset1"]) => {
