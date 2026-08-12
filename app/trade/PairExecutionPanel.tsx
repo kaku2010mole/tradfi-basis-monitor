@@ -11,7 +11,7 @@ type ExchangeFilter = { filterType?: string; minQty?: string; maxQty?: string; s
 type ExchangeSymbol = { symbol?: string; status?: string; marginAsset?: string; orderTypes?: string[]; filters?: ExchangeFilter[] };
 type BookTicker = { symbol?: string; bidPrice?: string; askPrice?: string; time?: number };
 type BinanceOrder = { orderId?: number; clientOrderId?: string; symbol?: string; status?: string; side?: Side; positionSide?: string; avgPrice?: string; executedQty?: string; cumQuote?: string; updateTime?: number; code?: number; msg?: string };
-type LegReport = { role: "Asset 1" | "Asset 2"; symbol: string; side: Side; orderId: number | null; status: string; averagePrice: number; quantity: number; notional: number; targetNotional: number; preMid: number; slippageBps: number };
+type LegReport = { role: string; symbol: string; side: Side; orderId: number | null; status: string; averagePrice: number; quantity: number; notional: number; targetNotional: number; preMid: number; slippageBps: number };
 type ExecutionReport = { tone: "success" | "partial" | "error"; message: string; first?: LegReport; second?: LegReport; beta: number; balanceErrorPct?: number; preTradeRatio?: number; fillRatio?: number; ratioSlippageBps?: number; executedAt?: number };
 
 const BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
@@ -160,21 +160,21 @@ export default function PairExecutionPanel({ relationship, beta }: { relationshi
       quantityForNotional(asset1Instrument, asset1Target, asset1Reference);
       const serverOffset = Number(time.serverTime) - Date.now();
       const firstOrder = await placeMarketOrder({ apiKey: apiKey.trim(), apiSecret, symbol: relationship.asset2.symbol, side: sides.asset2, quantity: asset2Quantity, positionMode, serverOffset: Number.isFinite(serverOffset) ? serverOffset : 0, role: "a2" });
-      first = reportLeg("Asset 2", amount, asset2Mid, firstOrder);
+      first = reportLeg(relationship.asset2.symbol, amount, asset2Mid, firstOrder);
       const refreshedBook = await publicBinance<BookTicker>(`/fapi/v1/ticker/bookTicker?symbol=${encodeURIComponent(relationship.asset1.symbol)}`);
       const refreshedBid = number(refreshedBook.bidPrice); const refreshedAsk = number(refreshedBook.askPrice);
-      if (!refreshedBid || !refreshedAsk) throw new Error(`${relationship.asset1.symbol} order book disappeared after Asset 2 filled.`);
+      if (!refreshedBid || !refreshedAsk) throw new Error(`${relationship.asset1.symbol} order book disappeared after ${relationship.asset2.symbol} filled.`);
       const secondTarget = Math.abs(beta) * first.notional;
       const secondReference = sides.asset1 === "BUY" ? refreshedAsk : refreshedBid;
       const asset1Quantity = quantityForNotional(asset1Instrument, secondTarget, secondReference);
       const secondOrder = await placeMarketOrder({ apiKey: apiKey.trim(), apiSecret, symbol: relationship.asset1.symbol, side: sides.asset1, quantity: asset1Quantity, positionMode, serverOffset: Number.isFinite(serverOffset) ? serverOffset : 0, role: "a1" });
-      const second = reportLeg("Asset 1", secondTarget, asset1Mid, secondOrder);
+      const second = reportLeg(relationship.asset1.symbol, secondTarget, asset1Mid, secondOrder);
       const preTradeRatio = asset2Mid / asset1Mid;
       const fillRatio = first.averagePrice / second.averagePrice;
       setReport({ tone: "success", message: "Both Binance market orders filled.", first, second, beta, balanceErrorPct: (second.notional / (Math.abs(beta) * first.notional) - 1) * 100, preTradeRatio, fillRatio, ratioSlippageBps: (fillRatio / preTradeRatio - 1) * 10_000, executedAt: Date.now() });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Pair execution failed.";
-      setReport(first ? { tone: "partial", message: `Asset 2 filled but Asset 1 did not complete: ${message}`, first, beta, executedAt: Date.now() } : { tone: "error", message, beta, executedAt: Date.now() });
+      setReport(first ? { tone: "partial", message: `${relationship.asset2.symbol} filled but ${relationship.asset1.symbol} did not complete: ${message}`, first, beta, executedAt: Date.now() } : { tone: "error", message, beta, executedAt: Date.now() });
     } finally { setLoading(false); }
   };
 
@@ -185,16 +185,16 @@ export default function PairExecutionPanel({ relationship, beta }: { relationshi
   };
 
   return <section className={styles.executionPanel}>
-    <div className={styles.executionHead}><div><span>LIVE BINANCE EXECUTION</span><h3>β-balanced two-leg market order</h3><p>Asset 2 executes first. Asset 1 is sized from the actual Asset 2 fill so the final notionals target |β| : 1.</p></div><button onClick={lockPage}>Lock page</button></div>
+    <div className={styles.executionHead}><div><span>LIVE BINANCE EXECUTION</span><h3>β-balanced two-leg market order</h3><p>{relationship.asset2.symbol} executes first. {relationship.asset1.symbol} is sized from the actual {relationship.asset2.symbol} fill so the final notionals target |β| : 1.</p></div><button onClick={lockPage}>Lock page</button></div>
     {!eligible ? <div className={styles.executionUnavailable}><strong>Execution unavailable for this relationship</strong><span>Both assets must be active Binance USDⓈ-M symbols and the model beta must be non-zero.</span></div> : <>
       <div className={styles.executionPlan}>
-        <div><span>Asset 1 hedge</span><strong className={sides.asset1 === "BUY" ? styles.positive : styles.negative}>{sides.asset1} {relationship.asset1.symbol}</strong><small>Target {money(asset1Target)} · |β| × Asset 2</small></div>
-        <div><span>Asset 2 position</span><strong className={sides.asset2 === "BUY" ? styles.positive : styles.negative}>{sides.asset2} {relationship.asset2.symbol}</strong><small>Target {money(amount)} · executes first</small></div>
-        <div><span>Balance rule</span><strong>{Math.abs(beta).toFixed(3)} : 1</strong><small>β {signed(beta)} · Asset 1 : Asset 2</small></div>
+        <div><span>{relationship.asset1.symbol} hedge</span><strong className={sides.asset1 === "BUY" ? styles.positive : styles.negative}>{sides.asset1} {relationship.asset1.symbol}</strong><small>Target {money(asset1Target)} · |β| × {relationship.asset2.symbol}</small></div>
+        <div><span>{relationship.asset2.symbol} position</span><strong className={sides.asset2 === "BUY" ? styles.positive : styles.negative}>{sides.asset2} {relationship.asset2.symbol}</strong><small>Target {money(amount)} · executes first</small></div>
+        <div><span>Balance rule</span><strong>{Math.abs(beta).toFixed(3)} : 1</strong><small>β {signed(beta)} · {relationship.asset1.symbol} : {relationship.asset2.symbol}</small></div>
       </div>
       <div className={styles.executionControls}>
-        <div className={styles.executionField}><span>Asset 2 amount</span><div className={styles.amountButtons}>{AMOUNTS.map((value) => <button key={value} className={amount === value ? styles.activeAmount : ""} onClick={() => { setAmount(value); setReport(null); }}>{money(value)}</button>)}</div></div>
-        <label>Relative direction<select value={direction} onChange={(event) => { setDirection(event.target.value as Direction); setReport(null); }}><option value="longAsset2">Long Asset 2 residual</option><option value="shortAsset2">Short Asset 2 residual</option></select></label>
+        <div className={styles.executionField}><span>{relationship.asset2.symbol} amount</span><div className={styles.amountButtons}>{AMOUNTS.map((value) => <button key={value} className={amount === value ? styles.activeAmount : ""} onClick={() => { setAmount(value); setReport(null); }}>{money(value)}</button>)}</div></div>
+        <label>Relative direction<select value={direction} onChange={(event) => { setDirection(event.target.value as Direction); setReport(null); }}><option value="longAsset2">Long {relationship.asset2.symbol} residual</option><option value="shortAsset2">Short {relationship.asset2.symbol} residual</option></select></label>
         <label>Binance position mode<select value={positionMode} onChange={(event) => setPositionMode(event.target.value as PositionMode)}><option value="oneway">One-way · BOTH</option><option value="hedge">Hedge mode · LONG/SHORT</option></select></label>
       </div>
       <div className={styles.executionCredentials}>
@@ -205,6 +205,6 @@ export default function PairExecutionPanel({ relationship, beta }: { relationshi
       <label className={styles.liveAcknowledgement}><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /><span>I understand this submits two real market orders. If the second leg fails, the first leg remains open and must be managed in Binance.</span></label>
       <button className={styles.executeButton} disabled={loading || !apiKey.trim() || !apiSecret || !acknowledged} onClick={() => void execute()}>{loading ? "Executing live pair…" : `Execute ${money(asset1Target)} / ${money(amount)} live pair`}</button>
     </>}
-    {report && <div className={`${styles.executionReport} ${styles[report.tone]}`}><div className={styles.reportTitle}><div><span>EXECUTION REPORT</span><strong>{report.message}</strong></div>{report.executedAt && <small>{new Date(report.executedAt).toLocaleString("en-GB", { timeZone: "Asia/Hong_Kong", hour12: false })} HKT</small>}</div>{[report.first, report.second].filter((leg): leg is LegReport => Boolean(leg)).map((leg) => <div className={styles.reportLeg} key={leg.role}><div><span>{leg.role}</span><strong>{leg.side} {leg.symbol}</strong></div><div><span>Average fill</span><strong>{price(leg.averagePrice)}</strong></div><div><span>Executed quantity</span><strong>{price(leg.quantity)}</strong></div><div><span>Actual / target</span><strong>{money(leg.notional)} / {money(leg.targetNotional)}</strong></div><div><span>Mid slippage</span><strong>{signed(leg.slippageBps, " bps")}</strong></div><div><span>Order</span><strong>{leg.orderId ?? "—"} · {leg.status}</strong></div></div>)}{report.tone === "success" && <div className={styles.reportSummary}><div><span>Balance error</span><strong>{signed(report.balanceErrorPct ?? 0, "%")}</strong></div><div><span>Pre-trade A2/A1</span><strong>{price(report.preTradeRatio ?? 0)}</strong></div><div><span>Fill A2/A1</span><strong>{price(report.fillRatio ?? 0)}</strong></div><div><span>Ratio slippage</span><strong>{signed(report.ratioSlippageBps ?? 0, " bps")}</strong></div></div>}</div>}
+    {report && <div className={`${styles.executionReport} ${styles[report.tone]}`}><div className={styles.reportTitle}><div><span>EXECUTION REPORT</span><strong>{report.message}</strong></div>{report.executedAt && <small>{new Date(report.executedAt).toLocaleString("en-GB", { timeZone: "Asia/Hong_Kong", hour12: false })} HKT</small>}</div>{[report.first, report.second].filter((leg): leg is LegReport => Boolean(leg)).map((leg) => <div className={styles.reportLeg} key={leg.role}><div><span>{leg.symbol}</span><strong>{leg.side}</strong></div><div><span>Average fill</span><strong>{price(leg.averagePrice)}</strong></div><div><span>Executed quantity</span><strong>{price(leg.quantity)}</strong></div><div><span>Actual / target</span><strong>{money(leg.notional)} / {money(leg.targetNotional)}</strong></div><div><span>Mid slippage</span><strong>{signed(leg.slippageBps, " bps")}</strong></div><div><span>Order</span><strong>{leg.orderId ?? "—"} · {leg.status}</strong></div></div>)}{report.tone === "success" && <div className={styles.reportSummary}><div><span>Balance error</span><strong>{signed(report.balanceErrorPct ?? 0, "%")}</strong></div><div><span>Pre-trade {relationship.asset2.symbol}/{relationship.asset1.symbol}</span><strong>{price(report.preTradeRatio ?? 0)}</strong></div><div><span>Fill {relationship.asset2.symbol}/{relationship.asset1.symbol}</span><strong>{price(report.fillRatio ?? 0)}</strong></div><div><span>Ratio slippage</span><strong>{signed(report.ratioSlippageBps ?? 0, " bps")}</strong></div></div>}</div>}
   </section>;
 }

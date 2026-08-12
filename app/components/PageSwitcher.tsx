@@ -30,7 +30,7 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         </Link>
         <Link href="/blog" aria-current={active === "blog" ? "page" : undefined}>
           <span>Relative value monitor</span>
-          <small>Live 1-second relationships and dislocations</small>
+          <small>Live 10-second relationships and dislocations</small>
         </Link>
         <Link href="/trade" aria-current={active === "trade" ? "page" : undefined}>
           <span>Relative value execution</span>

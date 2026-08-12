@@ -61,6 +61,8 @@ const TODAY_ANCHORS = [
 ] as const;
 const INITIAL_NOW = Date.now();
 const HKT_OFFSET_MS = 8 * 60 * 60_000;
+const LIVE_REFRESH_MS = 10_000;
+const NEUTRAL_UNIT_SHARES = 100;
 const DIRECT_BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
 const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v6";
 const CUSTOM_RELATIONSHIPS_KEY = "relative-value-custom-relationships-v1";
@@ -443,7 +445,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
       }
     };
     void updateLive();
-    const timer = window.setInterval(() => void updateLive(), 1_000);
+    const timer = window.setInterval(() => void updateLive(), LIVE_REFRESH_MS);
     return () => { stopped = true; window.clearInterval(timer); };
   }, [followingLive, relationshipId]);
 
@@ -476,7 +478,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
     asset2: analysis.points.at(-1)?.asset2 ?? 0,
     updatedAt: analysis.points.at(-1)?.t ?? analysis.generatedAt,
   } : null;
-  const neutralAsset1Shares = analysis && neutralPrices && neutralPrices.asset1 > 0 ? Math.abs(analysis.model.beta) * neutralPrices.asset2 / neutralPrices.asset1 : null;
+  const neutralAsset1Shares = analysis && neutralPrices && neutralPrices.asset1 > 0 ? NEUTRAL_UNIT_SHARES * Math.abs(analysis.model.beta) * neutralPrices.asset2 / neutralPrices.asset1 : null;
   const neutralAsset2Side = analysis?.stats.predictionError && analysis.stats.predictionError > 0 ? "SHORT" : "LONG";
   const neutralAsset1Side = analysis ? analysis.model.beta >= 0 ? neutralAsset2Side === "LONG" ? "SHORT" : "LONG" : neutralAsset2Side : "—";
   const chooseRelationship = (id: string) => {
@@ -520,7 +522,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
       asset2: { venue: customDraft.asset2Venue, symbol: asset2Symbol, label: `${customDraft.asset2Venue === "binance" ? "Binance" : "Hyperliquid"} ${asset2Symbol}` },
       referenceBeta,
       leveraged: referenceBeta !== null && Math.abs(referenceBeta) > 1,
-      thesis: referenceBeta === null ? "Estimate Asset 2 from Asset 1 with a historical regression coefficient." : `Apply the user-defined structural beta ${referenceBeta} directly to Asset 1's move.`,
+      thesis: referenceBeta === null ? `Estimate ${asset2Symbol} from ${asset1Symbol} with a historical regression coefficient.` : `Apply the user-defined structural beta ${referenceBeta} directly to ${asset1Symbol}'s move to estimate ${asset2Symbol}.`,
       caveat: "This custom relationship is a monitoring assumption. Validate market structure, liquidity and reference timing before acting on it.",
     };
     const next = [...customRelationships, relationship].slice(-30);
@@ -560,8 +562,8 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
 
   return <main className={styles.shell}><div className={styles.frame}>
     <header className={styles.topbar}>
-      <div><p className={styles.eyebrow}>{trading ? "LIVE RELATIVE VALUE EXECUTION" : "ONE-SECOND RELATIVE VALUE"}</p><h1>{trading ? "Relative Value Execution" : "Relative Value Monitor"}</h1><p>{trading ? "Use the same real-time relative-value models and charts, then submit a β-balanced two-leg Binance Futures order with a complete fill and spread report." : "Asset 1 explains the move. Live midpoint, theoretical return and deviation refresh every second; the historical curve remains aligned to one-minute candles."}</p></div>
-      <div className={styles.topActions}><span title={liveError || (lastLiveAt ? `Last live update ${formatTime(lastLiveAt)} HKT` : "Waiting for live quote")} className={`${styles.connection} ${lastLiveAt && !liveError ? styles.online : ""}`}><i />{loading && !analysis ? "Loading history" : liveError ? "Live quote retrying" : lastLiveAt ? "Live · 1s" : "Connecting live"}</span><PageSwitcher active={trading ? "trade" : "blog"} /></div>
+      <div><p className={styles.eyebrow}>{trading ? "LIVE RELATIVE VALUE EXECUTION" : "TEN-SECOND RELATIVE VALUE"}</p><h1>{trading ? "Relative Value Execution" : "Relative Value Monitor"}</h1><p>{trading ? "Use the same real-time relative-value models and charts, then submit a β-balanced two-leg Binance Futures order with a complete fill and spread report." : "The selected predictor explains the paired contract's move. Live midpoint, theoretical return and deviation refresh every 10 seconds; the historical curve remains aligned to one-minute candles."}</p></div>
+      <div className={styles.topActions}><span title={liveError || (lastLiveAt ? `Last live update ${formatTime(lastLiveAt)} HKT` : "Waiting for live quote")} className={`${styles.connection} ${lastLiveAt && !liveError ? styles.online : ""}`}><i />{loading && !analysis ? "Loading history" : liveError ? "Live quote retrying" : lastLiveAt ? "Live · 10s" : "Connecting live"}</span><PageSwitcher active={trading ? "trade" : "blog"} /></div>
     </header>
 
     <section className={styles.universeStrip}>
@@ -573,11 +575,11 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
 
     <section className={styles.workspace}>
       <aside className={styles.relationships}>
-        <div className={styles.sectionLabel}><span>ASSET 1 → ASSET 2</span><div><small>{relationships.length} models</small><button onClick={() => setPairManagerOpen((open) => !open)}>{pairManagerOpen ? "Close" : "Manage"}</button></div></div>
+        <div className={styles.sectionLabel}><span>PREDICTOR → TARGET</span><div><small>{relationships.length} models</small><button onClick={() => setPairManagerOpen((open) => !open)}>{pairManagerOpen ? "Close" : "Manage"}</button></div></div>
         {pairManagerOpen && <div className={styles.pairManager}>
           <strong>Add relationship</strong>
-          <div className={styles.legFields}><label>Asset 1 venue<select value={customDraft.asset1Venue} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset1Venue: event.target.value as CustomDraft["asset1Venue"] }))}><option value="binance">Binance</option><option value="hyperliquid">Hyperliquid</option></select></label><label>Asset 1 symbol<input value={customDraft.asset1Symbol} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset1Symbol: event.target.value }))} placeholder={customDraft.asset1Venue === "binance" ? "QQQUSDT" : "mkts:USTECH"} /></label></div>
-          <div className={styles.legFields}><label>Asset 2 venue<select value={customDraft.asset2Venue} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset2Venue: event.target.value as CustomDraft["asset2Venue"] }))}><option value="binance">Binance</option><option value="hyperliquid">Hyperliquid</option></select></label><label>Asset 2 symbol<input value={customDraft.asset2Symbol} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset2Symbol: event.target.value }))} placeholder={customDraft.asset2Venue === "binance" ? "TQQQUSDT" : "mkts:US500"} /></label></div>
+          <div className={styles.legFields}><label>Predictor venue<select value={customDraft.asset1Venue} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset1Venue: event.target.value as CustomDraft["asset1Venue"] }))}><option value="binance">Binance</option><option value="hyperliquid">Hyperliquid</option></select></label><label>Predictor symbol<input value={customDraft.asset1Symbol} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset1Symbol: event.target.value }))} placeholder={customDraft.asset1Venue === "binance" ? "QQQUSDT" : "mkts:USTECH"} /></label></div>
+          <div className={styles.legFields}><label>Target venue<select value={customDraft.asset2Venue} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset2Venue: event.target.value as CustomDraft["asset2Venue"] }))}><option value="binance">Binance</option><option value="hyperliquid">Hyperliquid</option></select></label><label>Target symbol<input value={customDraft.asset2Symbol} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset2Symbol: event.target.value }))} placeholder={customDraft.asset2Venue === "binance" ? "TQQQUSDT" : "mkts:US500"} /></label></div>
           <label>Reference beta · recommended for new contracts<input type="number" min="-20" max="20" step="0.1" value={customDraft.referenceBeta} onChange={(event) => setCustomDraft((draft) => ({ ...draft, referenceBeta: event.target.value }))} placeholder="Multiplier used directly" /></label>
           <button className={styles.addPairButton} onClick={addRelationship}>Add and analyze</button>
           {pairError && <p>{pairError}</p>}
@@ -603,23 +605,23 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
         {analysis && selected && <>
           <section className={styles.heroCard}>
             <div className={styles.heroCopy}><span className={styles.kindPill}>{selected.kind.replaceAll("-", " ")}</span><h2>{selected.title}</h2><p>{selected.thesis}</p><small>{selected.caveat}</small></div>
-            <div className={`${styles.signal} ${styles[formulaOnly ? "normal" : analysis.model.quality === "weak" ? "watch" : analysis.stats.status]}`}><span>PREDICTION SIGNAL</span><strong>{signalLabel}</strong><b>{formulaOnly ? `β ${formatNumber(analysis.model.beta, 2)}` : `${formatNumber(analysis.stats.zScore)}σ`}</b><small>{formulaOnly ? `Using the supplied multiplier without blocking on historical validation. Raw deviation from theory is ${formatPct(analysis.stats.predictionError)}.` : analysis.model.quality === "weak" ? "Holdout validation is too weak for a confident dislocation call." : `Asset 2 is ${formatPct(analysis.stats.predictionError)} away from theory.`}</small></div>
+            <div className={`${styles.signal} ${styles[formulaOnly ? "normal" : analysis.model.quality === "weak" ? "watch" : analysis.stats.status]}`}><span>PREDICTION SIGNAL</span><strong>{signalLabel}</strong><b>{formulaOnly ? `β ${formatNumber(analysis.model.beta, 2)}` : `${formatNumber(analysis.stats.zScore)}σ`}</b><small>{formulaOnly ? `Using the supplied multiplier without blocking on historical validation. ${selected.asset2.symbol} is ${formatPct(analysis.stats.predictionError)} from theory.` : analysis.model.quality === "weak" ? "Holdout validation is too weak for a confident dislocation call." : `${selected.asset2.symbol} is ${formatPct(analysis.stats.predictionError)} away from theory.`}</small></div>
           </section>
 
           {trading && <PairExecutionPanel relationship={selected} beta={analysis.model.beta} />}
 
           <section className={styles.predictionGrid}>
-            <article><span>Asset 1 observed move</span><strong className={analysis.stats.asset1Return >= 0 ? styles.positive : styles.negative}>{formatPct(analysis.stats.asset1Return)}</strong><small>{selected.asset1.label} · model input</small></article>
-            <article className={styles.theoryMetric}><span>Asset 2 theoretical move</span><strong>{formatPct(analysis.stats.asset2Theoretical)}</strong><small>{analysis.model.method === "reference" ? "Locked β × Asset 1 · zero intercept" : "α × hours + fitted β × Asset 1"}</small></article>
-            <article><span>Asset 2 actual move</span><strong className={analysis.stats.asset2Actual >= 0 ? styles.positive : styles.negative}>{formatPct(analysis.stats.asset2Actual)}</strong><small>{selected.asset2.label} · observed</small></article>
+            <article><span>{selected.asset1.symbol} observed move</span><strong className={analysis.stats.asset1Return >= 0 ? styles.positive : styles.negative}>{formatPct(analysis.stats.asset1Return)}</strong><small>{selected.asset1.label} · predictor</small></article>
+            <article className={styles.theoryMetric}><span>{selected.asset2.symbol} theoretical move</span><strong>{formatPct(analysis.stats.asset2Theoretical)}</strong><small>{analysis.model.method === "reference" ? `Locked β × ${selected.asset1.symbol} · zero intercept` : `α × hours + fitted β × ${selected.asset1.symbol}`}</small></article>
+            <article><span>{selected.asset2.symbol} actual move</span><strong className={analysis.stats.asset2Actual >= 0 ? styles.positive : styles.negative}>{formatPct(analysis.stats.asset2Actual)}</strong><small>{selected.asset2.label} · observed</small></article>
             <article><span>Prediction error</span><strong className={!formulaOnly && Math.abs(analysis.stats.zScore) >= 2 ? styles.negative : ""}>{formatPct(analysis.stats.predictionError, 3)}</strong><small>{formulaOnly ? "Actual − theoretical · significance unavailable" : `Actual − theoretical · ${formatNumber(analysis.stats.zScore)}σ`}</small></article>
           </section>
 
           {neutralPrices && neutralAsset1Shares !== null && <section className={styles.neutralPanel}>
-            <div className={styles.neutralIntro}><span>LIVE β-NEUTRAL SHARE RATIO</span><h3>Hedge one Asset 2 share with {neutralAsset1Shares.toLocaleString("en-US", { maximumFractionDigits: 6 })} Asset 1 shares.</h3><p>The share ratio updates from both live midpoints. Target notionals remain |β| : 1; exchange quantity steps may introduce a small rounding error.</p></div>
-            <div className={styles.neutralLeg}><span>ASSET 2 SIGNAL LEG</span><strong className={neutralAsset2Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset2Side} 1.000000</strong><b>{selected.asset2.symbol}</b><small>@ {neutralPrices.asset2.toLocaleString("en-US", { maximumFractionDigits: 8 })}</small></div>
-            <div className={styles.neutralLeg}><span>ASSET 1 HEDGE LEG</span><strong className={neutralAsset1Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset1Side} {neutralAsset1Shares.toLocaleString("en-US", { maximumFractionDigits: 6 })}</strong><b>{selected.asset1.symbol}</b><small>@ {neutralPrices.asset1.toLocaleString("en-US", { maximumFractionDigits: 8 })}</small></div>
-            <div className={styles.neutralRatio}><span>NOTIONAL BALANCE</span><strong>{Math.abs(analysis.model.beta).toFixed(3)} : 1</strong><small>Asset 1 : Asset 2 · β {formatNumber(analysis.model.beta, 3)}</small></div>
+            <div className={styles.neutralIntro}><span>LIVE β-NEUTRAL SHARE RATIO</span><h3>Hedge {NEUTRAL_UNIT_SHARES} {selected.asset2.symbol} shares with {neutralAsset1Shares.toLocaleString("en-US", { maximumFractionDigits: 6 })} {selected.asset1.symbol} shares.</h3><p>The share ratio updates from both live midpoints every 10 seconds. Target notionals remain |β| : 1; exchange quantity steps may introduce a small rounding error.</p></div>
+            <div className={styles.neutralLeg}><span>{selected.asset2.symbol} SIGNAL LEG</span><strong className={neutralAsset2Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset2Side} {NEUTRAL_UNIT_SHARES.toFixed(6)}</strong><b>{selected.asset2.symbol}</b><small>@ {neutralPrices.asset2.toLocaleString("en-US", { maximumFractionDigits: 8 })}</small></div>
+            <div className={styles.neutralLeg}><span>{selected.asset1.symbol} HEDGE LEG</span><strong className={neutralAsset1Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset1Side} {neutralAsset1Shares.toLocaleString("en-US", { maximumFractionDigits: 6 })}</strong><b>{selected.asset1.symbol}</b><small>@ {neutralPrices.asset1.toLocaleString("en-US", { maximumFractionDigits: 8 })}</small></div>
+            <div className={styles.neutralRatio}><span>NOTIONAL BALANCE</span><strong>{Math.abs(analysis.model.beta).toFixed(3)} : 1</strong><small>{selected.asset1.symbol} : {selected.asset2.symbol} · β {formatNumber(analysis.model.beta, 3)}</small></div>
           </section>}
 
           <section className={styles.modelPanel}>
@@ -628,19 +630,19 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
               <div><span>{analysis.model.method === "reference" ? "Locked β" : "Learned β"}</span><strong>{formatNumber(analysis.model.beta, 3)}</strong><small>{analysis.model.method === "reference" ? "Used directly, not regressed" : "Estimated on training sample"}</small></div>
               <div><span>Formula type</span><strong>{analysis.model.method === "reference" ? "Structural" : "Empirical"}</strong><small>{analysis.model.method === "reference" ? "Issuer / benchmark relationship" : "Historical regression"}</small></div>
               <div><span>Holdout correlation</span><strong>{formulaOnly ? "—" : analysis.model.validationCorrelation.toFixed(3)}</strong><small>{formulaOnly ? "Awaiting enough history" : `${analysis.model.validationSamples} unseen samples`}</small></div>
-              <div><span>Holdout R²</span><strong>{formulaOnly ? "—" : analysis.model.validationR2.toFixed(3)}</strong><small>{formulaOnly ? "Not required for calculation" : "Explained Asset 2 variance"}</small></div>
+              <div><span>Holdout R²</span><strong>{formulaOnly ? "—" : analysis.model.validationR2.toFixed(3)}</strong><small>{formulaOnly ? "Not required for calculation" : `Explained ${selected.asset2.symbol} variance`}</small></div>
               <div><span>Holdout MAE</span><strong>{formulaOnly ? "—" : `${analysis.model.validationMaePct.toFixed(3)}%`}</strong><small>{formulaOnly ? "Validation pending" : "Per hourly prediction"}</small></div>
               <div><span>β drift</span><strong>{formulaOnly ? "—" : `${(analysis.model.betaDrift * 100).toFixed(1)}%`}</strong><small>{formulaOnly ? "Using supplied beta unchanged" : analysis.model.method === "reference" ? "Observed holdout β versus locked β" : "Train versus holdout"}</small></div>
             </div>
           </section>
 
-          <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>THEORETICAL RETURN ENGINE</span><h3>Asset 2 actual versus model</h3><p>{analysis.points.length.toLocaleString()} aligned points · {analysis.interval} resolution</p></div><div className={styles.legend}><span><i className={styles.legendA} />Asset 1 actual</span><span><i className={styles.legendB} />Asset 2 actual</span><span><i className={styles.legendTheory} />Asset 2 theoretical</span></div></div><PredictionChart points={analysis.points} relationship={selected} /></section>
+          <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>THEORETICAL RETURN ENGINE</span><h3>{selected.asset2.symbol} actual versus model</h3><p>{analysis.points.length.toLocaleString()} aligned points · {analysis.interval} resolution</p></div><div className={styles.legend}><span><i className={styles.legendA} />{selected.asset1.symbol} actual</span><span><i className={styles.legendB} />{selected.asset2.symbol} actual</span><span><i className={styles.legendTheory} />{selected.asset2.symbol} theoretical</span></div></div><PredictionChart points={analysis.points} relationship={selected} /></section>
 
-          {!formulaOnly && <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>PREDICTION ERROR MONITOR</span><h3>Actual Asset 2 minus theory</h3></div><p>Watch at ±1.5σ · dislocation at ±2σ · suppressed when model quality is weak.</p></div><ResidualChart points={analysis.points} /></section>}
+          {!formulaOnly && <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>PREDICTION ERROR MONITOR</span><h3>Actual {selected.asset2.symbol} minus theory</h3></div><p>Watch at ±1.5σ · dislocation at ±2σ · suppressed when model quality is weak.</p></div><ResidualChart points={analysis.points} /></section>}
 
           <section className={styles.methodPanel}>
             <div><span>{analysis.model.method === "reference" ? "RULE VALIDATION" : "MODEL TRAINING"}</span><h3>{formulaOnly ? "The supplied beta runs without a minimum history requirement." : "The backtest never refits on its own result."}</h3><p>{formulaOnly ? "This contract is too new for a meaningful holdout test, so the engine skips regression and applies the supplied leverage multiplier directly. Validation metrics will appear automatically once enough aligned hourly history exists." : analysis.model.method === "reference" ? "This relationship has an explicit beta, so the site does not fit a coefficient. The preceding 45-day hourly history and holdout sample only test how reliably the zero-intercept structural formula behaved before the selected backtest." : "The coefficient is estimated from a 45-day hourly history ending three days before the selected backtest. The final 25% is kept out of training and reports correlation, R², error and coefficient drift."}</p></div>
-            <div><span>PREDICTION EQUATION</span><h3>{analysis.model.method === "reference" ? "Asset 2 = locked β × Asset 1." : "Asset 2 = α × time + fitted β × Asset 1."}</h3><p>The engine works in log-return space. It converts Asset 1&apos;s cumulative move over the selected period into Asset 2&apos;s theoretical move, then compares that number with Asset 2&apos;s actual return. Funding, liquidity and oracle timing remain outside the formula.</p></div>
+            <div><span>PREDICTION EQUATION</span><h3>{analysis.model.method === "reference" ? `${selected.asset2.symbol} = locked β × ${selected.asset1.symbol}.` : `${selected.asset2.symbol} = α × time + fitted β × ${selected.asset1.symbol}.`}</h3><p>The engine works in log-return space. It converts {selected.asset1.symbol}&apos;s cumulative move over the selected period into {selected.asset2.symbol}&apos;s theoretical move, then compares that number with {selected.asset2.symbol}&apos;s actual return. Funding, liquidity and oracle timing remain outside the formula.</p></div>
           </section>
 
           <section className={styles.sources}><div><span>RELATIONSHIP RESEARCH</span><h3>Issuer objectives and underlying links</h3></div><div className={styles.sourceGrid}>

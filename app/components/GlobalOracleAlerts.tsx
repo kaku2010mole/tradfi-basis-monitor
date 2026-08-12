@@ -156,7 +156,7 @@ export default function GlobalOracleAlerts() {
     setAlert({
       tone: next > 0 ? "positive" : "negative",
       title: `${signal.snapshot.title} PREDICTION ERROR`,
-      message: `Asset 2 is ${signed} versus theory, outside the ±${RELATIVE_VALUE_ALERT_THRESHOLD.toFixed(1)}% band · β-neutral direction: ${asset2Side} ${signal.snapshot.asset2.symbol} / ${asset1Side} ${signal.snapshot.asset1.symbol}.`,
+      message: `${signal.snapshot.asset2.symbol} is ${signed} versus theory, outside the ±${RELATIVE_VALUE_ALERT_THRESHOLD.toFixed(1)}% band · β-neutral direction: ${asset2Side} ${signal.snapshot.asset2.symbol} / ${asset1Side} ${signal.snapshot.asset1.symbol}.`,
     });
   }, []);
 
@@ -210,7 +210,7 @@ export default function GlobalOracleAlerts() {
       finally { relativeInFlight.current = false; }
     };
     const frame = window.requestAnimationFrame(() => void pollRelative());
-    const timer = window.setInterval(() => void pollRelative(), 1_000);
+    const timer = window.setInterval(() => void pollRelative(), 10_000);
     return () => { cancelled = true; window.cancelAnimationFrame(frame); window.clearInterval(timer); };
   }, [applyRelativeSignal]);
 
