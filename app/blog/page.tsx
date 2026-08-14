@@ -315,6 +315,30 @@ function PredictionChart({ points, relationship }: { points: ProjectionPoint[]; 
   </svg></div>;
 }
 
+function PredictionErrorChart({ points }: { points: ProjectionPoint[] }) {
+  const width = 920;
+  const height = 300;
+  const padding = { left: 58, right: 24, top: 24, bottom: 42 };
+  const alertThreshold = 2;
+  const maxMagnitude = Math.max(alertThreshold * 1.15, ...points.map((point) => Math.abs(point.predictionError))) * 1.08;
+  const min = -maxMagnitude;
+  const max = maxMagnitude;
+  const y = (value: number) => padding.top + ((max - value) / (max - min)) * (height - padding.top - padding.bottom);
+  const latest = points.at(-1)?.predictionError ?? 0;
+  return <div className={styles.chartScroll}><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Historical prediction error percentage chart">
+    <rect x={padding.left} y={y(alertThreshold)} width={width - padding.left - padding.right} height={y(-alertThreshold) - y(alertThreshold)} className={styles.errorBand} />
+    {[max, max / 2, 0, min / 2, min].map((value, index) => <g key={index}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} className={value === 0 ? styles.zeroLine : styles.gridLine} /><text x={padding.left - 9} y={y(value) + 4} textAnchor="end" className={styles.axisText}>{formatPct(value, 2)}</text></g>)}
+    {[alertThreshold, -alertThreshold].map((value) => <line key={value} x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} className={styles.predictionAlertLine} />)}
+    {[0, .25, .5, .75, 1].map((ratio) => {
+      const index = Math.min(points.length - 1, Math.round((points.length - 1) * ratio));
+      const x = padding.left + ratio * (width - padding.left - padding.right);
+      return <text key={ratio} x={x} y={height - 15} textAnchor={ratio === 0 ? "start" : ratio === 1 ? "end" : "middle"} className={styles.axisText}>{formatTime(points[index].t, points.at(-1)!.t - points[0].t > 24 * 60 * 60_000)}</text>;
+    })}
+    <path d={linePath(points.map((point) => point.predictionError), width, height, padding, min, max)} className={styles.predictionErrorLine} />
+    <circle cx={width - padding.right} cy={y(latest)} r="5" className={Math.abs(latest) >= alertThreshold ? styles.errorHotDot : styles.errorLiveDot} />
+  </svg></div>;
+}
+
 function ResidualChart({ points }: { points: ProjectionPoint[] }) {
   const width = 920;
   const height = 270;
@@ -733,28 +757,18 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
             <article><span>Prediction error</span><strong className={!formulaOnly && Math.abs(analysis.stats.zScore) >= 2 ? styles.negative : ""}>{formatPct(analysis.stats.predictionError, 3)}</strong><small>{formulaOnly ? "Actual − theoretical · significance unavailable" : `Actual − theoretical · ${formatNumber(analysis.stats.zScore)}σ`}</small></article>
           </section>
 
+          <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>THEORETICAL RETURN ENGINE</span><h3>{selected.asset2.symbol} actual versus model</h3><p>{analysis.points.length.toLocaleString()} aligned points · {analysis.interval} resolution</p></div><div className={styles.legend}><span><i className={styles.legendA} />{selected.asset1.symbol} actual</span><span><i className={styles.legendB} />{selected.asset2.symbol} actual</span><span><i className={styles.legendTheory} />{selected.asset2.symbol} theoretical</span></div></div><PredictionChart points={analysis.points} relationship={selected} /></section>
+
+          <section className={`${styles.chartPanel} ${styles.errorChartPanel}`}><div className={styles.panelHead}><div><span>PREDICTION ERROR HISTORY</span><h3>Actual {selected.asset2.symbol} minus theoretical return</h3><p>Cumulative percentage-point error from the selected anchor · ±2% broadcast threshold</p></div><div className={styles.errorSnapshot}><span>LATEST ERROR</span><strong className={analysis.stats.predictionError >= 0 ? styles.positive : styles.negative}>{formatPct(analysis.stats.predictionError, 3)}</strong></div></div><PredictionErrorChart points={analysis.points} /></section>
+
+          {!formulaOnly && <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>STANDARDIZED ERROR MONITOR</span><h3>Prediction error significance</h3></div><p>Watch at ±1.5σ · dislocation at ±2σ · suppressed when model quality is weak.</p></div><ResidualChart points={analysis.points} /></section>}
+
           {neutralPrices && neutralAsset1Shares !== null && <section className={styles.neutralPanel}>
             <div className={styles.neutralIntro}><span>LIVE β-NEUTRAL SHARE RATIO</span><h3>Hedge {NEUTRAL_UNIT_SHARES} {selected.asset2.symbol} shares with {neutralAsset1Shares.toLocaleString("en-US", { maximumFractionDigits: 6 })} {selected.asset1.symbol} shares.</h3><p>The share ratio updates from both live midpoints every 10 seconds. Target notionals remain |β| : 1; exchange quantity steps may introduce a small rounding error.</p></div>
             <div className={styles.neutralLeg}><span>{selected.asset2.symbol} SIGNAL LEG</span><strong className={neutralAsset2Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset2Side} {NEUTRAL_UNIT_SHARES.toFixed(6)}</strong><b>{selected.asset2.symbol}</b><small>@ {neutralPrices.asset2.toLocaleString("en-US", { maximumFractionDigits: 8 })}</small></div>
             <div className={styles.neutralLeg}><span>{selected.asset1.symbol} HEDGE LEG</span><strong className={neutralAsset1Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset1Side} {neutralAsset1Shares.toLocaleString("en-US", { maximumFractionDigits: 6 })}</strong><b>{selected.asset1.symbol}</b><small>@ {neutralPrices.asset1.toLocaleString("en-US", { maximumFractionDigits: 8 })}</small></div>
             <div className={styles.neutralRatio}><span>NOTIONAL BALANCE</span><strong>{Math.abs(analysis.model.beta).toFixed(3)} : 1</strong><small>{selected.asset1.symbol} : {selected.asset2.symbol} · β {formatNumber(analysis.model.beta, 3)}</small></div>
           </section>}
-
-          <section className={styles.modelPanel}>
-            <div className={styles.modelHead}><div><span>{analysis.model.method === "reference" ? "LOCKED STRUCTURAL RULE" : "FROZEN MODEL CARD"}</span><h3>{formulaOnly ? "Direct formula · no history required" : analysis.model.method === "reference" ? "Direct formula, validated out of sample" : "Trained once, validated out of sample"}</h3><p>{formulaOnly ? `β ${formatNumber(analysis.model.beta, 3)} supplied by the user · zero intercept · theoretical return remains active` : `${formatDate(analysis.model.trainingStart)} — ${formatDate(analysis.model.trainingEnd)} HKT · ${analysis.model.method === "reference" ? "β fixed from the stated product relationship · zero intercept · history used only for validation" : "first 75% train / final 25% validation"} · hourly log returns`}</p></div><b className={styles[formulaOnly ? "locked" : analysis.model.quality]}>{formulaOnly ? "locked" : analysis.model.quality}</b></div>
-            <div className={styles.modelMetrics}>
-              <div><span>{analysis.model.method === "reference" ? "Locked β" : "Learned β"}</span><strong>{formatNumber(analysis.model.beta, 3)}</strong><small>{analysis.model.method === "reference" ? "Used directly, not regressed" : "Estimated on training sample"}</small></div>
-              <div><span>Formula type</span><strong>{analysis.model.method === "reference" ? "Structural" : "Empirical"}</strong><small>{analysis.model.method === "reference" ? "Issuer / benchmark relationship" : "Historical regression"}</small></div>
-              <div><span>Holdout correlation</span><strong>{formulaOnly ? "—" : analysis.model.validationCorrelation.toFixed(3)}</strong><small>{formulaOnly ? "Awaiting enough history" : `${analysis.model.validationSamples} unseen samples`}</small></div>
-              <div><span>Holdout R²</span><strong>{formulaOnly ? "—" : analysis.model.validationR2.toFixed(3)}</strong><small>{formulaOnly ? "Not required for calculation" : `Explained ${selected.asset2.symbol} variance`}</small></div>
-              <div><span>Holdout MAE</span><strong>{formulaOnly ? "—" : `${analysis.model.validationMaePct.toFixed(3)}%`}</strong><small>{formulaOnly ? "Validation pending" : "Per hourly prediction"}</small></div>
-              <div><span>β drift</span><strong>{formulaOnly ? "—" : `${(analysis.model.betaDrift * 100).toFixed(1)}%`}</strong><small>{formulaOnly ? "Using supplied beta unchanged" : analysis.model.method === "reference" ? "Observed holdout β versus locked β" : "Train versus holdout"}</small></div>
-            </div>
-          </section>
-
-          <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>THEORETICAL RETURN ENGINE</span><h3>{selected.asset2.symbol} actual versus model</h3><p>{analysis.points.length.toLocaleString()} aligned points · {analysis.interval} resolution</p></div><div className={styles.legend}><span><i className={styles.legendA} />{selected.asset1.symbol} actual</span><span><i className={styles.legendB} />{selected.asset2.symbol} actual</span><span><i className={styles.legendTheory} />{selected.asset2.symbol} theoretical</span></div></div><PredictionChart points={analysis.points} relationship={selected} /></section>
-
-          {!formulaOnly && <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>PREDICTION ERROR MONITOR</span><h3>Actual {selected.asset2.symbol} minus theory</h3></div><p>Watch at ±1.5σ · dislocation at ±2σ · suppressed when model quality is weak.</p></div><ResidualChart points={analysis.points} /></section>}
 
           <section className={styles.methodPanel}>
             <div><span>{analysis.model.method === "reference" ? "RULE VALIDATION" : "MODEL TRAINING"}</span><h3>{formulaOnly ? "The supplied beta runs without a minimum history requirement." : "The backtest never refits on its own result."}</h3><p>{formulaOnly ? "This contract is too new for a meaningful holdout test, so the engine skips regression and applies the supplied leverage multiplier directly. Validation metrics will appear automatically once enough aligned hourly history exists." : analysis.model.method === "reference" ? "This relationship has an explicit beta, so the site does not fit a coefficient. The preceding 45-day hourly history and holdout sample only test how reliably the zero-intercept structural formula behaved before the selected backtest." : "The coefficient is estimated from a 45-day hourly history ending three days before the selected backtest. The final 25% is kept out of training and reports correlation, R², error and coefficient drift."}</p></div>
@@ -770,6 +784,18 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
             <a href="https://www.sec.gov/Archives/edgar/data/1587982/000121390026057930/ea0291169-05_497.htm" target="_blank" rel="noreferrer"><b>Tradr SNXX filing</b><small>+2× SNDK daily fund ↗</small></a>
             <a href="https://www.vaneck.com/us/en/investments/semiconductor-etf-smh-fact-sheet.pdf" target="_blank" rel="noreferrer"><b>VanEck SMH</b><small>Semiconductor basket composition ↗</small></a>
           </div></section>
+
+          <section className={styles.modelPanel}>
+            <div className={styles.modelHead}><div><span>{analysis.model.method === "reference" ? "LOCKED STRUCTURAL RULE" : "FROZEN MODEL CARD"}</span><h3>{formulaOnly ? "Direct formula · no history required" : analysis.model.method === "reference" ? "Direct formula, validated out of sample" : "Trained once, validated out of sample"}</h3><p>{formulaOnly ? `β ${formatNumber(analysis.model.beta, 3)} supplied by the user · zero intercept · theoretical return remains active` : `${formatDate(analysis.model.trainingStart)} — ${formatDate(analysis.model.trainingEnd)} HKT · ${analysis.model.method === "reference" ? "β fixed from the stated product relationship · zero intercept · history used only for validation" : "first 75% train / final 25% validation"} · hourly log returns`}</p></div><b className={styles[formulaOnly ? "locked" : analysis.model.quality]}>{formulaOnly ? "locked" : analysis.model.quality}</b></div>
+            <div className={styles.modelMetrics}>
+              <div><span>{analysis.model.method === "reference" ? "Locked β" : "Learned β"}</span><strong>{formatNumber(analysis.model.beta, 3)}</strong><small>{analysis.model.method === "reference" ? "Used directly, not regressed" : "Estimated on training sample"}</small></div>
+              <div><span>Formula type</span><strong>{analysis.model.method === "reference" ? "Structural" : "Empirical"}</strong><small>{analysis.model.method === "reference" ? "Issuer / benchmark relationship" : "Historical regression"}</small></div>
+              <div><span>Holdout correlation</span><strong>{formulaOnly ? "—" : analysis.model.validationCorrelation.toFixed(3)}</strong><small>{formulaOnly ? "Awaiting enough history" : `${analysis.model.validationSamples} unseen samples`}</small></div>
+              <div><span>Holdout R²</span><strong>{formulaOnly ? "—" : analysis.model.validationR2.toFixed(3)}</strong><small>{formulaOnly ? "Not required for calculation" : `Explained ${selected.asset2.symbol} variance`}</small></div>
+              <div><span>Holdout MAE</span><strong>{formulaOnly ? "—" : `${analysis.model.validationMaePct.toFixed(3)}%`}</strong><small>{formulaOnly ? "Validation pending" : "Per hourly prediction"}</small></div>
+              <div><span>β drift</span><strong>{formulaOnly ? "—" : `${(analysis.model.betaDrift * 100).toFixed(1)}%`}</strong><small>{formulaOnly ? "Using supplied beta unchanged" : analysis.model.method === "reference" ? "Observed holdout β versus locked β" : "Train versus holdout"}</small></div>
+            </div>
+          </section>
         </>}
       </div>
     </section>
