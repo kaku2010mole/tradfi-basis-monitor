@@ -64,6 +64,10 @@ const HIDE_AFTER_MS = 20_000;
 const CUSTOM_PAIRS_KEY = ORACLE_CUSTOM_PAIRS_KEY;
 const DEFAULT_BINANCE = DEFAULT_ORACLE_BINANCE;
 const DEFAULT_PARA = DEFAULT_ORACLE_PARA;
+const DEFAULT_PAIR_CATALOG: CustomPair[] = [
+  ...DEFAULT_BINANCE.map((apiSymbol) => ({ venue: "Binance" as const, apiSymbol })),
+  ...DEFAULT_PARA.map((apiSymbol) => ({ venue: "Hyperliquid" as const, apiSymbol })),
+];
 
 const hktDateValue = (offsetDays = 0) => {
   const date = new Date(Date.now() + 8 * 3600_000 + offsetDays * 24 * 3600_000);
@@ -223,13 +227,13 @@ function DeviationChart({ points, threshold, symbol }: { points: OraclePoint[]; 
   );
 }
 
-function QuoteCard({ quote, threshold, selected, stale, onSelect }: { quote: OracleQuote; threshold: number; selected: boolean; stale: boolean; onSelect: () => void }) {
+function QuoteCard({ quote, threshold, selected, stale, rank, onSelect }: { quote: OracleQuote; threshold: number; selected: boolean; stale: boolean; rank: number; onSelect: () => void }) {
   const triggered = Math.abs(quote.deviation) >= threshold;
   return (
     <button className={`${styles.quoteCard} ${quote.venue === "Binance" ? styles.binanceCard : styles.hyperliquidCard} ${selected ? styles.selectedCard : ""} ${triggered ? styles.triggeredCard : ""} ${stale ? styles.staleCard : ""}`} onClick={onSelect}>
       <div className={styles.cardTop}>
-        <div><small>{quote.venue}</small><strong>{quote.symbol}</strong></div>
-        <span className={quote.deviation >= 0 ? styles.positive : styles.negative}>{formatPct(quote.deviation)}</span>
+        <div className={styles.cardIdentity}><span className={styles.rankBadge}>#{String(rank).padStart(2, "0")}</span><div><small>{quote.venue}</small><strong>{quote.symbol}</strong></div></div>
+        <span className={`${styles.deviationValue} ${quote.deviation >= 0 ? styles.positive : styles.negative}`}>{formatPct(quote.deviation)}</span>
       </div>
       <div className={styles.cardPrices}>
         <div><span>Live midpoint</span><b>{formatPrice(quote.live)}</b></div>
@@ -285,7 +289,12 @@ export default function OracleMonitor() {
     } catch { /* Device has no usable saved pairs. */ }
     const frame = window.requestAnimationFrame(() => {
       if (Number.isFinite(savedThreshold) && savedThreshold >= .001) setThreshold(Math.min(savedThreshold, 10));
-      setCustomPairs(saved.filter((pair) => pair && (pair.venue === "Binance" || pair.venue === "Hyperliquid") && typeof pair.apiSymbol === "string").slice(0, 24));
+      const migrated = saved
+        .filter((pair) => pair && (pair.venue === "Binance" || pair.venue === "Hyperliquid") && typeof pair.apiSymbol === "string")
+        .filter((pair) => !(pair.venue === "Binance" ? DEFAULT_BINANCE : DEFAULT_PARA).includes(pair.apiSymbol))
+        .slice(0, 24);
+      setCustomPairs(migrated);
+      window.localStorage.setItem(CUSTOM_PAIRS_KEY, JSON.stringify(migrated));
       setPairsReady(true);
     });
     return () => window.cancelAnimationFrame(frame);
@@ -527,8 +536,9 @@ export default function OracleMonitor() {
     const lastHistoryTime = history.at(-1)?.t ?? 0;
     return [...history, ...selectedSession.filter((point) => point.t > lastHistoryTime)];
   }, [history, selected, selectedSession]);
-  const positive = visibleQuotes.filter((quote) => quote.deviation >= 0).sort((a, b) => a.symbol.localeCompare(b.symbol));
-  const negative = visibleQuotes.filter((quote) => quote.deviation < 0).sort((a, b) => a.symbol.localeCompare(b.symbol));
+  const byAbsoluteDeviation = (a: OracleQuote, b: OracleQuote) => Math.abs(b.deviation) - Math.abs(a.deviation) || a.symbol.localeCompare(b.symbol);
+  const positive = visibleQuotes.filter((quote) => quote.deviation >= 0).sort(byAbsoluteDeviation);
+  const negative = visibleQuotes.filter((quote) => quote.deviation < 0).sort(byAbsoluteDeviation);
   const triggered = visibleQuotes.filter((quote) => Math.abs(quote.deviation) >= threshold);
   const extreme = visibleQuotes.reduce<OracleQuote | null>((best, quote) => !best || Math.abs(quote.deviation) > Math.abs(best.deviation) ? quote : best, null);
   const binanceCount = visibleQuotes.filter((quote) => quote.venue === "Binance").length;
@@ -613,9 +623,13 @@ export default function OracleMonitor() {
             <button onClick={addPair}>Add pair</button>
           </div>
           {pairError && <p className={styles.pairError}>{pairError}</p>}
+          <div className={styles.defaultPairs}>
+            <div><strong>Built-in coverage</strong><small>{DEFAULT_PAIR_CATALOG.length} contracts · always monitored</small></div>
+            <div>{DEFAULT_PAIR_CATALOG.map((pair) => <span key={`default:${pair.venue}:${pair.apiSymbol}`}><b>{pair.venue}</b>{pair.apiSymbol === "para:BTCD" ? "para:BTC.D" : pair.apiSymbol}</span>)}</div>
+          </div>
           <div className={styles.customPairs}>
             {customPairs.map((pair) => <span key={`${pair.venue}:${pair.apiSymbol}`}><b>{pair.venue}</b>{pair.apiSymbol === "para:BTCD" ? "para:BTC.D" : pair.apiSymbol}<button aria-label={`Remove ${pair.apiSymbol}`} onClick={() => removePair(pair)}>×</button></span>)}
-            {!customPairs.length && <small>No custom pairs on this device.</small>}
+            {!customPairs.length && <small>No additional device-local pairs.</small>}
           </div>
         </section>}
 
@@ -628,14 +642,14 @@ export default function OracleMonitor() {
 
         <section className={styles.deviationBoard}>
           <div className={`${styles.side} ${styles.positiveSide}`}>
-            <header><div><span>↗</span><strong>Positive deviation</strong></div><b>{positive.length}</b></header>
-            <div className={styles.cardList}>{positive.map((quote) => <QuoteCard key={quote.id} quote={quote} threshold={threshold} stale={clock - quote.updatedAt > STALE_AFTER_MS} selected={quote.id === selected?.id} onSelect={() => setSelectedId(quote.id)} />)}
+            <header><div className={styles.sideHeading}><span>↗</span><div><strong>Positive deviation</strong><small>Largest |deviation| first</small></div></div><b>{positive.length}</b></header>
+            <div className={styles.cardList}>{positive.map((quote, index) => <QuoteCard key={quote.id} quote={quote} rank={index + 1} threshold={threshold} stale={clock - quote.updatedAt > STALE_AFTER_MS} selected={quote.id === selected?.id} onSelect={() => setSelectedId(quote.id)} />)}
               {!positive.length && <p>No positive deviations.</p>}
             </div>
           </div>
           <div className={`${styles.side} ${styles.negativeSide}`}>
-            <header><div><span>↘</span><strong>Negative deviation</strong></div><b>{negative.length}</b></header>
-            <div className={styles.cardList}>{negative.map((quote) => <QuoteCard key={quote.id} quote={quote} threshold={threshold} stale={clock - quote.updatedAt > STALE_AFTER_MS} selected={quote.id === selected?.id} onSelect={() => setSelectedId(quote.id)} />)}
+            <header><div className={styles.sideHeading}><span>↘</span><div><strong>Negative deviation</strong><small>Largest |deviation| first</small></div></div><b>{negative.length}</b></header>
+            <div className={styles.cardList}>{negative.map((quote, index) => <QuoteCard key={quote.id} quote={quote} rank={index + 1} threshold={threshold} stale={clock - quote.updatedAt > STALE_AFTER_MS} selected={quote.id === selected?.id} onSelect={() => setSelectedId(quote.id)} />)}
               {!negative.length && <p>No negative deviations.</p>}
             </div>
           </div>

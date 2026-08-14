@@ -1,8 +1,19 @@
 const BINANCE_API = "https://fapi.binance.com";
 const HYPERLIQUID_INFO = "https://api.hyperliquid.xyz/info";
 
-const DEFAULT_BINANCE_SYMBOLS = ["HK1810USDT", "HK0700USDT", "TENCENTUSDT"];
-const DEFAULT_PARA_SYMBOLS = ["para:OTHERS", "para:TOTAL2", "para:BTCD"];
+const DEFAULT_BINANCE_SYMBOLS = [
+  "HK1810USDT",
+  "HK0700USDT",
+  "TENCENTUSDT",
+  "POPMARTUSDT",
+  "KUAISHOUUSDT",
+  "MEITUANUSDT",
+  "CSOPSKHYNIX2LUSDT",
+  "LGELECTRONICSUSDT",
+  "KODEX200USDT",
+  "ZHONGJIUSDT",
+];
+const DEFAULT_PARA_SYMBOLS = ["para:OTHERS", "para:TOTAL2", "para:BTCD", "para:CIEN", "para:VST", "para:NET"];
 const MAX_SYMBOLS_PER_VENUE = 24;
 const FETCH_TIMEOUT_MS = 6_000;
 const RETRY_DELAYS_MS = [0, 180, 520];

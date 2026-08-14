@@ -86,9 +86,14 @@ const hktTodayAt = (hour: number, timestamp: number, minute = 0) => {
   const day = new Date(timestamp + HKT_OFFSET_MS).toISOString().slice(0, 10);
   return Date.parse(`${day}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+08:00`);
 };
-const INITIAL_TEN = hktTodayAt(10, INITIAL_NOW);
-const INITIAL_START = INITIAL_TEN < INITIAL_NOW ? INITIAL_TEN : INITIAL_NOW - 60 * 60_000;
-const INITIAL_SELECTION = INITIAL_TEN < INITIAL_NOW ? "10:00" : "1H";
+const latestHktAnchor = (hour: number, timestamp: number, minute = 0) => {
+  const today = hktTodayAt(hour, timestamp, minute);
+  return today <= timestamp ? today : today - 24 * 60 * 60_000;
+};
+const anchorDayLabel = (anchor: number, timestamp: number) => new Date(anchor + HKT_OFFSET_MS).toISOString().slice(0, 10) === new Date(timestamp + HKT_OFFSET_MS).toISOString().slice(0, 10) ? "TODAY" : "YESTERDAY";
+const INITIAL_TEN = latestHktAnchor(10, INITIAL_NOW);
+const INITIAL_START = INITIAL_TEN;
+const INITIAL_SELECTION = "10:00";
 const formatPct = (value: number, digits = 2) => `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 const formatNumber = (value: number, digits = 2) => `${value >= 0 ? "+" : ""}${value.toFixed(digits)}`;
 const formatTime = (value: number, includeDate = false) => new Intl.DateTimeFormat("en-GB", {
@@ -443,7 +448,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
       const end = Date.now();
       const anchor = TODAY_ANCHORS.find((item) => item.label === activeWindow);
       const windowConfig = QUICK_WINDOWS.find((item) => item.label === activeWindow);
-      const start = anchor ? hktTodayAt(anchor.hour, end, anchor.minute) : end - (windowConfig?.milliseconds ?? 60 * 60_000);
+      const start = anchor ? latestHktAnchor(anchor.hour, end, anchor.minute) : end - (windowConfig?.milliseconds ?? 60 * 60_000);
       if (start >= end) return;
       setStartInput(toHktInput(start));
       setEndInput(toHktInput(end));
@@ -574,9 +579,8 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
     setEndInput(toHktInput(end));
     void load({ start, end });
   };
-  const applyTodayAnchor = (label: string, hour: number, minute: number, end: number) => {
-    const start = hktTodayAt(hour, end, minute);
-    if (start >= end) return;
+  const applyDailyAnchor = (label: string, hour: number, minute: number, end: number) => {
+    const start = latestHktAnchor(hour, end, minute);
     setActiveWindow(label);
     setFollowingLive(true);
     setStartInput(toHktInput(start));
@@ -705,11 +709,11 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
 
       <div className={styles.analysisColumn}>
         <section className={styles.controls}>
-          <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const unavailable = hktTodayAt(anchor.hour, analysis?.generatedAt ?? INITIAL_NOW, anchor.minute) >= (analysis?.generatedAt ?? INITIAL_NOW); return <button key={anchor.label} className={`${styles.anchorWindow} ${followingLive && activeWindow === anchor.label ? styles.activeWindow : ""}`} disabled={unavailable} title={`Compare from today at ${anchor.label} HKT`} onClick={(event) => applyTodayAnchor(anchor.label, anchor.hour, anchor.minute, performance.timeOrigin + event.timeStamp)}>{anchor.label}</button>; })}{QUICK_WINDOWS.map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
+          <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const now = analysis?.generatedAt ?? INITIAL_NOW; const latest = latestHktAnchor(anchor.hour, now, anchor.minute); const day = anchorDayLabel(latest, now); return <button key={anchor.label} className={`${styles.anchorWindow} ${followingLive && activeWindow === anchor.label ? styles.activeWindow : ""}`} title={`Compare from the latest ${anchor.label} HKT anchor within the past 24 hours · ${day.toLowerCase()}`} onClick={(event) => applyDailyAnchor(anchor.label, anchor.hour, anchor.minute, performance.timeOrigin + event.timeStamp)}><span>{anchor.label}</span><small>{day}</small></button>; })}{QUICK_WINDOWS.map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
           <label>Backtest start · HKT<input type="datetime-local" value={startInput} max={endInput} onChange={(event) => { setStartInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
           <label>Backtest end · HKT<input type="datetime-local" value={endInput} min={startInput} onChange={(event) => { setEndInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
           <button className={styles.runButton} disabled={loading} onClick={() => void load()}>{loading ? "Updating…" : "Update prediction"}</button>
-          <p className={styles.windowRule}>{followingLive ? `Following ${TODAY_ANCHORS.some((item) => item.label === activeWindow) ? `today at ${activeWindow} HKT` : `the latest ${activeWindow} window`}.` : "Historical backtest selected."} Observation curves use one-minute candles and each run is capped at 3D because leveraged ETFs reset daily. A supplied beta always runs directly; history is validation only and is not required.</p>
+          <p className={styles.windowRule}>{followingLive ? `Following ${TODAY_ANCHORS.some((item) => item.label === activeWindow) ? `the latest ${activeWindow} HKT anchor within the past 24 hours` : `the latest ${activeWindow} window`}.` : "Historical backtest selected."} Observation curves use one-minute candles and each run is capped at 3D because leveraged ETFs reset daily. A supplied beta always runs directly; history is validation only and is not required.</p>
         </section>
 
         {error && <div className={styles.errorBox}><strong>Prediction unavailable</strong><span>{error}</span><button onClick={() => void load()}>Retry</button></div>}
