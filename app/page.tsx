@@ -473,6 +473,7 @@ export default function Home() {
           </div>
         </div>
         <div className="topbar-actions">
+          <span className="release-badge">RELEASE 08.14 · NEWS HOLD + 7D</span>
           <PageSwitcher active="basis" />
           <div className={`connection ${status}`}>
             <i />

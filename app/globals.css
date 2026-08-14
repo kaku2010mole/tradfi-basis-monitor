@@ -48,6 +48,7 @@ main { min-height: 100vh; padding-bottom: 48px; }
 .brand strong { display: block; font-size: 14px; letter-spacing: .02em; }
 .brand span { display: block; color: var(--muted); font: 10px/1.4 monospace; text-transform: uppercase; letter-spacing: .1em; }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
+.release-badge { min-height:30px; display:flex; align-items:center; padding:0 10px; border:1px solid rgba(13,141,99,.25); border-radius:999px; background:#eaf8f2; color:#087552; font:800 8px monospace; letter-spacing:.04em; white-space:nowrap; }
 .connection {
   display: flex; align-items: center; gap: 8px; padding: 8px 11px;
   border: 1px solid var(--line); border-radius: 6px; background: var(--card);
@@ -321,6 +322,7 @@ tbody tr:hover { background: #f5f8f2; }
   .brand-mark { width: 32px; height: 32px; flex: 0 0 32px; font-size: 16px; }
   .brand strong { max-width: 136px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
   .brand span, .connection span { display: none; }
+  .release-badge { display:none; }
   .connection { min-height: 32px; padding: 7px 8px; gap: 6px; font-size: 9px; }
   .sign-out { display: block; margin-left: 0; }
   .sign-out button { min-height: 32px; padding-inline: 9px; font-size: 9px; }
