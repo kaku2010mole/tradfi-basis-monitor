@@ -5,12 +5,17 @@ import path from "node:path";
 
 const SYMBOLS = ["para:OTHERS", "para:TOTAL2", "para:BTCD"];
 const HYPERLIQUID_INFO = "https://api.hyperliquid.xyz/info";
+const HYPERTRACKER_BASE = "https://ht-api.coinmarketman.com";
 const CAPTURE_MS = 10_000;
+const LIQUIDATION_CAPTURE_MS = 30_000;
 let dataDirectory = process.env.PARA_DATA_DIR || "/var/data/para-orderbooks";
 let dataDirectoryReady = false;
+let liquidationDataDirectory = process.env.PARA_LIQUIDATION_DATA_DIR || "/var/data/para-liquidations";
+let liquidationDataDirectoryReady = false;
 const RETENTION_DAYS = Math.max(1, Math.min(90, Number(process.env.PARA_RETENTION_DAYS) || 14));
 let stopped = false;
 let lastCleanup = 0;
+let lastLiquidationCleanup = 0;
 
 const positive = (value) => {
   const number = Number(value);
@@ -50,6 +55,30 @@ async function ensureDataDirectory() {
     console.warn("[para-recorder] Persistent disk is not mounted; using temporary Render storage until /var/data is attached.");
   }
   dataDirectoryReady = true;
+}
+
+async function ensureLiquidationDataDirectory() {
+  if (liquidationDataDirectoryReady) return;
+  try {
+    await mkdir(liquidationDataDirectory, { recursive: true });
+  } catch (error) {
+    if (process.env.PARA_LIQUIDATION_DATA_DIR || !error || typeof error !== "object" || error.code !== "EACCES") throw error;
+    liquidationDataDirectory = "/tmp/para-liquidations";
+    await mkdir(liquidationDataDirectory, { recursive: true });
+    console.warn("[liquidation-recorder] Persistent disk is not mounted; using temporary Render storage.");
+  }
+  liquidationDataDirectoryReady = true;
+}
+
+async function cleanupOldLiquidationFiles() {
+  if (Date.now() - lastLiquidationCleanup < 60 * 60_000) return;
+  lastLiquidationCleanup = Date.now();
+  const cutoff = Date.now() - RETENTION_DAYS * 24 * 60 * 60_000;
+  const entries = await readdir(liquidationDataDirectory, { withFileTypes: true });
+  await Promise.all(entries.filter((entry) => entry.isFile() && entry.name.endsWith(".ndjson")).map(async (entry) => {
+    const file = path.join(liquidationDataDirectory, entry.name);
+    if ((await stat(file)).mtimeMs < cutoff) await unlink(file);
+  }));
 }
 
 async function capture() {
@@ -106,6 +135,70 @@ async function recorderLoop() {
   }
 }
 
+async function fetchLiquidationMap(symbol, token) {
+  const response = await fetch(`${HYPERTRACKER_BASE}/api/external/exports/coins/${encodeURIComponent(symbol)}/liquidation-heatmap`, {
+    headers: { Authorization: `Bearer ${token}` },
+    redirect: "follow",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`HyperTracker ${symbol} HTTP ${response.status}`);
+  return response.json();
+}
+
+async function captureLiquidations(token) {
+  const [contexts, maps] = await Promise.all([
+    fetchHyper({ type: "metaAndAssetCtxs", dex: "para" }),
+    Promise.all(SYMBOLS.map((symbol) => fetchLiquidationMap(symbol, token))),
+  ]);
+  const [meta, assetContexts] = contexts;
+  const contextBySymbol = new Map(meta.universe.map((asset, index) => [asset.name, assetContexts[index]]));
+  const timestamp = Date.now();
+  const records = maps.flatMap((payload, index) => {
+    const apiSymbol = SYMBOLS[index];
+    const context = contextBySymbol.get(apiSymbol) || {};
+    const oracle = positive(context.oraclePx);
+    const mark = positive(context.markPx);
+    const reference = oracle || mark;
+    if (!reference) return [];
+    const levels = (payload.heatmap || []).flatMap((bin) => {
+      const start = positive(bin.priceBinStart);
+      const end = positive(bin.priceBinEnd);
+      const usd = positive(bin.liquidationValue);
+      if (!start || !end || !usd || end <= start) return [];
+      return [[start, end, usd, Math.max(0, Number(bin.positionsCount) || 0), (start + end) / 2 < reference ? 0 : 1]];
+    });
+    if (!levels.length) return [];
+    return [{
+      id: `${apiSymbol}:${Math.floor(timestamp / LIQUIDATION_CAPTURE_MS)}`,
+      apiSymbol,
+      symbol: apiSymbol === "para:BTCD" ? "para:BTC.D" : apiSymbol,
+      t: timestamp,
+      oracle,
+      mark,
+      source: "HyperTracker",
+      levels,
+    }];
+  });
+  if (!records.length) return;
+  await ensureLiquidationDataDirectory();
+  const date = new Date(timestamp).toISOString().slice(0, 10);
+  await appendFile(path.join(liquidationDataDirectory, `${date}.ndjson`), `${records.map((record) => JSON.stringify(record)).join("\n")}\n`, "utf8");
+  await cleanupOldLiquidationFiles();
+}
+
+async function liquidationRecorderLoop(token) {
+  while (!stopped) {
+    const started = Date.now();
+    try {
+      await captureLiquidations(token);
+    } catch (error) {
+      console.warn(`[liquidation-recorder] ${error instanceof Error ? error.message : "capture failed"}`);
+    }
+    const delay = Math.max(500, LIQUIDATION_CAPTURE_MS - (Date.now() - started));
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+}
+
 const executable = fileURLToPath(new URL("../node_modules/.bin/vinext", import.meta.url));
 const web = spawn(executable, ["start"], {
   stdio: "inherit",
@@ -113,6 +206,7 @@ const web = spawn(executable, ["start"], {
 });
 
 void recorderLoop();
+if (process.env.HYPERTRACKER_API_KEY) void liquidationRecorderLoop(process.env.HYPERTRACKER_API_KEY);
 
 const shutdown = (signal) => {
   stopped = true;

@@ -11,6 +11,7 @@ import {
   ORACLE_THRESHOLD_KEY,
 } from "../lib/oracleAlerts";
 import ParaDepthHeatmap from "./ParaDepthHeatmap";
+import LiquidationPriceMap from "./LiquidationPriceMap";
 import styles from "./page.module.css";
 
 type OracleQuote = {
@@ -673,6 +674,8 @@ export default function OracleMonitor() {
         </section>
 
         <ParaDepthHeatmap />
+
+        <LiquidationPriceMap />
 
         <footer className={styles.footer}>Oracle and mark prices are reference inputs, not executable prices. Funding is shown in each venue&apos;s native interval.</footer>
       </div>
