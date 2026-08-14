@@ -52,7 +52,11 @@ export type ProjectionPoint = {
 export const TRAINING_DAYS = 45;
 export const VALIDATION_FRACTION = .25;
 export const MAX_OBSERVATION_MS = 3 * 24 * 60 * 60_000;
+export const MAX_STATISTICAL_OBSERVATION_MS = 7 * 24 * 60 * 60_000;
 export const TRAINING_INTERVAL = "1h";
+
+export const maxObservationMs = (relationship: Pick<Relationship, "referenceBeta">) =>
+  relationship.referenceBeta === null ? MAX_STATISTICAL_OBSERVATION_MS : MAX_OBSERVATION_MS;
 
 export const RELATIONSHIPS: Relationship[] = [
   {

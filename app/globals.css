@@ -207,6 +207,7 @@ h1 { margin: 0; font-size: clamp(34px, 4vw, 56px); line-height: 1; letter-spacin
 .pair-news-head small { display: block; margin-top: 4px; color: #95a099; font: 8px monospace; }
 .pair-news-head button { min-height: 30px; padding: 0 9px; border: 1px solid #d7dfd9; border-radius: 4px; background: white; color: #506058; font: 800 8px monospace; text-transform: uppercase; }
 .pair-news-head button:disabled { opacity: .55; cursor: wait; }
+.pair-news-head button.has-update { border-color: rgba(13,141,99,.4); background: #e7f8f0; color: #087552; box-shadow: 0 0 0 3px rgba(13,141,99,.08); }
 .news-sources { display: flex; flex-wrap: wrap; gap: 6px; padding: 7px 10px; border-bottom: 1px solid #e7ebe8; }
 .news-sources span { display: inline-flex; align-items: center; gap: 5px; color: #7e8983; font: 8px monospace; }
 .news-sources i { width: 5px; height: 5px; border-radius: 50%; background: #b6beba; }
@@ -227,6 +228,7 @@ h1 { margin: 0; font-size: clamp(34px, 4vw, 56px); line-height: 1; letter-spacin
 .news-loading i { width: 12px; height: 12px; border: 2px solid #d7dfda; border-top-color: var(--green); border-radius: 50%; animation: newsSpin .75s linear infinite; }
 .news-empty strong { color: #66746d; font-size: 10px; }
 .news-empty span { font: 9px/1.45 monospace; }
+.news-retained { padding: 7px 10px; border-bottom: 1px solid #e4e9e5; background: #fff8e7; color: #8a6a2a; font: 8px/1.45 monospace; }
 @keyframes newsSpin { to { transform: rotate(360deg); } }
 @keyframes newsPulse { 50% { opacity: .5; } }
 .side-empty { padding: 80px 20px; text-align: center; color: #96a19b; font: 10px monospace; }

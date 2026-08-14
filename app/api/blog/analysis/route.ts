@@ -1,6 +1,7 @@
 import {
   fixedTrainingWindow,
   MAX_OBSERVATION_MS,
+  maxObservationMs,
   PricePoint,
   projectRelationship,
   RELATIONSHIPS,
@@ -40,7 +41,7 @@ async function fetchBinance<T>(path: string) {
   throw lastError instanceof Error ? lastError : new Error("Binance market data unavailable.");
 }
 
-const observationInterval = () => "1m";
+const observationInterval = (start: number, end: number) => end - start > MAX_OBSERVATION_MS ? "5m" : "1m";
 const INTERVAL_MS: Record<string, number> = { "1m": 60_000, "5m": 5 * 60_000, "15m": 15 * 60_000, "1h": 60 * 60_000 };
 
 async function getSeries(leg: Relationship["asset1"], start: number, end: number, interval: string): Promise<PricePoint[]> {
@@ -156,10 +157,11 @@ export async function GET(request: Request) {
   const end = Math.min(Number(url.searchParams.get("end") || now), now);
   const start = Number(url.searchParams.get("start") || end - 24 * 60 * 60_000);
   if (!relationship) return Response.json({ error: "Unknown relationship." }, { status: 400 });
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || start >= end || end > now + 60_000 || end - start > MAX_OBSERVATION_MS + 60_000) {
-    return Response.json({ error: "Choose any historical window up to three days, ending no later than now." }, { status: 400 });
+  const maximumWindow = maxObservationMs(relationship);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || start >= end || end > now + 60_000 || end - start > maximumWindow + 60_000) {
+    return Response.json({ error: relationship.referenceBeta === null ? "Choose any statistical-model window up to seven days, ending no later than now." : "Choose any structural-beta window up to three days, ending no later than now." }, { status: 400 });
   }
-  const interval = observationInterval();
+  const interval = observationInterval(start, end);
   try {
     const [model, asset1Rows, asset2Rows, universe] = await Promise.all([
       getFixedModel(relationship, start),
@@ -171,7 +173,7 @@ export async function GET(request: Request) {
     return Response.json({
       generatedAt: Date.now(),
       interval,
-      observation: { start, end, maxDurationMs: MAX_OBSERVATION_MS },
+      observation: { start, end, maxDurationMs: maximumWindow },
       relationship,
       relationships: RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship],
       universe,

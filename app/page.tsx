@@ -21,11 +21,13 @@ type Market = {
 type Anchor = { price: number | null; timestamp: number | null; loading?: boolean; error?: boolean };
 type LinkHealth = { online: boolean; lastActivity: number | null };
 type BroadcastState = { title: string; message: string; tone: "positive" | "negative" };
-type NewsArticle = { id: string; title: string; url: string; source: string; feed: "Yahoo Finance" | "Google News"; publishedAt: number };
+type NewsArticle = { id: string; title: string; url: string; source: string; feed: string; publishedAt: number };
 type NewsSource = { name: string; ok: boolean; count: number };
+type NewsPayload = { articles: NewsArticle[]; sources: NewsSource[]; generatedAt: number; error?: string };
 
 const REFRESH_MS = 5000;
 const LIVE_QUOTE_MAX_AGE_MS = 30_000;
+const CLIENT_NEWS_CACHE = new Map<string, NewsPayload>();
 
 function mostRecentSaturdayNine() {
   const now = new Date();
@@ -139,14 +141,20 @@ export default function Home() {
   const [lastRefresh, setLastRefresh] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [broadcast, setBroadcast] = useState<BroadcastState | null>(null);
+  const [openNewsKeys, setOpenNewsKeys] = useState<Set<string>>(() => new Set());
   const [links, setLinks] = useState<Record<"snapshot" | "hyperliquid" | "binance", LinkHealth>>({
     snapshot: { online: false, lastActivity: null },
     hyperliquid: { online: false, lastActivity: null },
     binance: { online: false, lastActivity: null },
   });
   const anchorGeneration = useRef(0);
+  const anchorCache = useRef<Record<string, Anchor>>({});
+  const anchorSelection = useRef("");
+  const marketsRef = useRef<Market[]>([]);
   const triggerDirections = useRef<Record<string, -1 | 0 | 1>>({});
   const dismissBroadcast = useCallback(() => setBroadcast(null), []);
+
+  useEffect(() => { marketsRef.current = markets; }, [markets]);
 
   const loadCurrent = useCallback(async () => {
     try {
@@ -165,12 +173,15 @@ export default function Home() {
       if (!nextMarkets.length) throw new Error("No market data");
       setMarkets((previous) => {
         const previousMap = new Map(previous.map((item) => [anchorKey(item), item]));
-        return nextMarkets.map((item) => {
+        const merged = nextMarkets.map((item) => {
           const old = previousMap.get(anchorKey(item));
           return old && old.updatedAt > item.updatedAt
             ? { ...item, bid: old.bid, ask: old.ask, mid: old.mid, updatedAt: old.updatedAt }
             : item;
         });
+        const nextKeys = new Set(merged.map(anchorKey));
+        const retained = previous.filter((item) => !nextKeys.has(anchorKey(item)) && Date.now() - item.updatedAt <= LIVE_QUOTE_MAX_AGE_MS);
+        return [...merged, ...retained];
       });
       setLastRefresh(data.timestamp);
       setStatus("live");
@@ -185,9 +196,9 @@ export default function Home() {
 
   useEffect(() => {
     if (!started) return;
-    loadCurrent();
+    const frame = window.requestAnimationFrame(() => void loadCurrent());
     const timer = window.setInterval(loadCurrent, REFRESH_MS);
-    return () => window.clearInterval(timer);
+    return () => { window.cancelAnimationFrame(frame); window.clearInterval(timer); };
   }, [loadCurrent, started]);
 
   const marketSignature = useMemo(
@@ -197,7 +208,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!started || !marketSignature) return;
-    const hyperSymbols = markets.filter((item) => item.venue === "Hyperliquid").map((item) => item.symbol);
+    const hyperSymbols = marketsRef.current.filter((item) => item.venue === "Hyperliquid").map((item) => item.symbol);
     let hyperSocket: WebSocket | null = null;
     let binanceSocket: WebSocket | null = null;
     let stopped = false;
@@ -280,13 +291,21 @@ export default function Home() {
   }, [started, marketSignature]);
 
   useEffect(() => {
-    if (!started || !markets.length) return;
+    const activeMarkets = marketsRef.current;
+    if (!started || !activeMarkets.length) return;
     const generation = ++anchorGeneration.current;
-    const next: Record<string, Anchor> = {};
-    for (const market of markets) next[anchorKey(market)] = { price: null, timestamp: null, loading: true };
+    const selection = `${anchorAt}:${anchorRevision}`;
+    const reloadAll = anchorSelection.current !== selection;
+    anchorSelection.current = selection;
+    const current = reloadAll ? {} : anchorCache.current;
+    const marketsToLoad = reloadAll ? activeMarkets : activeMarkets.filter((market) => !current[anchorKey(market)] || current[anchorKey(market)].loading || current[anchorKey(market)].error);
+    if (!marketsToLoad.length) return;
+    const next = { ...current };
+    for (const market of marketsToLoad) next[anchorKey(market)] = { price: null, timestamp: null, loading: true };
+    anchorCache.current = next;
     setAnchors(next);
 
-    const queue = markets.map((market) => async () => {
+    const queue = marketsToLoad.map((market) => async () => {
       const key = anchorKey(market);
       try {
         if (market.venue === "Binance") {
@@ -303,10 +322,11 @@ export default function Home() {
           const candles = await direct.json() as Array<[number, string, string, string, string]>;
           const candle = candles.find((item) => item[0] === targetMinute);
           if (anchorGeneration.current === generation) {
-            setAnchors((previous) => ({
-              ...previous,
-              [key]: { price: candle ? Number(candle[4]) : null, timestamp: candle?.[0] ?? null },
-            }));
+            setAnchors((previous) => {
+              const updated = { ...previous, [key]: { price: candle ? Number(candle[4]) : null, timestamp: candle?.[0] ?? null } };
+              anchorCache.current = updated;
+              return updated;
+            });
           }
           return;
         }
@@ -315,11 +335,19 @@ export default function Home() {
         if (!response.ok) throw new Error();
         const value = (await response.json()) as Anchor;
         if (anchorGeneration.current === generation) {
-          setAnchors((previous) => ({ ...previous, [key]: value }));
+          setAnchors((previous) => {
+            const updated = { ...previous, [key]: value };
+            anchorCache.current = updated;
+            return updated;
+          });
         }
       } catch {
         if (anchorGeneration.current === generation) {
-          setAnchors((previous) => ({ ...previous, [key]: { price: null, timestamp: null, error: true } }));
+          setAnchors((previous) => {
+            const updated = { ...previous, [key]: { price: null, timestamp: null, error: true } };
+            anchorCache.current = updated;
+            return updated;
+          });
         }
       }
     });
@@ -332,10 +360,10 @@ export default function Home() {
       }
     };
     Promise.all(Array.from({ length: 8 }, worker));
-  }, [anchorAt, anchorRevision, markets.length, started]);
+  }, [anchorAt, anchorRevision, marketSignature, started]);
 
   const rows = useMemo(() => {
-    const now = Date.now();
+    const now = Math.max(lastRefresh ?? 0, ...markets.map((market) => market.updatedAt));
     const enriched = markets.map((market) => {
       const anchor = anchors[anchorKey(market)];
       const deviation =
@@ -354,16 +382,30 @@ export default function Home() {
         (!query || `${row.displaySymbol} ${row.category}`.toLowerCase().includes(query.toLowerCase())),
     );
     return filtered.sort((a, b) => Math.abs(b.deviation ?? 0) - Math.abs(a.deviation ?? 0));
-  }, [markets, anchors, venue, query]);
+  }, [markets, anchors, venue, query, lastRefresh]);
 
+  const stableNewsOrder = useCallback((items: typeof rows) => [...items].sort((left, right) => {
+    const leftOpen = openNewsKeys.has(anchorKey(left));
+    const rightOpen = openNewsKeys.has(anchorKey(right));
+    if (leftOpen !== rightOpen) return leftOpen ? -1 : 1;
+    if (leftOpen && rightOpen) return left.displaySymbol.localeCompare(right.displaySymbol);
+    return Math.abs(right.deviation ?? 0) - Math.abs(left.deviation ?? 0);
+  }), [openNewsKeys]);
   const positiveAlerts = useMemo(
-    () => rows.filter((row) => (row.deviation ?? 0) >= threshold),
-    [rows, threshold],
+    () => stableNewsOrder(rows.filter((row) => (row.deviation ?? 0) >= threshold)),
+    [rows, stableNewsOrder, threshold],
   );
   const negativeAlerts = useMemo(
-    () => rows.filter((row) => (row.deviation ?? 0) <= -threshold),
-    [rows, threshold],
+    () => stableNewsOrder(rows.filter((row) => (row.deviation ?? 0) <= -threshold)),
+    [rows, stableNewsOrder, threshold],
   );
+  const toggleNews = useCallback((key: string) => {
+    setOpenNewsKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!started) {
@@ -556,7 +598,7 @@ export default function Home() {
               <b>{positiveAlerts.length}</b>
             </header>
             <div className="alert-list">
-              {positiveAlerts.map((row) => <DeviationCard key={anchorKey(row)} row={row} />)}
+              {positiveAlerts.map((row) => { const key = anchorKey(row); return <DeviationCard key={key} row={row} newsOpen={openNewsKeys.has(key)} onToggleNews={() => toggleNews(key)} />; })}
               {!positiveAlerts.length && <div className="side-empty">No contract exceeds +{threshold.toFixed(2)}%</div>}
             </div>
           </section>
@@ -566,7 +608,7 @@ export default function Home() {
               <b>{negativeAlerts.length}</b>
             </header>
             <div className="alert-list">
-              {negativeAlerts.map((row) => <DeviationCard key={anchorKey(row)} row={row} />)}
+              {negativeAlerts.map((row) => { const key = anchorKey(row); return <DeviationCard key={key} row={row} newsOpen={openNewsKeys.has(key)} onToggleNews={() => toggleNews(key)} />; })}
               {!negativeAlerts.length && <div className="side-empty">No contract exceeds −{threshold.toFixed(2)}%</div>}
             </div>
           </section>
@@ -582,9 +624,8 @@ export default function Home() {
 
 type AlertRow = Market & { anchor?: Anchor; deviation: number | null };
 
-function DeviationCard({ row }: { row: AlertRow }) {
+function DeviationCard({ row, newsOpen, onToggleNews }: { row: AlertRow; newsOpen: boolean; onToggleNews: () => void }) {
   const isPositive = (row.deviation ?? 0) >= 0;
-  const [newsOpen, setNewsOpen] = useState(false);
   return (
     <article className={`alert-card ${isPositive ? "is-positive" : "is-negative"}`}>
       <div className="alert-identity">
@@ -604,7 +645,7 @@ function DeviationCard({ row }: { row: AlertRow }) {
           className={`news-toggle ${newsOpen ? "active" : ""}`}
           aria-expanded={newsOpen}
           aria-pressed={newsOpen}
-          onClick={() => setNewsOpen((open) => !open)}
+          onClick={onToggleNews}
         >
           <span><i />Live news</span>
           <b>{newsOpen ? "ON · 60S" : "OFF"}</b>
@@ -617,28 +658,58 @@ function DeviationCard({ row }: { row: AlertRow }) {
 }
 
 function PairNews({ row }: { row: AlertRow }) {
-  const [articles, setArticles] = useState<NewsArticle[]>([]);
-  const [sources, setSources] = useState<NewsSource[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = anchorKey(row);
+  const cached = CLIENT_NEWS_CACHE.get(cacheKey);
+  const displayedRef = useRef<NewsPayload | null>(cached ?? null);
+  const [articles, setArticles] = useState<NewsArticle[]>(() => cached?.articles ?? []);
+  const [sources, setSources] = useState<NewsSource[]>(() => cached?.sources ?? []);
+  const [loading, setLoading] = useState(() => !cached);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(() => cached?.generatedAt ?? null);
+  const [checkedAt, setCheckedAt] = useState<number | null>(() => cached?.generatedAt ?? null);
+  const [pending, setPending] = useState<NewsPayload | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
-  const loadNews = useCallback(async () => {
+  const applyPayload = useCallback((payload: NewsPayload) => {
+    displayedRef.current = payload;
+    CLIENT_NEWS_CACHE.set(cacheKey, payload);
+    setArticles(payload.articles);
+    setSources(payload.sources);
+    setUpdatedAt(payload.generatedAt);
+    setCheckedAt(payload.generatedAt);
+    setPending(null);
+    setError("");
+  }, [cacheKey]);
+
+  const loadNews = useCallback(async (manual = false) => {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
-    setRefreshing(true);
+    if (manual) setRefreshing(true);
     try {
       const params = new URLSearchParams({ venue: row.venue, symbol: row.symbol });
       const response = await fetch(`/api/pair-news?${params}`, { cache: "no-store", signal: controller.signal });
       const payload = await response.json() as { articles?: NewsArticle[]; sources?: NewsSource[]; generatedAt?: number; error?: string };
       if (!response.ok) throw new Error(payload.error || "Live news unavailable.");
-      setArticles(payload.articles ?? []);
-      setSources(payload.sources ?? []);
-      setUpdatedAt(payload.generatedAt ?? Date.now());
-      setError("");
+      const next: NewsPayload = { articles: payload.articles ?? [], sources: payload.sources ?? [], generatedAt: payload.generatedAt ?? Date.now() };
+      setCheckedAt(next.generatedAt);
+      const displayed = displayedRef.current;
+      if (manual || !displayed) {
+        applyPayload(next);
+      } else {
+        const displayedIds = new Set(displayed.articles.map((article) => article.id));
+        const hasNewArticles = next.articles.some((article) => !displayedIds.has(article.id));
+        if (hasNewArticles) setPending(next);
+        else {
+          const retained = { ...next, articles: displayed.articles };
+          displayedRef.current = retained;
+          CLIENT_NEWS_CACHE.set(cacheKey, retained);
+          setSources(next.sources);
+          setUpdatedAt(next.generatedAt);
+          setError("");
+        }
+      }
     } catch (newsError) {
       if ((newsError as Error).name !== "AbortError") setError(newsError instanceof Error ? newsError.message : "Live news unavailable.");
     } finally {
@@ -647,11 +718,13 @@ function PairNews({ row }: { row: AlertRow }) {
         setRefreshing(false);
       }
     }
-  }, [row.symbol, row.venue]);
+  }, [applyPayload, cacheKey, row.symbol, row.venue]);
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => void loadNews());
-    const timer = window.setInterval(() => void loadNews(), 60_000);
+    const frame = window.requestAnimationFrame(() => void loadNews(false));
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadNews(false);
+    }, 60_000);
     return () => {
       window.cancelAnimationFrame(frame);
       window.clearInterval(timer);
@@ -666,14 +739,15 @@ function PairNews({ row }: { row: AlertRow }) {
       <header className="pair-news-head">
         <div>
           <span>RECENT COVERAGE · LAST 48H</span>
-          <small>{updatedAt ? `Checked ${formatBeijing(updatedAt, false)} BJT` : "Searching live sources…"}</small>
+          <small>{checkedAt ? `Checked ${formatBeijing(checkedAt, false)} BJT${pending ? " · reading list held" : ""}` : "Searching live sources…"}</small>
         </div>
-        <button type="button" disabled={refreshing} onClick={() => void loadNews()}>{refreshing ? "Checking…" : "Refresh"}</button>
+        <button type="button" className={pending ? "has-update" : ""} disabled={refreshing} onClick={() => pending ? applyPayload(pending) : void loadNews(true)}>{refreshing ? "Checking…" : pending ? `Show ${pending.articles.filter((article) => !new Set(articles.map((item) => item.id)).has(article.id)).length} new` : "Refresh"}</button>
       </header>
       {!!sources.length && <div className="news-sources">{sources.map((source) => <span key={source.name} className={source.ok ? "online" : "offline"}><i />{source.name}</span>)}</div>}
       {loading && <div className="news-loading"><i /><span>Searching only this pair…</span></div>}
       {!loading && error && !articles.length && <div className="news-empty"><strong>News feed unavailable</strong><span>{error}</span></div>}
       {!loading && !error && !articles.length && <div className="news-empty"><strong>No fresh matching coverage</strong><span>No relevant article was published in the last 48 hours.</span></div>}
+      {!!articles.length && error && <div className="news-retained">Keeping the current reading list while one or more live sources reconnect.</div>}
       {!!articles.length && <div className="news-list">{articles.map((article) => (
         <a key={article.id} href={article.url} target="_blank" rel="noreferrer">
           <div><strong>{article.source}</strong><time dateTime={new Date(article.publishedAt).toISOString()} title={`${formatBeijing(article.publishedAt)} BJT`}>{formatNewsAge(article.publishedAt, updatedAt ?? article.publishedAt)}</time></div>

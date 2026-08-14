@@ -6,6 +6,8 @@ import PairExecutionPanel from "../trade/PairExecutionPanel";
 import {
   fixedTrainingWindow,
   MAX_OBSERVATION_MS,
+  MAX_STATISTICAL_OBSERVATION_MS,
+  maxObservationMs,
   PricePoint,
   projectRelationship,
   ProjectionPoint,
@@ -55,6 +57,7 @@ const QUICK_WINDOWS = [
   { label: "6H", milliseconds: 6 * 60 * 60_000 },
   { label: "24H", milliseconds: 24 * 60 * 60_000 },
   { label: "3D", milliseconds: MAX_OBSERVATION_MS },
+  { label: "7D", milliseconds: MAX_STATISTICAL_OBSERVATION_MS, statisticalOnly: true },
 ] as const;
 const TODAY_ANCHORS = [
   { label: "10:00", hour: 10, minute: 0 },
@@ -105,7 +108,7 @@ const formatTime = (value: number, includeDate = false) => new Intl.DateTimeForm
   hour12: false,
 }).format(value);
 const formatDate = (value: number) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: "short", day: "2-digit", year: "numeric" }).format(value);
-const observationInterval = () => "1m";
+const observationInterval = (start: number, end: number) => end - start > MAX_OBSERVATION_MS ? "5m" : "1m";
 const INTERVAL_MS: Record<string, number> = { "1m": 60_000, "5m": 5 * 60_000, "15m": 15 * 60_000, "1h": 60 * 60_000 };
 
 async function directBinance<T>(path: string) {
@@ -166,13 +169,13 @@ async function rankInBrowser(relationships: Relationship[], start: number, end: 
     if (!response.ok) throw new Error(`Hyperliquid HTTP ${response.status}`);
     return [dex, await response.json() as Record<string, string>] as const;
   })));
-  const baseline = (leg: Relationship["asset1"]) => {
-    const key = `${leg.venue}:${leg.symbol}:${start}`;
+  const baseline = (leg: Relationship["asset1"], baselineStart: number) => {
+    const key = `${leg.venue}:${leg.symbol}:${baselineStart}`;
     const saved = DIRECT_RANKING_BASELINE_CACHE.get(key);
     if (saved) return saved;
     if (DIRECT_RANKING_BASELINE_CACHE.size > 240) DIRECT_RANKING_BASELINE_CACHE.clear();
-    const promise = leg.venue === "binance" ? directBinance<Array<[number, string, string, string, string]>>(`/fapi/v1/klines?${new URLSearchParams({ symbol: leg.symbol, interval: "1m", startTime: String(start), limit: "1" })}`).then((rows) => Number(rows[0]?.[4])) : fetch("https://api.hyperliquid.xyz/info", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "candleSnapshot", req: { coin: leg.symbol, interval: "1m", startTime: start, endTime: start + 5 * 60_000 } }), cache: "no-store", signal: AbortSignal.timeout(8_000),
+    const promise = leg.venue === "binance" ? directBinance<Array<[number, string, string, string, string]>>(`/fapi/v1/klines?${new URLSearchParams({ symbol: leg.symbol, interval: "1m", startTime: String(baselineStart), limit: "1" })}`).then((rows) => Number(rows[0]?.[4])) : fetch("https://api.hyperliquid.xyz/info", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "candleSnapshot", req: { coin: leg.symbol, interval: "1m", startTime: baselineStart, endTime: baselineStart + 5 * 60_000 } }), cache: "no-store", signal: AbortSignal.timeout(8_000),
     }).then(async (response) => Number((await response.json() as Array<{ c?: string }>)[0]?.c));
     DIRECT_RANKING_BASELINE_CACHE.set(key, promise);
     promise.catch(() => DIRECT_RANKING_BASELINE_CACHE.delete(key));
@@ -193,14 +196,15 @@ async function rankInBrowser(relationships: Relationship[], start: number, end: 
     while (cursor < relationships.length) {
       const relationship = relationships[cursor++];
       try {
+        const relationshipStart = Math.max(start, end - maxObservationMs(relationship));
         const current1 = live(relationship.asset1); const current2 = live(relationship.asset2);
         if (!current1 || !current2) continue;
         const [base1, base2, model] = await Promise.all([
-          baseline(relationship.asset1), baseline(relationship.asset2),
-          relationship.referenceBeta !== null ? Promise.resolve({ alphaHourly: 0, beta: relationship.referenceBeta }) : directFixedModel(relationship, start),
+          baseline(relationship.asset1, relationshipStart), baseline(relationship.asset2, relationshipStart),
+          relationship.referenceBeta !== null ? Promise.resolve({ alphaHourly: 0, beta: relationship.referenceBeta }) : directFixedModel(relationship, relationshipStart),
         ]);
         if (![base1, base2].every((value) => Number.isFinite(value) && value > 0)) continue;
-        const elapsedHours = Math.max(0, (end - start) / 60 / 60_000);
+        const elapsedHours = Math.max(0, (end - relationshipStart) / 60 / 60_000);
         const theoretical = Math.expm1(model.alphaHourly * elapsedHours + model.beta * Math.log(current1 / base1)) * 100;
         const actual = (current2 / base2 - 1) * 100;
         output.push({ id: relationship.id, predictionError: actual - theoretical, actual, theoretical, beta: model.beta, updatedAt: Date.now() });
@@ -256,7 +260,7 @@ async function directFixedModel(relationship: Relationship, now: number) {
 }
 
 async function analyzeInBrowser(relationship: Relationship, start: number, end: number): Promise<Analysis> {
-  const interval = observationInterval();
+  const interval = observationInterval(start, end);
   const [model, asset1Rows, asset2Rows, exchangeInfo] = await Promise.all([
     directFixedModel(relationship, start),
     directSeries(relationship.asset1, start, end, interval),
@@ -269,7 +273,7 @@ async function analyzeInBrowser(relationship: Relationship, start: number, end: 
   const active = new Set(symbols);
   const typeCounts = tradFi.reduce<Record<string, number>>((counts, item) => { const type = item.underlyingType || "OTHER"; counts[type] = (counts[type] ?? 0) + 1; return counts; }, {});
   return {
-    generatedAt: Date.now(), interval, observation: { start, end, maxDurationMs: MAX_OBSERVATION_MS }, relationship, relationships: RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship], model,
+    generatedAt: Date.now(), interval, observation: { start, end, maxDurationMs: maxObservationMs(relationship) }, relationship, relationships: RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship], model,
     universe: { count: symbols.length, symbols, typeCounts, candidates: (RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship]).map((item) => ({ id: item.id, available: [item.asset1, item.asset2].every((leg) => leg.venue === "hyperliquid" || active.has(leg.symbol)) })) },
     ...projection,
   };
@@ -432,8 +436,9 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
     const end = options?.end ?? fromHktInput(endInput);
     const relationshipIdToLoad = options?.relationship ?? relationshipId;
     const relationship = options?.definition ?? relationships.find((item) => item.id === relationshipIdToLoad);
-    if (!relationship || !Number.isFinite(start) || !Number.isFinite(end) || start >= end || end - start > MAX_OBSERVATION_MS + 60_000) {
-      setError("Choose a valid historical window of three days or less.");
+    const maximumWindow = relationship ? maxObservationMs(relationship) : MAX_OBSERVATION_MS;
+    if (!relationship || !Number.isFinite(start) || !Number.isFinite(end) || start >= end || end - start > maximumWindow + 60_000) {
+      setError(relationship?.referenceBeta === null ? "Choose a valid statistical-model window of seven days or less." : "Choose a valid structural-beta window of three days or less.");
       setLoading(false);
       return;
     }
@@ -545,7 +550,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
       if (stopped || document.visibilityState === "hidden" || !relationships.length) return;
       const start = fromHktInput(startInput);
       const end = Date.now();
-      if (!Number.isFinite(start) || start >= end || end - start > MAX_OBSERVATION_MS + 60_000) return;
+      if (!Number.isFinite(start) || start >= end || end - start > MAX_STATISTICAL_OBSERVATION_MS + 60_000) return;
       controller?.abort();
       controller = new AbortController();
       try {
@@ -579,6 +584,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
   }, [relationships, startInput]);
 
   const selected = analysis?.relationship;
+  const selectedDefinition = relationships.find((item) => item.id === relationshipId);
   const availability = useMemo(() => new Map(analysis?.universe?.candidates.map((item) => [item.id, item.available]) ?? []), [analysis?.universe]);
   const formulaOnly = analysis?.model.method === "reference" && analysis.model.validationSamples === 0;
   const signalLabel = formulaOnly ? "BETA LOCKED" : analysis?.model.quality === "weak" ? "MODEL WEAK" : analysis?.stats.status === "dislocation" ? "DISLOCATION" : analysis?.stats.status === "watch" ? "WATCH" : "IN RANGE";
@@ -624,8 +630,16 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
   const chooseRelationship = (id: string) => {
     const relationship = relationships.find((item) => item.id === id);
     if (!relationship) return;
+    const end = fromHktInput(endInput);
+    const currentStart = fromHktInput(startInput);
+    const maximumWindow = maxObservationMs(relationship);
+    const start = Number.isFinite(end) && Number.isFinite(currentStart) && end - currentStart > maximumWindow ? end - maximumWindow : currentStart;
+    if (start !== currentStart) {
+      setStartInput(toHktInput(start));
+      setActiveWindow(relationship.referenceBeta === null ? activeWindow : "3D");
+    }
     setRelationshipId(id);
-    void load({ relationship: id, definition: relationship });
+    void load({ relationship: id, definition: relationship, start, end });
   };
 
   const normalizeSymbol = (venue: CustomDraft["asset1Venue"], value: string) => {
@@ -733,11 +747,11 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
 
       <div className={styles.analysisColumn}>
         <section className={styles.controls}>
-          <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const now = analysis?.generatedAt ?? INITIAL_NOW; const latest = latestHktAnchor(anchor.hour, now, anchor.minute); const day = anchorDayLabel(latest, now); return <button key={anchor.label} className={`${styles.anchorWindow} ${followingLive && activeWindow === anchor.label ? styles.activeWindow : ""}`} title={`Compare from the latest ${anchor.label} HKT anchor within the past 24 hours · ${day.toLowerCase()}`} onClick={(event) => applyDailyAnchor(anchor.label, anchor.hour, anchor.minute, performance.timeOrigin + event.timeStamp)}><span>{anchor.label}</span><small>{day}</small></button>; })}{QUICK_WINDOWS.map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
+          <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const now = analysis?.generatedAt ?? INITIAL_NOW; const latest = latestHktAnchor(anchor.hour, now, anchor.minute); const day = anchorDayLabel(latest, now); return <button key={anchor.label} className={`${styles.anchorWindow} ${followingLive && activeWindow === anchor.label ? styles.activeWindow : ""}`} title={`Compare from the latest ${anchor.label} HKT anchor within the past 24 hours · ${day.toLowerCase()}`} onClick={(event) => applyDailyAnchor(anchor.label, anchor.hour, anchor.minute, performance.timeOrigin + event.timeStamp)}><span>{anchor.label}</span><small>{day}</small></button>; })}{QUICK_WINDOWS.filter((window) => !("statisticalOnly" in window) || selectedDefinition?.referenceBeta === null).map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
           <label>Backtest start · HKT<input type="datetime-local" value={startInput} max={endInput} onChange={(event) => { setStartInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
           <label>Backtest end · HKT<input type="datetime-local" value={endInput} min={startInput} onChange={(event) => { setEndInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
           <button className={styles.runButton} disabled={loading} onClick={() => void load()}>{loading ? "Updating…" : "Update prediction"}</button>
-          <p className={styles.windowRule}>{followingLive ? `Following ${TODAY_ANCHORS.some((item) => item.label === activeWindow) ? `the latest ${activeWindow} HKT anchor within the past 24 hours` : `the latest ${activeWindow} window`}.` : "Historical backtest selected."} Observation curves use one-minute candles and each run is capped at 3D because leveraged ETFs reset daily. A supplied beta always runs directly; history is validation only and is not required.</p>
+          <p className={styles.windowRule}>{followingLive ? `Following ${TODAY_ANCHORS.some((item) => item.label === activeWindow) ? `the latest ${activeWindow} HKT anchor within the past 24 hours` : `the latest ${activeWindow} window`}.` : "Historical backtest selected."} Statistical models support up to 7D using five-minute candles; shorter windows retain one-minute precision. Structural-beta and daily-reset products remain capped at 3D. A supplied beta always runs directly; history is validation only.</p>
         </section>
 
         {error && <div className={styles.errorBox}><strong>Prediction unavailable</strong><span>{error}</span><button onClick={() => void load()}>Retry</button></div>}

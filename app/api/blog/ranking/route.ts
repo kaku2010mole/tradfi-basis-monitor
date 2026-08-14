@@ -1,6 +1,7 @@
 import {
   fixedTrainingWindow,
-  MAX_OBSERVATION_MS,
+  MAX_STATISTICAL_OBSERVATION_MS,
+  maxObservationMs,
   PricePoint,
   Relationship,
   TRAINING_INTERVAL,
@@ -125,7 +126,7 @@ export async function POST(request: Request) {
   const start = Number(payload.start);
   const end = Math.min(Number(payload.end), now);
   const relationships = Array.isArray(payload.relationships) ? payload.relationships.filter(validRelationship).slice(0, 30) : [];
-  if (!relationships.length || !Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || start >= end || end - start > MAX_OBSERVATION_MS + 60_000) {
+  if (!relationships.length || !Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || start >= end || end - start > MAX_STATISTICAL_OBSERVATION_MS + 60_000) {
     return Response.json({ error: "Invalid ranking window or relationships." }, { status: 400 });
   }
   try {
@@ -149,10 +150,11 @@ export async function POST(request: Request) {
     };
     const results = await limitedMap(relationships, 5, async (relationship): Promise<RankingRow | null> => {
       try {
+        const relationshipStart = Math.max(start, end - maxObservationMs(relationship));
         const current1 = live(relationship.asset1); const current2 = live(relationship.asset2);
         if (!current1 || !current2) return null;
-        const [base1, base2, model] = await Promise.all([baseline(relationship.asset1, start), baseline(relationship.asset2, start), rankingModel(relationship, start)]);
-        const elapsedHours = Math.max(0, (end - start) / 60 / 60_000);
+        const [base1, base2, model] = await Promise.all([baseline(relationship.asset1, relationshipStart), baseline(relationship.asset2, relationshipStart), rankingModel(relationship, relationshipStart)]);
+        const elapsedHours = Math.max(0, (end - relationshipStart) / 60 / 60_000);
         const theoretical = Math.expm1(model.alphaHourly * elapsedHours + model.beta * Math.log(current1 / base1)) * 100;
         const actual = (current2 / base2 - 1) * 100;
         return { id: relationship.id, predictionError: actual - theoretical, actual, theoretical, beta: model.beta, updatedAt: now };
