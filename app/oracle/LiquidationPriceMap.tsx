@@ -46,12 +46,12 @@ const WINDOWS = [
   { label: "12h", ms: 12 * 60 * 60_000 },
   { label: "24h", ms: 24 * 60 * 60_000 },
 ] as const;
-const RANGE_OPTIONS = [5, 10, 20, 40];
 const CAPTURE_MS = 30_000;
 const RETENTION_MS = 7 * 24 * 60 * 60_000;
 const DB_NAME = "oracle-monitor-liquidations-v1";
 const STORE_NAME = "snapshots";
 const CUSTOM_SYMBOLS_KEY = "oracle-liquidation-custom-symbols-v1";
+const REMOVED_DEFAULTS_KEY = "oracle-liquidation-removed-defaults-v1";
 
 const formatPrice = (value: number | null | undefined) => value == null || !Number.isFinite(value)
   ? "—"
@@ -334,6 +334,7 @@ export default function LiquidationPriceMap() {
   const [snapshots, setSnapshots] = useState<StoredSnapshot[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState("para:OTHERS");
   const [customSymbols, setCustomSymbols] = useState<string[]>([]);
+  const [removedDefaults, setRemovedDefaults] = useState<string[]>([]);
   const [newSymbol, setNewSymbol] = useState("");
   const [pairError, setPairError] = useState("");
   const [windowMs, setWindowMs] = useState<number>(WINDOWS[1].ms);
@@ -359,7 +360,16 @@ export default function LiquidationPriceMap() {
     let savedFrame = 0;
     try {
       const saved = JSON.parse(window.localStorage.getItem(CUSTOM_SYMBOLS_KEY) || "[]") as unknown;
-      if (Array.isArray(saved)) savedFrame = window.requestAnimationFrame(() => setCustomSymbols(saved.flatMap((value) => typeof value === "string" && normalizeSymbol(value) ? [value] : [])));
+      const removed = JSON.parse(window.localStorage.getItem(REMOVED_DEFAULTS_KEY) || "[]") as unknown;
+      const savedCustom = Array.isArray(saved) ? saved.flatMap((value) => typeof value === "string" && normalizeSymbol(value) ? [value] : []) : [];
+      const savedRemoved = Array.isArray(removed) ? removed.flatMap((value) => typeof value === "string" && DEFAULT_SYMBOLS.some((item) => item.api === value) ? [value] : []) : [];
+      savedFrame = window.requestAnimationFrame(() => {
+        setCustomSymbols(savedCustom);
+        setRemovedDefaults(savedRemoved);
+        if (savedRemoved.includes("para:OTHERS")) {
+          setSelectedSymbol(DEFAULT_SYMBOLS.find((item) => !savedRemoved.includes(item.api))?.api ?? savedCustom[0] ?? "");
+        }
+      });
     } catch { /* Use the built-in universe. */ }
     if (!("indexedDB" in window)) return () => window.cancelAnimationFrame(savedFrame);
     let cancelled = false;
@@ -373,6 +383,7 @@ export default function LiquidationPriceMap() {
   }, [mergeSnapshots]);
 
   const capture = useCallback(async () => {
+    if (!selectedSymbol) return;
     if (requestRef.current) return;
     requestRef.current = true;
     const controller = new AbortController();
@@ -398,6 +409,13 @@ export default function LiquidationPriceMap() {
   }, [mergeSnapshots, selectedSymbol]);
 
   useEffect(() => {
+    if (!selectedSymbol) {
+      const emptyFrame = window.requestAnimationFrame(() => {
+        setStatus("connecting");
+        setMessage("Add a Hyperliquid contract to begin.");
+      });
+      return () => window.cancelAnimationFrame(emptyFrame);
+    }
     const frame = window.requestAnimationFrame(() => {
       setStatus("connecting");
       setMessage("Connecting to exact position data…");
@@ -405,9 +423,10 @@ export default function LiquidationPriceMap() {
     });
     const timer = window.setInterval(capture, CAPTURE_MS);
     return () => { window.cancelAnimationFrame(frame); window.clearInterval(timer); };
-  }, [capture]);
+  }, [capture, selectedSymbol]);
 
   useEffect(() => {
+    if (!selectedSymbol) return;
     const end = Date.now();
     void fetch(`/api/oracle-monitor/liquidation-history?symbol=${encodeURIComponent(selectedSymbol)}&start=${end - windowMs}&end=${end}`, { cache: "no-store" })
       .then(async (response) => response.ok ? response.json() as Promise<{ snapshots?: unknown[] }> : { snapshots: [] })
@@ -432,7 +451,10 @@ export default function LiquidationPriceMap() {
   const strongest = latest?.levels.reduce<CompactLevel | null>((best, level) => !best || level[2] > best[2] ? level : best, null) ?? null;
   const strongestPrice = strongest ? (strongest[0] + strongest[1]) / 2 : null;
   const strongestDistance = strongestPrice && reference ? (strongestPrice / reference - 1) * 100 : null;
-  const allSymbols = [...DEFAULT_SYMBOLS.map((item) => item.api), ...customSymbols.filter((symbol) => !DEFAULT_SYMBOLS.some((item) => item.api === symbol))];
+  const allSymbols = [
+    ...DEFAULT_SYMBOLS.filter((item) => !removedDefaults.includes(item.api)).map((item) => item.api),
+    ...customSymbols.filter((symbol) => !DEFAULT_SYMBOLS.some((item) => item.api === symbol) || removedDefaults.includes(symbol)),
+  ];
 
   const selectSymbol = (symbol: string) => {
     setSelectedSymbol(symbol);
@@ -442,31 +464,53 @@ export default function LiquidationPriceMap() {
   const addSymbol = () => {
     const normalized = normalizeSymbol(newSymbol);
     if (!normalized) { setPairError("Use a Hyperliquid symbol such as BTC or xyz:XYZ100."); return; }
-    const next = [...new Set([...customSymbols, normalized])];
-    setCustomSymbols(next);
-    window.localStorage.setItem(CUSTOM_SYMBOLS_KEY, JSON.stringify(next));
+    const isDefault = DEFAULT_SYMBOLS.some((item) => item.api === normalized);
+    if (isDefault) {
+      const nextRemoved = removedDefaults.filter((item) => item !== normalized);
+      setRemovedDefaults(nextRemoved);
+      window.localStorage.setItem(REMOVED_DEFAULTS_KEY, JSON.stringify(nextRemoved));
+    } else {
+      const next = [...new Set([...customSymbols, normalized])];
+      setCustomSymbols(next);
+      window.localStorage.setItem(CUSTOM_SYMBOLS_KEY, JSON.stringify(next));
+    }
     setNewSymbol("");
     setPairError("");
     selectSymbol(normalized);
   };
   const removeSymbol = (symbol: string) => {
-    const next = customSymbols.filter((item) => item !== symbol);
-    setCustomSymbols(next);
-    window.localStorage.setItem(CUSTOM_SYMBOLS_KEY, JSON.stringify(next));
-    if (selectedSymbol === symbol) selectSymbol("para:OTHERS");
+    let nextCustom = customSymbols;
+    let nextRemoved = removedDefaults;
+    if (DEFAULT_SYMBOLS.some((item) => item.api === symbol)) {
+      nextRemoved = [...new Set([...removedDefaults, symbol])];
+      setRemovedDefaults(nextRemoved);
+      window.localStorage.setItem(REMOVED_DEFAULTS_KEY, JSON.stringify(nextRemoved));
+    } else {
+      nextCustom = customSymbols.filter((item) => item !== symbol);
+      setCustomSymbols(nextCustom);
+      window.localStorage.setItem(CUSTOM_SYMBOLS_KEY, JSON.stringify(nextCustom));
+    }
+    if (selectedSymbol === symbol) {
+      const remaining = [
+        ...DEFAULT_SYMBOLS.filter((item) => !nextRemoved.includes(item.api)).map((item) => item.api),
+        ...nextCustom.filter((item) => item !== symbol && (!DEFAULT_SYMBOLS.some((entry) => entry.api === item) || nextRemoved.includes(item))),
+      ];
+      selectSymbol(remaining[0] ?? "");
+    }
   };
   const updateViewEnd = (value: number) => setViewEnd(value >= latestTime - CAPTURE_MS ? null : value);
-  const statusCopy = status === "live" ? "HyperTracker live"
+  const statusCopy = !selectedSymbol ? "No contract selected"
+    : status === "live" ? "HyperTracker live"
     : status === "retrying" ? "Reconnecting"
       : status === "not-configured" ? "Server setup required"
         : "Connecting";
 
   return <section className={`${styles.depthPanel} ${styles.liquidationPanel}`}>
-    <div className={styles.depthHeader}>
+    <div className={`${styles.depthHeader} ${styles.liquidationHero}`}>
       <div>
         <p className={styles.eyebrow}>EXACT POSITION LIQUIDATION RISK</p>
         <h2>Liquidation price map</h2>
-        <p>Select any Hyperliquid contract. Bright bands show more USD notional clustered at liquidation prices; long risk is below the reference price and short risk is above it.</p>
+        <p>A focused price-time surface for exact Hyperliquid position clusters. Choose the contract and scale at left; explore the map without covering the chart.</p>
       </div>
       <div className={`${styles.recorderStatus} ${status === "live" ? styles.recorderLive : ""}`}>
         <i />
@@ -474,55 +518,69 @@ export default function LiquidationPriceMap() {
       </div>
     </div>
 
-    <div className={styles.liquidationPairBar}>
-      <div className={styles.depthTabs} aria-label="Liquidation contract">
-        {allSymbols.map((symbol) => <span className={styles.liquidationPairChip} key={symbol}>
-          <button className={selectedSymbol === symbol ? styles.activeDepthTab : ""} onClick={() => selectSymbol(symbol)}>{displaySymbol(symbol)}</button>
-          {!DEFAULT_SYMBOLS.some((item) => item.api === symbol) && <button aria-label={`Remove ${symbol}`} className={styles.removeLiquidationPair} onClick={() => removeSymbol(symbol)}>×</button>}
-        </span>)}
-      </div>
-      <div className={styles.liquidationPairForm}>
-        <input value={newSymbol} onChange={(event) => setNewSymbol(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addSymbol(); }} placeholder="BTC or xyz:XYZ100" aria-label="Hyperliquid symbol" />
-        <button onClick={addSymbol}>Add pair</button>
-      </div>
-      {pairError && <small className={styles.liquidationError}>{pairError}</small>}
-    </div>
+    <div className={styles.liquidationWorkspace}>
+      <aside className={styles.liquidationSidebar}>
+        <section className={styles.liquidationSideSection}>
+          <div className={styles.liquidationSectionTitle}><span>Contracts</span><b>{allSymbols.length}</b></div>
+          <div className={styles.liquidationContractList} aria-label="Liquidation contracts">
+            {allSymbols.map((symbol) => <div className={`${styles.liquidationContractRow} ${selectedSymbol === symbol ? styles.activeLiquidationContract : ""}`} key={symbol}>
+              <button onClick={() => selectSymbol(symbol)}><span>{displaySymbol(symbol)}</span><small>Hyperliquid</small></button>
+              <button aria-label={`Remove ${displaySymbol(symbol)}`} onClick={() => removeSymbol(symbol)}>×</button>
+            </div>)}
+            {!allSymbols.length && <p>No contracts selected. Add one below.</p>}
+          </div>
+          <div className={styles.liquidationPairForm}>
+            <input value={newSymbol} onChange={(event) => setNewSymbol(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addSymbol(); }} placeholder="BTC or xyz:XYZ100" aria-label="Hyperliquid symbol" />
+            <button onClick={addSymbol}>Add</button>
+          </div>
+          {pairError && <small className={styles.liquidationError}>{pairError}</small>}
+        </section>
 
-    <div className={styles.depthToolbar}>
-      <div className={styles.depthWindows} aria-label="Liquidation heatmap time window">
-        {WINDOWS.map((window) => <button key={window.label} className={windowMs === window.ms ? styles.activeDepthWindow : ""} onClick={() => { setWindowMs(window.ms); setViewEnd(null); }}>{window.label}</button>)}
-      </div>
-      <div className={styles.liquidationRange}>
-        <span>Y range</span>
-        {RANGE_OPTIONS.map((range) => <button key={range} className={rangePct === range ? styles.activeRange : ""} onClick={() => { setRangePct(range); setVerticalPan(0); }}>±{range}%</button>)}
-        <button disabled={verticalPan === 0} onClick={() => setVerticalPan(0)}>Reset Y</button>
-      </div>
-    </div>
+        <section className={styles.liquidationSideSection}>
+          <div className={styles.liquidationSectionTitle}><span>Time window</span></div>
+          <div className={styles.liquidationWindows} aria-label="Liquidation heatmap time window">
+            {WINDOWS.map((window) => <button key={window.label} className={windowMs === window.ms ? styles.activeLiquidationControl : ""} onClick={() => { setWindowMs(window.ms); setViewEnd(null); }}>{window.label}</button>)}
+          </div>
+        </section>
 
-    <div className={styles.depthMetrics}>
-      <div><span>Reference price</span><strong>{formatPrice(reference)}</strong></div>
-      <div><span>Long liquidation risk</span><strong className={styles.longRisk}>{longUsd ? formatUsd(longUsd) : "—"}</strong></div>
-      <div><span>Short liquidation risk</span><strong className={styles.shortRisk}>{shortUsd ? formatUsd(shortUsd) : "—"}</strong></div>
-      <div><span>Strongest cluster</span><strong>{strongestPrice ? formatPrice(strongestPrice) : "—"}</strong></div>
-      <div><span>Cluster distance</span><strong>{strongestDistance == null ? "—" : `${strongestDistance >= 0 ? "+" : ""}${strongestDistance.toFixed(2)}%`}</strong></div>
-    </div>
+        <section className={styles.liquidationSideSection}>
+          <div className={styles.liquidationSectionTitle}><span>Y-axis range</span><b>±{rangePct.toFixed(rangePct < 10 ? 1 : 0)}%</b></div>
+          <label className={styles.liquidationRangeField}>
+            <span>Custom percentage</span>
+            <div><span>±</span><input aria-label="Custom Y-axis percentage range" type="number" min="0.1" max="100" step="0.1" value={rangePct} onChange={(event) => { setRangePct(Math.max(.1, Math.min(100, Number(event.target.value) || .1))); setVerticalPan(0); }} /><span>%</span></div>
+          </label>
+          <input className={styles.liquidationRangeSlider} aria-label="Y-axis percentage range slider" type="range" min="0.1" max="100" step="0.1" value={rangePct} onChange={(event) => { setRangePct(Number(event.target.value)); setVerticalPan(0); }} />
+          <div className={styles.liquidationRangeEnds}><span>0.1%</span><span>100%</span></div>
+          <button className={styles.liquidationResetButton} disabled={verticalPan === 0} onClick={() => setVerticalPan(0)}>Reset vertical position</button>
+        </section>
+      </aside>
 
-    <div className={styles.depthLegend}>
-      <span><i className={styles.longLiquidationLegend} />Long liquidations</span>
-      <span><i className={styles.shortLiquidationLegend} />Short liquidations</span>
-      <span><i className={styles.oracleLegend} />Oracle / reference price</span>
-      <small>Drag left/right through time · drag up/down through price · double-click to reset</small>
+      <div className={styles.liquidationChartStage}>
+        <div className={styles.liquidationMetrics}>
+          <div><span>Reference</span><strong>{formatPrice(reference)}</strong></div>
+          <div><span>Long risk</span><strong className={styles.longRisk}>{longUsd ? formatUsd(longUsd) : "—"}</strong></div>
+          <div><span>Short risk</span><strong className={styles.shortRisk}>{shortUsd ? formatUsd(shortUsd) : "—"}</strong></div>
+          <div><span>Strongest cluster</span><strong>{strongestPrice ? formatPrice(strongestPrice) : "—"}</strong><small>{strongestDistance == null ? "Distance unavailable" : `${strongestDistance >= 0 ? "+" : ""}${strongestDistance.toFixed(2)}% from reference`}</small></div>
+        </div>
+
+        <div className={styles.liquidationLegend}>
+          <span><i className={styles.longLiquidationLegend} />Long liquidations</span>
+          <span><i className={styles.shortLiquidationLegend} />Short liquidations</span>
+          <span><i className={styles.oracleLegend} />Oracle / reference</span>
+          <small>Drag the map horizontally or vertically · double-click to reset</small>
+        </div>
+        <div className={`${styles.depthCanvasWrap} ${styles.liquidationCanvasWrap}`}>
+          <LiquidationCanvas snapshots={visibleSnapshots} windowMs={windowMs} rangePct={rangePct} verticalPan={verticalPan} viewEnd={resolvedViewEnd} minViewEnd={minViewEnd} maxViewEnd={latestTime} onViewEndChange={updateViewEnd} onVerticalPanChange={setVerticalPan} />
+        </div>
+        <div className={`${styles.timeNavigator} ${styles.liquidationTimeNavigator}`}>
+          <div><span>{resolvedViewEnd ? `${formatTime(resolvedViewEnd - windowMs, true)} — ${formatTime(resolvedViewEnd, true)} HKT` : "Waiting for history"}</span><button className={viewEnd === null ? styles.liveTime : ""} onClick={() => setViewEnd(null)}>● Live</button></div>
+          <input aria-label="Liquidation map history position" type="range" min={minViewEnd} max={Math.max(minViewEnd, latestTime)} step={CAPTURE_MS} value={resolvedViewEnd} disabled={!symbolSnapshots.length || latestTime <= minViewEnd} onChange={(event) => updateViewEnd(Number(event.target.value))} />
+        </div>
+        <footer className={`${styles.depthFooter} ${styles.liquidationFooter}`}>
+          <span>{message}</span>
+          <span>{visibleSnapshots.length.toLocaleString()} snapshots · {positionCount.toLocaleString()} positions · exact HyperTracker data</span>
+        </footer>
+      </div>
     </div>
-    <div className={`${styles.depthCanvasWrap} ${styles.liquidationCanvasWrap}`}>
-      <LiquidationCanvas snapshots={visibleSnapshots} windowMs={windowMs} rangePct={rangePct} verticalPan={verticalPan} viewEnd={resolvedViewEnd} minViewEnd={minViewEnd} maxViewEnd={latestTime} onViewEndChange={updateViewEnd} onVerticalPanChange={setVerticalPan} />
-    </div>
-    <div className={styles.timeNavigator}>
-      <div><span>{resolvedViewEnd ? `${formatTime(resolvedViewEnd - windowMs, true)} — ${formatTime(resolvedViewEnd, true)} HKT` : "Waiting for history"}</span><button className={viewEnd === null ? styles.liveTime : ""} onClick={() => setViewEnd(null)}>● Live</button></div>
-      <input aria-label="Liquidation map history position" type="range" min={minViewEnd} max={Math.max(minViewEnd, latestTime)} step={CAPTURE_MS} value={resolvedViewEnd} disabled={!symbolSnapshots.length || latestTime <= minViewEnd} onChange={(event) => updateViewEnd(Number(event.target.value))} />
-    </div>
-    <footer className={styles.depthFooter}>
-      <span>{message}</span>
-      <span>{visibleSnapshots.length.toLocaleString()} snapshots · {positionCount.toLocaleString()} positions in latest aggregate · exact HyperTracker data</span>
-    </footer>
   </section>;
 }
