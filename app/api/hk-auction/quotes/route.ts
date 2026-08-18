@@ -48,6 +48,13 @@ type BinanceBookTicker = {
 };
 
 const DEFAULT_PAIRS: PairConfig[] = [
+  { stockSymbol: "HK.00700", perpSymbol: "TENCENTUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.01810", perpSymbol: "XIAOMIUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.01024", perpSymbol: "KUAISHOUUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.03690", perpSymbol: "MEITUANUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.09992", perpSymbol: "POPMARTUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.00100", perpSymbol: "MINIMAXUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.02513", perpSymbol: "ZHIPUUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.00700", perpSymbol: "HK0700USDT", sharesPerContract: 7.83 },
   { stockSymbol: "HK.01810", perpSymbol: "HK1810USDT", sharesPerContract: 7.83 },
 ];
@@ -378,12 +385,18 @@ export async function GET(request: Request) {
     const activeFutu = futu?.stale === false ? futu : null;
     const activeBinance = binance?.stale === false ? binance : null;
 
-    // During the HK auction, an explicit IEP is preferred. If the relay has no IEP,
-    // the visible Futu best-bid/ask midpoint is used. A previous close is never substituted.
-    const stockReferenceHkd = activeFutu?.auctionPrice ?? (activeFutu ? midpoint(activeFutu.bid, activeFutu.ask) : null);
-    const stockReferenceSource = activeFutu?.auctionPrice !== null && activeFutu?.auctionPrice !== undefined
-      ? "auction-price"
-      : stockReferenceHkd !== null ? "book-mid" : null;
+    // During the HK auction, an explicit IEP is preferred, followed by the
+    // visible Futu BBO midpoint. Once Futu reports CLOSED, the official session
+    // last/close becomes the overnight benchmark so the 24/7 perp stays comparable.
+    const closed = activeFutu?.marketState?.toUpperCase() === "CLOSED";
+    const stockReferenceHkd = closed
+      ? activeFutu?.last ?? null
+      : activeFutu?.auctionPrice ?? (activeFutu ? midpoint(activeFutu.bid, activeFutu.ask) : null);
+    const stockReferenceSource = closed && stockReferenceHkd !== null
+      ? "close-price"
+      : activeFutu?.auctionPrice !== null && activeFutu?.auctionPrice !== undefined
+        ? "auction-price"
+        : stockReferenceHkd !== null ? "book-mid" : null;
     const fairUsdt = stockReferenceHkd === null
       ? null
       : stockReferenceHkd * pair.sharesPerContract / usdHkd;

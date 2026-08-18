@@ -19,7 +19,7 @@ type Quote = PairConfig & {
   binance: (Book & { mid: number }) | null;
   metrics: {
     stockReferenceHkd: number | null;
-    stockReferenceSource: "auction-price" | "book-mid" | null;
+    stockReferenceSource: "auction-price" | "book-mid" | "close-price" | null;
     fairUsdt: number | null;
     binanceMid: number | null;
     midBasisPct: number | null;
@@ -32,8 +32,16 @@ type Quote = PairConfig & {
 type Payload = { quotes: Quote[]; usdHkd: number; timestamp: number; sources: { futu: boolean; binance: boolean }; errors: string[] };
 type HistoryPoint = { t: number; value: number };
 
-const STORAGE_KEY = "hk-auction-pairs-v1";
+const STORAGE_KEY = "hk-auction-pairs-v2";
+const LEGACY_STORAGE_KEY = "hk-auction-pairs-v1";
 const DEFAULT_PAIRS: PairConfig[] = [
+  { stockSymbol: "HK.00700", perpSymbol: "TENCENTUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.01810", perpSymbol: "XIAOMIUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.01024", perpSymbol: "KUAISHOUUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.03690", perpSymbol: "MEITUANUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.09992", perpSymbol: "POPMARTUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.00100", perpSymbol: "MINIMAXUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.02513", perpSymbol: "ZHIPUUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.00700", perpSymbol: "HK0700USDT", sharesPerContract: 7.83 },
   { stockSymbol: "HK.01810", perpSymbol: "HK1810USDT", sharesPerContract: 7.83 },
 ];
@@ -84,8 +92,18 @@ export default function HkAuctionPage() {
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "[]") as PairConfig[];
-      if (Array.isArray(saved) && saved.length) setPairs(saved.slice(0, 24));
+      const current = window.localStorage.getItem(STORAGE_KEY);
+      if (current !== null) {
+        const saved = JSON.parse(current) as PairConfig[];
+        if (Array.isArray(saved)) setPairs(saved.slice(0, 24));
+        return;
+      }
+      const legacy = JSON.parse(window.localStorage.getItem(LEGACY_STORAGE_KEY) || "[]") as PairConfig[];
+      const merged = new Map(DEFAULT_PAIRS.map((pair) => [`${pair.stockSymbol}:${pair.perpSymbol}`, pair]));
+      if (Array.isArray(legacy)) legacy.forEach((pair) => merged.set(`${pair.stockSymbol}:${pair.perpSymbol}`, pair));
+      const migrated = [...merged.values()].slice(0, 24);
+      setPairs(migrated);
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
     } catch { /* Keep safe defaults. */ }
   }, []);
 
@@ -208,9 +226,24 @@ export default function HkAuctionPage() {
         const hot = basisValue !== null && Math.abs(basisValue) >= alert;
         const futuFresh = quote?.futu?.stale === false;
         const binanceFresh = quote?.binance?.stale === false;
+        const sellPerpBasis = quote?.metrics.sellPerpBuyStock.basisPct ?? null;
+        const buyPerpBasis = quote?.metrics.buyPerpSellStock.basisPct ?? null;
+        const richEdge = sellPerpBasis ?? basisValue;
+        const cheapEdge = buyPerpBasis === null ? (basisValue === null ? null : -basisValue) : -buyPerpBasis;
+        const shortPerp = richEdge !== null && (cheapEdge === null || richEdge >= cheapEdge);
+        const signalReady = basisValue !== null;
+        const shortSymbol = shortPerp ? pair.perpSymbol : pair.stockSymbol;
+        const longSymbol = shortPerp ? pair.stockSymbol : pair.perpSymbol;
+        const signalEdge = signalReady ? Math.max(richEdge ?? -Infinity, cheapEdge ?? -Infinity) : null;
         return <article key={id} className={`${styles.card} ${hot ? styles.hotCard : ""}`}>
           <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{pair.sharesPerContract.toLocaleString()} shares per 1 perp</small></div><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></header>
-          <div className={styles.basisHero}><span>MID BASIS</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>{quote?.metrics.stockReferenceSource === "auction-price" ? "Futu auction / IEP reference" : quote?.metrics.stockReferenceSource === "book-mid" ? "Futu BBO midpoint proxy" : "No valid auction reference"}</small></div>
+          <div className={styles.basisHero}><span>MID BASIS</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>{quote?.metrics.stockReferenceSource === "close-price" ? "Futu official close · overnight benchmark" : quote?.metrics.stockReferenceSource === "auction-price" ? "Futu auction / IEP reference" : quote?.metrics.stockReferenceSource === "book-mid" ? "Futu BBO midpoint proxy" : "No valid stock benchmark"}</small></div>
+          <div className={`${styles.tradeSignal} ${!signalReady ? styles.signalWaiting : ""}`}>
+            <div><span>SHORT</span><strong>{signalReady ? shortSymbol : "WAITING"}</strong><small>{shortPerp ? "Perpetual leg" : "Hong Kong stock leg"}</small></div>
+            <i>→</i>
+            <div><span>LONG</span><strong>{signalReady ? longSymbol : "WAITING"}</strong><small>{shortPerp ? "Hong Kong stock leg" : "Perpetual leg"}</small></div>
+            <b>{signalReady ? `${signalEdge !== null && signalEdge >= 0 ? "EXECUTABLE EDGE" : "DIRECTIONAL BASIS"} ${pct(signalEdge)}` : "AWAITING BOTH VENUES"}</b>
+          </div>
           <dl className={styles.coreMetrics}>
             <div><dt>Auction ref · HKD</dt><dd>{number(quote?.metrics.stockReferenceHkd)}</dd></div>
             <div><dt>Fair perp · USDT</dt><dd>{number(quote?.metrics.fairUsdt)}</dd></div>

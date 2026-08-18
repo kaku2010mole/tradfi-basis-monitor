@@ -23,7 +23,14 @@ PUSH_URL = os.getenv(
 )
 OPEND_HOST = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
 OPEND_PORT = int(os.getenv("FUTU_OPEND_PORT", "11111"))
-SYMBOLS = [item.strip().upper() for item in os.getenv("FUTU_SYMBOLS", "HK.00700,HK.01810").split(",") if item.strip()]
+SYMBOLS = [
+    item.strip().upper()
+    for item in os.getenv(
+        "FUTU_SYMBOLS",
+        "HK.00700,HK.01810,HK.01024,HK.03690,HK.09992,HK.00100,HK.02513",
+    ).split(",")
+    if item.strip()
+]
 INTERVAL_SECONDS = max(0.8, float(os.getenv("FUTU_PUSH_INTERVAL", "1")))
 RUNNING = True
 
@@ -62,33 +69,36 @@ def build_payload(context: OpenQuoteContext) -> dict[str, object]:
     if snapshot_ret != RET_OK:
         raise RuntimeError(f"Futu snapshot failed: {snapshot}")
     snapshot_by_code = {str(row.get("code")): row for _, row in snapshot.iterrows()}
+    market_closed = market_state is not None and market_state.upper() == "CLOSED"
     quotes: list[dict[str, object]] = []
     orderbooks: list[dict[str, object]] = []
     for symbol in SYMBOLS:
         row = snapshot_by_code.get(symbol)
         book_ret, book = context.get_order_book(symbol, num=10)
-        if row is None or book_ret != RET_OK:
+        if row is None:
             continue
-        bids = levels(book.get("Bid", []))
-        asks = levels(book.get("Ask", []))
-        if not bids or not asks:
+        bids = levels(book.get("Bid", [])) if book_ret == RET_OK else []
+        asks = levels(book.get("Ask", [])) if book_ret == RET_OK else []
+        last = positive(row.get("last_price"))
+        if (not bids or not asks) and not (market_closed and last is not None):
             continue
         quotes.append({
             "symbol": symbol,
             "name": str(row.get("name")),
             "marketState": market_state,
             "auctionPrice": None,
-            "last": positive(row.get("last_price")),
-            "bid": bids[0]["price"],
-            "ask": asks[0]["price"],
-            "bidSize": bids[0]["size"],
-            "askSize": asks[0]["size"],
+            "last": last,
+            "bid": bids[0]["price"] if bids else None,
+            "ask": asks[0]["price"] if asks else None,
+            "bidSize": bids[0]["size"] if bids else None,
+            "askSize": asks[0]["size"] if asks else None,
             # Futu order-book snapshots do not include an exchange timestamp.
             # A successful synchronous OpenD response time is used as freshness,
             # while last_price is never used as the auction reference.
             "marketTimestamp": generated_at,
         })
-        orderbooks.append({"symbol": symbol, "bids": bids, "asks": asks, "marketTimestamp": generated_at})
+        if bids and asks:
+            orderbooks.append({"symbol": symbol, "bids": bids, "asks": asks, "marketTimestamp": generated_at})
     if not quotes:
         raise RuntimeError("Futu returned no complete two-sided books.")
     return {"generatedAt": generated_at, "quotes": quotes, "orderbooks": orderbooks}
