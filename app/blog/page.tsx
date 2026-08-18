@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import PageSwitcher from "../components/PageSwitcher";
 import PairExecutionPanel from "../trade/PairExecutionPanel";
 import {
   fixedTrainingWindow,
+  latestHktBusinessAnchor,
   MAX_OBSERVATION_MS,
   MAX_STATISTICAL_OBSERVATION_MS,
   maxObservationMs,
@@ -57,7 +59,7 @@ const QUICK_WINDOWS = [
   { label: "6H", milliseconds: 6 * 60 * 60_000 },
   { label: "24H", milliseconds: 24 * 60 * 60_000 },
   { label: "3D", milliseconds: MAX_OBSERVATION_MS },
-  { label: "7D", milliseconds: MAX_STATISTICAL_OBSERVATION_MS, statisticalOnly: true },
+  { label: "7D", milliseconds: MAX_STATISTICAL_OBSERVATION_MS },
 ] as const;
 const TODAY_ANCHORS = [
   { label: "10:00", hour: 10, minute: 0 },
@@ -85,15 +87,12 @@ const EMPTY_DRAFT: CustomDraft = { asset1Venue: "binance", asset1Symbol: "", ass
 
 const toHktInput = (timestamp: number) => new Date(timestamp + HKT_OFFSET_MS).toISOString().slice(0, 16);
 const fromHktInput = (value: string) => Date.parse(`${value}:00+08:00`);
-const hktTodayAt = (hour: number, timestamp: number, minute = 0) => {
-  const day = new Date(timestamp + HKT_OFFSET_MS).toISOString().slice(0, 10);
-  return Date.parse(`${day}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+08:00`);
-};
-const latestHktAnchor = (hour: number, timestamp: number, minute = 0) => {
-  const today = hktTodayAt(hour, timestamp, minute);
-  return today <= timestamp ? today : today - 24 * 60 * 60_000;
-};
-const anchorDayLabel = (anchor: number, timestamp: number) => new Date(anchor + HKT_OFFSET_MS).toISOString().slice(0, 10) === new Date(timestamp + HKT_OFFSET_MS).toISOString().slice(0, 10) ? "TODAY" : "YESTERDAY";
+const latestHktAnchor = (hour: number, timestamp: number, minute = 0) => latestHktBusinessAnchor(hour, minute, timestamp);
+const anchorDayLabel = (anchor: number) => new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Hong_Kong",
+  month: "short",
+  day: "2-digit",
+}).format(anchor).toUpperCase();
 const INITIAL_TEN = latestHktAnchor(10, INITIAL_NOW);
 const INITIAL_START = INITIAL_TEN;
 const INITIAL_SELECTION = "10:00";
@@ -290,6 +289,45 @@ function linePath(values: number[], width: number, height: number, padding: { le
   }).join(" ");
 }
 
+function useChartInspection(pointCount: number, width: number, padding: { left: number; right: number }) {
+  const [storedIndex, setStoredIndex] = useState<number | null>(null);
+  const lastIndex = Math.max(0, pointCount - 1);
+  const selectedIndex = pointCount > 0 && storedIndex !== null ? Math.min(storedIndex, lastIndex) : null;
+  const plotWidth = width - padding.left - padding.right;
+  const selectAtClientX = (clientX: number, bounds: DOMRect) => {
+    if (!pointCount) return;
+    const svgX = ((clientX - bounds.left) / Math.max(bounds.width, 1)) * width;
+    const ratio = Math.max(0, Math.min(1, (svgX - padding.left) / Math.max(plotWidth, 1)));
+    setStoredIndex(Math.round(ratio * lastIndex));
+  };
+  const onPointerMove = (event: ReactPointerEvent<SVGRectElement>) => selectAtClientX(event.clientX, event.currentTarget.ownerSVGElement!.getBoundingClientRect());
+  const onKeyDown = (event: ReactKeyboardEvent<SVGRectElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    setStoredIndex((current) => {
+      if (event.key === "Home") return 0;
+      if (event.key === "End") return lastIndex;
+      const initial = current === null ? lastIndex : Math.min(current, lastIndex);
+      return Math.max(0, Math.min(lastIndex, initial + (event.key === "ArrowLeft" ? -1 : 1)));
+    });
+  };
+  return { selectedIndex, onPointerMove, onKeyDown };
+}
+
+function InspectionTooltip({ x, width, lines }: { x: number; width: number; lines: Array<{ label: string; value: string; color?: string }> }) {
+  const tooltipWidth = 226;
+  const tooltipHeight = 24 + lines.length * 17;
+  const tooltipX = Math.max(8, Math.min(width - tooltipWidth - 8, x + (x > width * .66 ? -tooltipWidth - 12 : 12)));
+  return <g className={styles.chartTooltip} pointerEvents="none">
+    <rect x={tooltipX} y={9} width={tooltipWidth} height={tooltipHeight} rx="7" />
+    {lines.map((line, index) => <g key={`${line.label}-${index}`}>
+      {line.color && <circle cx={tooltipX + 13} cy={27 + index * 17} r="3" fill={line.color} />}
+      <text x={tooltipX + (line.color ? 22 : 12)} y={30 + index * 17}>{line.label}</text>
+      <text x={tooltipX + tooltipWidth - 12} y={30 + index * 17} textAnchor="end" className={styles.chartTooltipValue}>{line.value}</text>
+    </g>)}
+  </g>;
+}
+
 function PredictionChart({ points, relationship }: { points: ProjectionPoint[]; relationship: Relationship }) {
   const width = 920;
   const height = 340;
@@ -300,8 +338,11 @@ function PredictionChart({ points, relationship }: { points: ProjectionPoint[]; 
   const extra = Math.max((rawMax - rawMin) * .1, .05);
   const min = rawMin - extra;
   const max = rawMax + extra;
+  const { selectedIndex, onPointerMove, onKeyDown } = useChartInspection(points.length, width, padding);
+  const selectedPoint = selectedIndex === null ? null : points[selectedIndex];
+  const selectedX = selectedIndex === null ? null : padding.left + (selectedIndex / Math.max(1, points.length - 1)) * (width - padding.left - padding.right);
   const y = (value: number) => padding.top + ((max - value) / Math.max(max - min, 1e-8)) * (height - padding.top - padding.bottom);
-  return <div className={styles.chartScroll}><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${relationship.title} actual and theoretical return chart`}>
+  return <div className={styles.chartScroll}><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${relationship.title} actual and theoretical return chart. Move, tap, or use arrow keys to inspect exact values.`}>
     {[0, 1, 2, 3, 4].map((tick) => {
       const value = max - ((max - min) * tick) / 4;
       const chartY = y(value);
@@ -316,6 +357,19 @@ function PredictionChart({ points, relationship }: { points: ProjectionPoint[]; 
     <path d={linePath(points.map((point) => point.asset1Return), width, height, padding, min, max)} className={styles.lineA} />
     <path d={linePath(points.map((point) => point.asset2Actual), width, height, padding, min, max)} className={styles.lineB} />
     <path d={linePath(points.map((point) => point.asset2Theoretical), width, height, padding, min, max)} className={styles.theoreticalLine} />
+    {selectedPoint && selectedX !== null && <>
+      <line x1={selectedX} x2={selectedX} y1={padding.top} y2={height - padding.bottom} className={styles.inspectionLine} />
+      <circle cx={selectedX} cy={y(selectedPoint.asset1Return)} r="4" className={styles.inspectionDotA} />
+      <circle cx={selectedX} cy={y(selectedPoint.asset2Actual)} r="4" className={styles.inspectionDotB} />
+      <circle cx={selectedX} cy={y(selectedPoint.asset2Theoretical)} r="4" className={styles.inspectionDotTheory} />
+      <InspectionTooltip x={selectedX} width={width} lines={[
+        { label: formatTime(selectedPoint.t, true), value: "HKT" },
+        { label: `${relationship.asset1.symbol} actual`, value: formatPct(selectedPoint.asset1Return, 3), color: "#087f5b" },
+        { label: `${relationship.asset2.symbol} actual`, value: formatPct(selectedPoint.asset2Actual, 3), color: "#377ee8" },
+        { label: `${relationship.asset2.symbol} theory`, value: formatPct(selectedPoint.asset2Theoretical, 3), color: "#7152d4" },
+      ]} />
+    </>}
+    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Chart time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; ${relationship.asset1.symbol} actual ${formatPct(selectedPoint.asset1Return, 3)}; ${relationship.asset2.symbol} actual ${formatPct(selectedPoint.asset2Actual, 3)}; theoretical ${formatPct(selectedPoint.asset2Theoretical, 3)}` : "Move, tap, or use left and right arrow keys to inspect exact values"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onKeyDown={onKeyDown} />
   </svg></div>;
 }
 
@@ -327,9 +381,12 @@ function PredictionErrorChart({ points }: { points: ProjectionPoint[] }) {
   const maxMagnitude = Math.max(alertThreshold * 1.15, ...points.map((point) => Math.abs(point.predictionError))) * 1.08;
   const min = -maxMagnitude;
   const max = maxMagnitude;
+  const { selectedIndex, onPointerMove, onKeyDown } = useChartInspection(points.length, width, padding);
+  const selectedPoint = selectedIndex === null ? null : points[selectedIndex];
+  const selectedX = selectedIndex === null ? null : padding.left + (selectedIndex / Math.max(1, points.length - 1)) * (width - padding.left - padding.right);
   const y = (value: number) => padding.top + ((max - value) / (max - min)) * (height - padding.top - padding.bottom);
   const latest = points.at(-1)?.predictionError ?? 0;
-  return <div className={styles.chartScroll}><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Historical prediction error percentage chart">
+  return <div className={styles.chartScroll}><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Historical prediction error percentage chart. Move, tap, or use arrow keys to inspect exact values.">
     <rect x={padding.left} y={y(alertThreshold)} width={width - padding.left - padding.right} height={y(-alertThreshold) - y(alertThreshold)} className={styles.errorBand} />
     {[max, max / 2, 0, min / 2, min].map((value, index) => <g key={index}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} className={value === 0 ? styles.zeroLine : styles.gridLine} /><text x={padding.left - 9} y={y(value) + 4} textAnchor="end" className={styles.axisText}>{formatPct(value, 2)}</text></g>)}
     {[alertThreshold, -alertThreshold].map((value) => <line key={value} x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} className={styles.predictionAlertLine} />)}
@@ -340,6 +397,15 @@ function PredictionErrorChart({ points }: { points: ProjectionPoint[] }) {
     })}
     <path d={linePath(points.map((point) => point.predictionError), width, height, padding, min, max)} className={styles.predictionErrorLine} />
     <circle cx={width - padding.right} cy={y(latest)} r="5" className={Math.abs(latest) >= alertThreshold ? styles.errorHotDot : styles.errorLiveDot} />
+    {selectedPoint && selectedX !== null && <>
+      <line x1={selectedX} x2={selectedX} y1={padding.top} y2={height - padding.bottom} className={styles.inspectionLine} />
+      <circle cx={selectedX} cy={y(selectedPoint.predictionError)} r="4" className={Math.abs(selectedPoint.predictionError) >= alertThreshold ? styles.errorHotDot : styles.errorLiveDot} />
+      <InspectionTooltip x={selectedX} width={width} lines={[
+        { label: formatTime(selectedPoint.t, true), value: "HKT" },
+        { label: "Prediction error", value: formatPct(selectedPoint.predictionError, 3), color: Math.abs(selectedPoint.predictionError) >= alertThreshold ? "#d74f4c" : "#6d50cc" },
+      ]} />
+    </>}
+    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Prediction error time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; prediction error ${formatPct(selectedPoint.predictionError, 3)}` : "Move, tap, or use left and right arrow keys to inspect exact values"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onKeyDown={onKeyDown} />
   </svg></div>;
 }
 
@@ -350,12 +416,25 @@ function ResidualChart({ points }: { points: ProjectionPoint[] }) {
   const maxMagnitude = Math.max(3, ...points.map((point) => Math.abs(point.z))) * 1.08;
   const min = -maxMagnitude;
   const max = maxMagnitude;
+  const { selectedIndex, onPointerMove, onKeyDown } = useChartInspection(points.length, width, padding);
+  const selectedPoint = selectedIndex === null ? null : points[selectedIndex];
+  const selectedX = selectedIndex === null ? null : padding.left + (selectedIndex / Math.max(1, points.length - 1)) * (width - padding.left - padding.right);
   const y = (value: number) => padding.top + ((max - value) / (max - min)) * (height - padding.top - padding.bottom);
-  return <div className={styles.chartScroll}><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Prediction error z-score chart">
+  return <div className={styles.chartScroll}><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Prediction error z-score chart. Move, tap, or use arrow keys to inspect exact values.">
     <rect x={padding.left} y={y(2)} width={width - padding.left - padding.right} height={y(-2) - y(2)} className={styles.normalBand} />
     {[-2, 0, 2].map((value) => <g key={value}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} className={value === 0 ? styles.zeroLine : styles.alertLine} /><text x={padding.left - 9} y={y(value) + 4} textAnchor="end" className={styles.axisText}>{value > 0 ? "+" : ""}{value}σ</text></g>)}
     <path d={linePath(points.map((point) => point.z), width, height, padding, min, max)} className={styles.residualLine} />
     <circle cx={width - padding.right} cy={y(points.at(-1)?.z ?? 0)} r="5" className={Math.abs(points.at(-1)?.z ?? 0) >= 2 ? styles.hotDot : styles.liveDot} />
+    {selectedPoint && selectedX !== null && <>
+      <line x1={selectedX} x2={selectedX} y1={padding.top} y2={height - padding.bottom} className={styles.inspectionLine} />
+      <circle cx={selectedX} cy={y(selectedPoint.z)} r="4" className={Math.abs(selectedPoint.z) >= 2 ? styles.hotDot : styles.liveDot} />
+      <InspectionTooltip x={selectedX} width={width} lines={[
+        { label: formatTime(selectedPoint.t, true), value: "HKT" },
+        { label: "Prediction error", value: formatPct(selectedPoint.predictionError, 3), color: "#6d50cc" },
+        { label: "Z-score", value: `${formatNumber(selectedPoint.z, 3)}σ`, color: Math.abs(selectedPoint.z) >= 2 ? "#d74f4c" : "#6d50cc" },
+      ]} />
+    </>}
+    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Z-score time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; prediction error ${formatPct(selectedPoint.predictionError, 3)}; z-score ${formatNumber(selectedPoint.z, 3)} sigma` : "Move, tap, or use left and right arrow keys to inspect exact values"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onKeyDown={onKeyDown} />
   </svg></div>;
 }
 
@@ -436,9 +515,9 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
     const end = options?.end ?? fromHktInput(endInput);
     const relationshipIdToLoad = options?.relationship ?? relationshipId;
     const relationship = options?.definition ?? relationships.find((item) => item.id === relationshipIdToLoad);
-    const maximumWindow = relationship ? maxObservationMs(relationship) : MAX_OBSERVATION_MS;
+    const maximumWindow = relationship ? maxObservationMs(relationship) : MAX_STATISTICAL_OBSERVATION_MS;
     if (!relationship || !Number.isFinite(start) || !Number.isFinite(end) || start >= end || end - start > maximumWindow + 60_000) {
-      setError(relationship?.referenceBeta === null ? "Choose a valid statistical-model window of seven days or less." : "Choose a valid structural-beta window of three days or less.");
+      setError("Choose a valid observation window of seven days or less.");
       setLoading(false);
       return;
     }
@@ -584,7 +663,6 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
   }, [relationships, startInput]);
 
   const selected = analysis?.relationship;
-  const selectedDefinition = relationships.find((item) => item.id === relationshipId);
   const availability = useMemo(() => new Map(analysis?.universe?.candidates.map((item) => [item.id, item.available]) ?? []), [analysis?.universe]);
   const formulaOnly = analysis?.model.method === "reference" && analysis.model.validationSamples === 0;
   const signalLabel = formulaOnly ? "BETA LOCKED" : analysis?.model.quality === "weak" ? "MODEL WEAK" : analysis?.stats.status === "dislocation" ? "DISLOCATION" : analysis?.stats.status === "watch" ? "WATCH" : "IN RANGE";
@@ -625,6 +703,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
     updatedAt: analysis.points.at(-1)?.t ?? analysis.generatedAt,
   } : null;
   const neutralAsset1Shares = analysis && neutralPrices && neutralPrices.asset1 > 0 ? NEUTRAL_UNIT_SHARES * Math.abs(analysis.model.beta) * neutralPrices.asset2 / neutralPrices.asset1 : null;
+  const neutralAsset1Shares500 = neutralAsset1Shares === null ? null : neutralAsset1Shares * 5;
   const neutralAsset2Side = analysis?.stats.predictionError && analysis.stats.predictionError > 0 ? "SHORT" : "LONG";
   const neutralAsset1Side = analysis ? analysis.model.beta >= 0 ? neutralAsset2Side === "LONG" ? "SHORT" : "LONG" : neutralAsset2Side : "—";
   const chooseRelationship = (id: string) => {
@@ -636,7 +715,7 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
     const start = Number.isFinite(end) && Number.isFinite(currentStart) && end - currentStart > maximumWindow ? end - maximumWindow : currentStart;
     if (start !== currentStart) {
       setStartInput(toHktInput(start));
-      setActiveWindow(relationship.referenceBeta === null ? activeWindow : "3D");
+      setActiveWindow("7D");
     }
     setRelationshipId(id);
     void load({ relationship: id, definition: relationship, start, end });
@@ -747,11 +826,11 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
 
       <div className={styles.analysisColumn}>
         <section className={styles.controls}>
-          <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const now = analysis?.generatedAt ?? INITIAL_NOW; const latest = latestHktAnchor(anchor.hour, now, anchor.minute); const day = anchorDayLabel(latest, now); return <button key={anchor.label} className={`${styles.anchorWindow} ${followingLive && activeWindow === anchor.label ? styles.activeWindow : ""}`} title={`Compare from the latest ${anchor.label} HKT anchor within the past 24 hours · ${day.toLowerCase()}`} onClick={(event) => applyDailyAnchor(anchor.label, anchor.hour, anchor.minute, performance.timeOrigin + event.timeStamp)}><span>{anchor.label}</span><small>{day}</small></button>; })}{QUICK_WINDOWS.map((window) => { const statisticalOnly = "statisticalOnly" in window; const disabled = statisticalOnly && selectedDefinition?.referenceBeta !== null; return <button key={window.label} disabled={disabled} title={disabled ? "7D is available for fitted statistical models; structural-beta products remain capped at 3D." : undefined} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}{disabled && <small>STAT</small>}</button>; })}</div>
+          <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const now = analysis?.generatedAt ?? INITIAL_NOW; const latest = latestHktAnchor(anchor.hour, now, anchor.minute); const day = anchorDayLabel(latest); return <button key={anchor.label} className={`${styles.anchorWindow} ${followingLive && activeWindow === anchor.label ? styles.activeWindow : ""}`} title={`Compare from the latest business-day ${anchor.label} HKT anchor · ${day}`} onClick={(event) => applyDailyAnchor(anchor.label, anchor.hour, anchor.minute, performance.timeOrigin + event.timeStamp)}><span>{anchor.label}</span><small>{day}</small></button>; })}{QUICK_WINDOWS.map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
           <label>Backtest start · HKT<input type="datetime-local" value={startInput} max={endInput} onChange={(event) => { setStartInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
           <label>Backtest end · HKT<input type="datetime-local" value={endInput} min={startInput} onChange={(event) => { setEndInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
           <button className={styles.runButton} disabled={loading} onClick={() => void load()}>{loading ? "Updating…" : "Update prediction"}</button>
-          <p className={styles.windowRule}>{followingLive ? `Following ${TODAY_ANCHORS.some((item) => item.label === activeWindow) ? `the latest ${activeWindow} HKT anchor within the past 24 hours` : `the latest ${activeWindow} window`}.` : "Historical backtest selected."} Statistical models support up to 7D using five-minute candles; shorter windows retain one-minute precision. Structural-beta and daily-reset products remain capped at 3D. A supplied beta always runs directly; history is validation only.</p>
+          <p className={styles.windowRule}>{followingLive ? `Following ${TODAY_ANCHORS.some((item) => item.label === activeWindow) ? `the latest business-day ${activeWindow} HKT anchor` : `the latest ${activeWindow} window`}.` : "Historical backtest selected."} All models, including fixed-beta products, support up to 7D using five-minute candles; shorter windows retain one-minute precision. A supplied beta always runs directly; longer ranges show daily-reset and compounding drift rather than refitting it.</p>
         </section>
 
         {error && <div className={styles.errorBox}><strong>Prediction unavailable</strong><span>{error}</span><button onClick={() => void load()}>Retry</button></div>}
@@ -777,11 +856,19 @@ export default function RelativeValueBlog({ trading = false }: { trading?: boole
 
           {!formulaOnly && <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>STANDARDIZED ERROR MONITOR</span><h3>Prediction error significance</h3></div><p>Watch at ±1.5σ · dislocation at ±2σ · suppressed when model quality is weak.</p></div><ResidualChart points={analysis.points} /></section>}
 
-          {neutralPrices && neutralAsset1Shares !== null && <section className={styles.neutralPanel}>
-            <div className={styles.neutralIntro}><span>LIVE β-NEUTRAL SHARE RATIO</span><h3>Hedge {NEUTRAL_UNIT_SHARES} {selected.asset2.symbol} shares with {neutralAsset1Shares.toLocaleString("en-US", { maximumFractionDigits: 6 })} {selected.asset1.symbol} shares.</h3><p>The share ratio updates from both live midpoints every 10 seconds. Target notionals remain |β| : 1; exchange quantity steps may introduce a small rounding error.</p></div>
-            <div className={styles.neutralLeg}><span>{selected.asset2.symbol} SIGNAL LEG</span><strong className={neutralAsset2Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset2Side} {NEUTRAL_UNIT_SHARES.toFixed(6)}</strong><b>{selected.asset2.symbol}</b><small>@ {neutralPrices.asset2.toLocaleString("en-US", { maximumFractionDigits: 8 })}</small></div>
-            <div className={styles.neutralLeg}><span>{selected.asset1.symbol} HEDGE LEG</span><strong className={neutralAsset1Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset1Side} {neutralAsset1Shares.toLocaleString("en-US", { maximumFractionDigits: 6 })}</strong><b>{selected.asset1.symbol}</b><small>@ {neutralPrices.asset1.toLocaleString("en-US", { maximumFractionDigits: 8 })}</small></div>
-            <div className={styles.neutralRatio}><span>NOTIONAL BALANCE</span><strong>{Math.abs(analysis.model.beta).toFixed(3)} : 1</strong><small>{selected.asset1.symbol} : {selected.asset2.symbol} · β {formatNumber(analysis.model.beta, 3)}</small></div>
+          {neutralPrices && neutralAsset1Shares !== null && neutralAsset1Shares500 !== null && <section className={styles.neutralPanel}>
+            <div className={styles.neutralIntro}><span>LIVE β-NEUTRAL SHARE PAIRS</span><h3>Ready-sized market-neutral legs</h3><p>Both presets update from live midpoints every 10 seconds. Quantities target |β| : 1 notionals before exchange step-size rounding.</p></div>
+            <div className={`${styles.neutralPreset} ${styles.neutralPrimary}`}>
+              <span>100-SHARE PRESET</span>
+              <div className={styles.shareEquation}><strong>100</strong><small>{selected.asset2.symbol}</small><i>≍</i><strong>{neutralAsset1Shares.toLocaleString("en-US", { maximumFractionDigits: 6 })}</strong><small>{selected.asset1.symbol}</small></div>
+              <b><em className={neutralAsset2Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset2Side}</em> {selected.asset2.symbol} · <em className={neutralAsset1Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset1Side}</em> {selected.asset1.symbol}</b>
+            </div>
+            <div className={styles.neutralPreset}>
+              <span>500-SHARE PRESET</span>
+              <div className={styles.shareEquation}><strong>500</strong><small>{selected.asset2.symbol}</small><i>≍</i><strong>{neutralAsset1Shares500.toLocaleString("en-US", { maximumFractionDigits: 6 })}</strong><small>{selected.asset1.symbol}</small></div>
+              <b><em className={neutralAsset2Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset2Side}</em> {selected.asset2.symbol} · <em className={neutralAsset1Side === "LONG" ? styles.positive : styles.negative}>{neutralAsset1Side}</em> {selected.asset1.symbol}</b>
+            </div>
+            <div className={styles.neutralRatio}><span>NOTIONAL BALANCE</span><strong>{Math.abs(analysis.model.beta).toFixed(3)} : 1</strong><small>{selected.asset1.symbol} : {selected.asset2.symbol} · β {formatNumber(analysis.model.beta, 3)}<br />Live mids {neutralPrices.asset1.toLocaleString("en-US", { maximumFractionDigits: 6 })} / {neutralPrices.asset2.toLocaleString("en-US", { maximumFractionDigits: 6 })}</small></div>
           </section>}
 
           <section className={styles.methodPanel}>

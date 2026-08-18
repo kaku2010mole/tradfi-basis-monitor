@@ -55,8 +55,26 @@ export const MAX_OBSERVATION_MS = 3 * 24 * 60 * 60_000;
 export const MAX_STATISTICAL_OBSERVATION_MS = 7 * 24 * 60 * 60_000;
 export const TRAINING_INTERVAL = "1h";
 
-export const maxObservationMs = (relationship: Pick<Relationship, "referenceBeta">) =>
-  relationship.referenceBeta === null ? MAX_STATISTICAL_OBSERVATION_MS : MAX_OBSERVATION_MS;
+// Both fitted and user-supplied beta models can be inspected over seven days.
+// Fixed-beta products still carry their daily-reset caveat; the longer range is
+// an observation tool rather than a claim that the beta compounds perfectly.
+export const maxObservationMs = (relationship: Pick<Relationship, "referenceBeta">) => {
+  void relationship;
+  return MAX_STATISTICAL_OBSERVATION_MS;
+};
+
+export function latestHktBusinessAnchor(hour: number, minute: number, timestamp: number) {
+  const day = 24 * 60 * 60_000;
+  const hktOffset = 8 * 60 * 60_000;
+  const hktDayStart = Math.floor((timestamp + hktOffset) / day) * day - hktOffset;
+  let candidate = hktDayStart + hour * 60 * 60_000 + minute * 60_000;
+
+  // Before today's anchor, start with the previous calendar day. On weekends,
+  // continue back to Friday so Monday morning never anchors to Sunday.
+  if (candidate > timestamp) candidate -= day;
+  while ([0, 6].includes(new Date(candidate + hktOffset).getUTCDay())) candidate -= day;
+  return candidate;
+}
 
 export const RELATIONSHIPS: Relationship[] = [
   {
@@ -99,7 +117,7 @@ export const RELATIONSHIPS: Relationship[] = [
     asset1: { venue: "binance", symbol: "TBTUSDT", label: "Binance TBT" }, asset2: { venue: "binance", symbol: "TMFUSDT", label: "Binance TMF" },
     referenceBeta: -1.5, leveraged: true,
     thesis: "TBT targets −2× while TMF targets +3× daily long-duration Treasury performance; TMF should move about −1.5 times TBT before frictions.",
-    caveat: "Both reset daily. The structural −1.5 ratio is used only for observation windows up to three days and is separately validated against history.",
+    caveat: "Both reset daily. The structural −1.5 ratio can be inspected over seven days, but compounding means it should not be read as a seven-day return guarantee.",
   },
   {
     id: "qqq-uvxy", title: "QQQ → UVXY", short: "Growth risk to short-volatility futures", kind: "risk-regime",
@@ -134,7 +152,7 @@ export const RELATIONSHIPS: Relationship[] = [
     asset1: { venue: "binance", symbol: "QQQUSDT", label: "Binance QQQ" }, asset2: { venue: "binance", symbol: "TQQQUSDT", label: "Binance TQQQ" },
     referenceBeta: 3, leveraged: true,
     thesis: "Apply TQQQ's explicit +3 daily objective directly to QQQ's move.",
-    caveat: "The +3 objective resets daily; cumulative returns beyond three days are intentionally excluded.",
+    caveat: "The +3 objective resets daily; the seven-day view is for monitoring compounding drift, not a guarantee of cumulative +3 performance.",
   },
   {
     id: "qqq-sqqq", title: "QQQ → SQQQ", short: "Nasdaq-100 +1× to −3×", kind: "leveraged-inverse",

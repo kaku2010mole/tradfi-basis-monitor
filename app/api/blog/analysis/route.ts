@@ -159,7 +159,7 @@ export async function GET(request: Request) {
   if (!relationship) return Response.json({ error: "Unknown relationship." }, { status: 400 });
   const maximumWindow = maxObservationMs(relationship);
   if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || start >= end || end > now + 60_000 || end - start > maximumWindow + 60_000) {
-    return Response.json({ error: relationship.referenceBeta === null ? "Choose any statistical-model window up to seven days, ending no later than now." : "Choose any structural-beta window up to three days, ending no later than now." }, { status: 400 });
+    return Response.json({ error: "Choose any observation window up to seven days, ending no later than now." }, { status: 400 });
   }
   const interval = observationInterval(start, end);
   try {
