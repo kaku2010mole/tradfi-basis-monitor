@@ -4,7 +4,7 @@ import Link from "next/link";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
-  active: "basis" | "pairs" | "oracle" | "blog" | "trade" | "polymarket";
+  active: "basis" | "pairs" | "oracle" | "blog" | "trade" | "polymarket" | "auction";
 };
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
@@ -39,6 +39,10 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         <Link href="/polymarket" aria-current={active === "polymarket" ? "page" : undefined}>
           <span>Polymarket Perps</span>
           <small>Live funding, history and Binance spreads</small>
+        </Link>
+        <Link href="/hk-auction" aria-current={active === "auction" ? "page" : undefined}>
+          <span>HK auction basis</span>
+          <small>Futu pre-open auction versus Binance perps</small>
         </Link>
       </nav>
     </details>

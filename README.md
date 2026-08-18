@@ -92,6 +92,50 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm test`: build the starter and verify its rendered loading skeleton
 - `npm run db:generate`: generate Drizzle migrations after schema changes
 
+## Optional Futu OpenD relay
+
+The HK auction API (`/api/hk-auction/quotes`) reads Binance Futures directly. Futu
+OpenAPI connects through a running OpenD instance, so a public deployment must set
+`FUTU_RELAY_URL` to a small HTTPS relay beside OpenD. `FUTU_RELAY_TOKEN` is optional
+and, when present, is sent as `Authorization: Bearer …`.
+
+The dashboard sends the relay `POST { "symbols": ["HK.00700"], "depth": 10 }`.
+The relay must answer with `{ "quotes": [...], "orderbooks": [...] }` (an
+orderbook can alternatively be nested in its quote). Each quote uses this normalized
+contract (camelCase aliases such as Futu's `bidPrice`, `bidVol`, `lastPrice` are
+also accepted):
+
+```json
+{
+  "symbol": "HK.00700",
+  "name": "TENCENT",
+  "marketState": "AUCTION",
+  "auctionPrice": 612.5,
+  "last": 611.5,
+  "bid": 612,
+  "ask": 612.5,
+  "bidSize": 1400,
+  "askSize": 24200,
+  "bids": [{ "price": 612, "size": 1400 }],
+  "asks": [{ "price": 612.5, "size": 24200 }],
+  "marketTimestamp": 1787015430000
+}
+```
+
+When sent separately, each orderbook is `{ "symbol": "HK.00700", "bids":
+[{ "price": 612, "size": 1400 }], "asks": [...], "marketTimestamp": ... }`.
+
+Prices and sizes must come from the subscribed Futu quote/order-book feeds. Missing
+values should be `null` or omitted; the server never substitutes a previous close.
+
+For a hosted Render instance, the safer default is the outbound-only pusher in
+`services/futu-pusher/push.py`. It connects to OpenD at `127.0.0.1:11111` and
+posts fresh two-sided books to `/api/hk-auction/ingest`; the Mac does not expose
+OpenD or a home-network port. The endpoint accepts `FUTU_PUSH_TOKEN`, or derives
+an isolated push credential from `SITE_PASSWORD` when a separate token is not
+configured. The local derived token belongs in `.futu-push-token`, which is
+ignored by Git.
+
 ## Learn More
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)

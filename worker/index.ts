@@ -6,6 +6,7 @@ interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   SITE_PASSWORD?: string;
+  FUTU_PUSH_TOKEN?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -33,6 +34,10 @@ const worker = {
       env?.SITE_PASSWORD ??
       (globalThis as typeof globalThis & { process?: { env?: Record<string, string | undefined> } })
         .process?.env?.SITE_PASSWORD;
+
+    if (url.pathname === "/api/hk-auction/ingest" && request.method === "POST") {
+      return handleFutuIngest(request, env?.FUTU_PUSH_TOKEN, sitePassword);
+    }
 
     if (sitePassword) {
       if (url.pathname === "/login") {
@@ -88,11 +93,25 @@ export default worker;
 
 const AUTH_COOKIE = "tradfi_access";
 const AUTH_MESSAGE = "tradfi-basis-monitor-access-v1";
+const FUTU_PUSH_MESSAGE = "futu-opend-readonly-push-v1:";
 const encoder = new TextEncoder();
+
+type FutuPushPayload = {
+  generatedAt: number;
+  quotes: Array<Record<string, unknown>>;
+  orderbooks?: Array<Record<string, unknown>>;
+};
+
+type FutuPushStore = typeof globalThis & {
+  __FUTU_PUSH_SNAPSHOT__?: { payload: FutuPushPayload; receivedAt: number };
+};
 
 async function digest(value: string) {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(value)));
 }
+
+const hex = (bytes: Uint8Array) =>
+  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
 async function valuesMatch(value: string, expected: string) {
   const [left, right] = await Promise.all([digest(value), digest(expected)]);
@@ -113,6 +132,35 @@ async function accessToken(password: string) {
   );
   const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(AUTH_MESSAGE)));
   return Array.from(signature, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function handleFutuIngest(request: Request, configuredToken?: string, sitePassword?: string) {
+  const expected = configuredToken?.trim() || (sitePassword ? hex(await digest(`${FUTU_PUSH_MESSAGE}${sitePassword}`)) : "");
+  const authorization = request.headers.get("authorization") ?? "";
+  const supplied = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  if (!expected || supplied.length > 256 || !(await valuesMatch(supplied, expected))) {
+    return json({ error: "Invalid Futu push credential." }, 401);
+  }
+
+  const declaredSize = Number(request.headers.get("content-length") ?? 0);
+  if (declaredSize > 256_000) return json({ error: "Futu payload is too large." }, 413);
+  let payload: FutuPushPayload;
+  try {
+    payload = await request.json() as FutuPushPayload;
+  } catch {
+    return json({ error: "Invalid Futu payload." }, 400);
+  }
+  const now = Date.now();
+  if (
+    !payload || !Number.isFinite(payload.generatedAt) || Math.abs(now - payload.generatedAt) > 30_000 ||
+    !Array.isArray(payload.quotes) || payload.quotes.length < 1 || payload.quotes.length > 24 ||
+    payload.quotes.some((quote) => typeof quote?.symbol !== "string" || !/^HK\.\d{5}$/.test(quote.symbol)) ||
+    (payload.orderbooks !== undefined && (!Array.isArray(payload.orderbooks) || payload.orderbooks.length > 24))
+  ) {
+    return json({ error: "Futu payload failed validation." }, 400);
+  }
+  (globalThis as FutuPushStore).__FUTU_PUSH_SNAPSHOT__ = { payload, receivedAt: now };
+  return json({ accepted: true, receivedAt: now }, 202);
 }
 
 function cookieValue(request: Request, name: string) {
