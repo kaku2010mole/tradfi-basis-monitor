@@ -11,6 +11,7 @@ const FUTU_STALE_MS = 20_000;
 
 type FutuPushStore = typeof globalThis & {
   __FUTU_PUSH_SNAPSHOT__?: { payload: unknown; receivedAt: number };
+  __BINANCE_FUNDING_CACHE__?: Map<string, { value: BinanceFunding; receivedAt: number }>;
 };
 
 type PairConfig = {
@@ -45,6 +46,23 @@ type BinanceBookTicker = {
   askPrice?: string;
   askQty?: string;
   time?: number;
+};
+
+type BinanceDepth = {
+  E?: number;
+  T?: number;
+  bids?: [string, string][];
+  asks?: [string, string][];
+};
+
+type BinancePremiumIndex = {
+  lastFundingRate?: string;
+  nextFundingTime?: number;
+};
+
+type BinanceFunding = {
+  fundingRate: number | null;
+  nextFundingTime: number | null;
 };
 
 const DEFAULT_PAIRS: PairConfig[] = [
@@ -288,34 +306,76 @@ async function getFutuQuotes(symbols: string[]) {
 }
 
 async function getBinanceQuote(symbol: string) {
-  const path = `/fapi/v1/ticker/bookTicker?symbol=${encodeURIComponent(symbol)}`;
-  let book: BinanceBookTicker | null = null;
-  let lastError = `${symbol}: Binance unavailable.`;
-  for (const host of BINANCE_FUTURES_APIS) {
-    try {
-      const response = await fetch(`${host}${path}`, {
-        cache: "no-store",
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      book = await response.json() as BinanceBookTicker;
-      break;
-    } catch (error) {
-      lastError = `${symbol}: ${errorMessage(error)}`;
+  const requestJson = async <T,>(path: string) => {
+    let lastError = `${symbol}: Binance unavailable.`;
+    for (const host of BINANCE_FUTURES_APIS) {
+      try {
+        const response = await fetch(`${host}${path}`, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const body = await response.text();
+        if (!body.trim()) throw new Error("empty response");
+        return JSON.parse(body) as T;
+      } catch (error) {
+        lastError = `${symbol}: ${errorMessage(error)}`;
+      }
     }
+    throw new Error(lastError);
+  };
+
+  const fundingCache = ((globalThis as FutuPushStore).__BINANCE_FUNDING_CACHE__ ??= new Map());
+  const cachedFunding = fundingCache.get(symbol);
+  const fundingPromise = cachedFunding && Date.now() - cachedFunding.receivedAt < 60_000
+    ? Promise.resolve(cachedFunding.value)
+    : requestJson<BinancePremiumIndex>(`/fapi/v1/premiumIndex?symbol=${encodeURIComponent(symbol)}`)
+      .then((premium) => {
+        const rate = Number(premium.lastFundingRate);
+        const value: BinanceFunding = {
+          fundingRate: Number.isFinite(rate) ? rate : null,
+          nextFundingTime: timestamp(premium.nextFundingTime),
+        };
+        fundingCache.set(symbol, { value, receivedAt: Date.now() });
+        return value;
+      });
+
+  const [depthResult, fundingResult] = await Promise.allSettled([
+    requestJson<BinanceDepth>(`/fapi/v1/depth?symbol=${encodeURIComponent(symbol)}&limit=5`),
+    fundingPromise,
+  ]);
+  const depth = depthResult.status === "fulfilled" ? depthResult.value : null;
+  const bids = normalizeLevels(depth?.bids).slice(0, 5);
+  const asks = normalizeLevels(depth?.asks).slice(0, 5);
+  let bid = bids[0]?.price ?? null;
+  let ask = asks[0]?.price ?? null;
+  let bidSize = bids[0]?.size ?? null;
+  let askSize = asks[0]?.size ?? null;
+
+  // Some newly listed contracts intermittently omit the depth snapshot. Keep
+  // the live BBO available, while leaving the five-level table honestly blank.
+  if (bid === null || ask === null) {
+    const book = await requestJson<BinanceBookTicker>(`/fapi/v1/ticker/bookTicker?symbol=${encodeURIComponent(symbol)}`);
+    bid = positive(book.bidPrice);
+    ask = positive(book.askPrice);
+    bidSize = positive(book.bidQty);
+    askSize = positive(book.askQty);
   }
-  if (!book) throw new Error(lastError);
-  const bid = positive(book.bidPrice);
-  const ask = positive(book.askPrice);
   if (bid === null || ask === null) throw new Error(`${symbol}: incomplete Binance book ticker.`);
   const receivedAt = Date.now();
+  const funding = fundingResult.status === "fulfilled"
+    ? fundingResult.value
+    : cachedFunding?.value ?? { fundingRate: null, nextFundingTime: null };
   return {
     symbol,
     bid,
     ask,
     mid: (bid + ask) / 2,
-    bidSize: positive(book.bidQty),
-    askSize: positive(book.askQty),
+    bidSize,
+    askSize,
+    bids,
+    asks,
+    ...funding,
     // A successful REST bookTicker response is a current BBO snapshot even if
     // its exchange event time is old because neither side has changed.
     marketTimestamp: receivedAt,

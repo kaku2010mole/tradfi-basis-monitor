@@ -5,6 +5,7 @@ import PageSwitcher from "../components/PageSwitcher";
 import styles from "./page.module.css";
 
 type PairConfig = { stockSymbol: string; perpSymbol: string; sharesPerContract: number };
+type Level = { price: number; size: number };
 type Book = { bid: number; ask: number; bidSize: number | null; askSize: number | null; marketTimestamp: number; stale: boolean | null };
 type FutuBook = Omit<Book, "marketTimestamp"> & {
   name: string | null;
@@ -16,7 +17,7 @@ type Direction = { basisPct: number | null; capacityContracts: number | null; ca
 type Quote = PairConfig & {
   id: string;
   futu: FutuBook | null;
-  binance: (Book & { mid: number }) | null;
+  binance: (Book & { mid: number; bids: Level[]; asks: Level[]; fundingRate: number | null; nextFundingTime: number | null }) | null;
   metrics: {
     stockReferenceHkd: number | null;
     stockReferenceSource: "auction-price" | "book-mid" | "close-price" | null;
@@ -68,12 +69,36 @@ function sessionState(now: number, futuState?: string | null) {
   return { key: "blocking", label: "Blocking / waiting open", detail: "Auction result is locked until 09:30", progress: 75 + ((total - 562) / 8) * 25 };
 }
 
-function BasisTape({ points }: { points: HistoryPoint[] }) {
-  const recent = points.slice(-48);
-  const max = Math.max(.05, ...recent.map((point) => Math.abs(point.value)));
-  if (!recent.length) return <div className={styles.emptyTape}>History starts after both real feeds produce a valid basis.</div>;
-  return <div className={styles.tape} aria-label="Session basis samples">
-    {recent.map((point) => <i key={point.t} title={`${time(point.t)} HKT · ${pct(point.value)}`} className={point.value >= 0 ? styles.upBar : styles.downBar} style={{ height: `${Math.max(4, Math.abs(point.value) / max * 46)}%` }} />)}
+function SpreadHistory({ points, cursor, onCursor }: { points: HistoryPoint[]; cursor?: number; onCursor: (index: number) => void }) {
+  if (!points.length) return <div className={styles.emptyChart}>History starts after both real feeds produce a valid basis.</div>;
+  const width = 720;
+  const height = 218;
+  const plotTop = 18;
+  const plotBottom = 178;
+  const values = points.map((point) => point.value);
+  const rawMin = Math.min(0, ...values);
+  const rawMax = Math.max(0, ...values);
+  const padding = Math.max((rawMax - rawMin) * .12, .04);
+  const min = rawMin - padding;
+  const max = rawMax + padding;
+  const x = (index: number) => points.length === 1 ? width / 2 : 18 + index / (points.length - 1) * (width - 36);
+  const y = (value: number) => plotTop + (max - value) / (max - min) * (plotBottom - plotTop);
+  const path = points.map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(2)},${y(point.value).toFixed(2)}`).join(" ");
+  const selectedIndex = Math.min(points.length - 1, Math.max(0, cursor ?? points.length - 1));
+  const selected = points[selectedIndex];
+  return <div className={styles.chartWrap}>
+    <div className={styles.chartReadout}><div><span>SELECTED BASIS</span><strong className={selected.value < 0 ? styles.negative : styles.positive}>{pct(selected.value)}</strong></div><div><span>TIME</span><strong>{time(selected.t)} HKT</strong></div><div><span>RANGE</span><strong>{pct(rawMin)} → {pct(rawMax)}</strong></div></div>
+    <svg className={styles.chart} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Historical midpoint basis trend">
+      <defs><linearGradient id="basisFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#248e69" stopOpacity=".22"/><stop offset="1" stopColor="#248e69" stopOpacity="0"/></linearGradient></defs>
+      <line x1="18" x2={width - 18} y1={y(0)} y2={y(0)} className={styles.zeroLine}/>
+      <path d={`${path} L${x(points.length - 1)},${plotBottom} L${x(0)},${plotBottom} Z`} className={styles.areaPath}/>
+      <path d={path} className={styles.linePath}/>
+      <line x1={x(selectedIndex)} x2={x(selectedIndex)} y1={plotTop} y2={plotBottom} className={styles.cursorLine}/>
+      <circle cx={x(selectedIndex)} cy={y(selected.value)} r="5" className={styles.cursorDot}/>
+      <text x="18" y="208">{time(points[0].t)}</text><text x={width - 18} y="208" textAnchor="end">{time(points.at(-1)?.t)}</text>
+    </svg>
+    <input className={styles.chartSlider} type="range" min="0" max={Math.max(0, points.length - 1)} value={selectedIndex} onChange={(event) => onCursor(Number(event.target.value))} aria-label="Select a historical basis sample" />
+    <p>{points.length.toLocaleString()} real samples · drag to inspect an exact value</p>
   </div>;
 }
 
@@ -88,6 +113,8 @@ export default function HkAuctionPage() {
   const [draft, setDraft] = useState({ stockSymbol: "HK.", perpSymbol: "", sharesPerContract: "1" });
   const [pairError, setPairError] = useState("");
   const [history, setHistory] = useState<Record<string, HistoryPoint[]>>({});
+  const [cardTabs, setCardTabs] = useState<Record<string, "overview" | "history">>({});
+  const [historyCursor, setHistoryCursor] = useState<Record<string, number>>({});
   const requestRef = useRef(false);
 
   useEffect(() => {
@@ -224,7 +251,6 @@ export default function HkAuctionPage() {
         const quote = quoteById.get(id);
         const basisValue = quote?.metrics.midBasisPct ?? null;
         const hot = basisValue !== null && Math.abs(basisValue) >= alert;
-        const futuFresh = quote?.futu?.stale === false;
         const binanceFresh = quote?.binance?.stale === false;
         const sellPerpBasis = quote?.metrics.sellPerpBuyStock.basisPct ?? null;
         const buyPerpBasis = quote?.metrics.buyPerpSellStock.basisPct ?? null;
@@ -232,33 +258,52 @@ export default function HkAuctionPage() {
         const cheapEdge = buyPerpBasis === null ? (basisValue === null ? null : -basisValue) : -buyPerpBasis;
         const shortPerp = richEdge !== null && (cheapEdge === null || richEdge >= cheapEdge);
         const signalReady = basisValue !== null;
+        const shortVenue = shortPerp ? "BINANCE" : "FUTU";
+        const longVenue = shortPerp ? "FUTU" : "BINANCE";
         const shortSymbol = shortPerp ? pair.perpSymbol : pair.stockSymbol;
         const longSymbol = shortPerp ? pair.stockSymbol : pair.perpSymbol;
         const signalEdge = signalReady ? Math.max(richEdge ?? -Infinity, cheapEdge ?? -Infinity) : null;
+        const activeTab = cardTabs[id] ?? "overview";
+        const fundingPct = quote?.binance?.fundingRate === null || quote?.binance?.fundingRate === undefined ? null : quote.binance.fundingRate * 100;
         return <article key={id} className={`${styles.card} ${hot ? styles.hotCard : ""}`}>
           <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{pair.sharesPerContract.toLocaleString()} shares per 1 perp</small></div><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></header>
           <div className={styles.basisHero}><span>MID BASIS</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>{quote?.metrics.stockReferenceSource === "close-price" ? "Futu official close · overnight benchmark" : quote?.metrics.stockReferenceSource === "auction-price" ? "Futu auction / IEP reference" : quote?.metrics.stockReferenceSource === "book-mid" ? "Futu BBO midpoint proxy" : "No valid stock benchmark"}</small></div>
           <div className={`${styles.tradeSignal} ${!signalReady ? styles.signalWaiting : ""}`}>
-            <div><span>SHORT</span><strong>{signalReady ? shortSymbol : "WAITING"}</strong><small>{shortPerp ? "Perpetual leg" : "Hong Kong stock leg"}</small></div>
+            <div><span>{signalReady ? `SHORT ${shortVenue}` : "SHORT"}</span><strong>{signalReady ? shortSymbol : "WAITING"}</strong><small>{shortPerp ? "Perpetual leg" : "Hong Kong stock leg"}</small></div>
             <i>→</i>
-            <div><span>LONG</span><strong>{signalReady ? longSymbol : "WAITING"}</strong><small>{shortPerp ? "Hong Kong stock leg" : "Perpetual leg"}</small></div>
+            <div><span>{signalReady ? `LONG ${longVenue}` : "LONG"}</span><strong>{signalReady ? longSymbol : "WAITING"}</strong><small>{shortPerp ? "Hong Kong stock leg" : "Perpetual leg"}</small></div>
             <b>{signalReady ? `${signalEdge !== null && signalEdge >= 0 ? "EXECUTABLE EDGE" : "DIRECTIONAL BASIS"} ${pct(signalEdge)}` : "AWAITING BOTH VENUES"}</b>
           </div>
-          <dl className={styles.coreMetrics}>
-            <div><dt>Auction ref · HKD</dt><dd>{number(quote?.metrics.stockReferenceHkd)}</dd></div>
-            <div><dt>Fair perp · USDT</dt><dd>{number(quote?.metrics.fairUsdt)}</dd></div>
-            <div><dt>Perp midpoint</dt><dd>{number(quote?.metrics.binanceMid)}</dd></div>
-          </dl>
-          <div className={styles.books}>
-            <div><span>FUTU AUCTION BOOK</span><strong><b>{number(futuFresh ? quote?.futu?.bid : null)}</b><i>×</i><em>{number(futuFresh ? quote?.futu?.ask : null)}</em></strong><small>{number(futuFresh ? quote?.futu?.bidSize : null, 0)} / {number(futuFresh ? quote?.futu?.askSize : null, 0)} shares · {time(quote?.futu?.marketTimestamp)} HKT</small></div>
-            <div><span>BINANCE PERP BOOK</span><strong><b>{number(binanceFresh ? quote?.binance?.bid : null)}</b><i>×</i><em>{number(binanceFresh ? quote?.binance?.ask : null)}</em></strong><small>{number(binanceFresh ? quote?.binance?.bidSize : null, 3)} / {number(binanceFresh ? quote?.binance?.askSize : null, 3)} qty · {time(quote?.binance?.marketTimestamp)} HKT</small></div>
+          <div className={styles.cardTabs} role="tablist" aria-label={`${pair.perpSymbol} card view`}>
+            <button role="tab" aria-selected={activeTab === "overview"} onClick={() => setCardTabs((current) => ({ ...current, [id]: "overview" }))}>Overview</button>
+            <button role="tab" aria-selected={activeTab === "history"} onClick={() => setCardTabs((current) => ({ ...current, [id]: "history" }))}>Spread history <span>{history[id]?.length ?? 0}</span></button>
           </div>
-          <div className={styles.edges}>
-            <div><span>SELL PERP / BUY STOCK</span><strong>{pct(quote?.metrics.sellPerpBuyStock.basisPct)}</strong><small>Capacity {money(quote?.metrics.sellPerpBuyStock.capacityUsdt)}</small></div>
-            <div><span>BUY PERP / SELL STOCK</span><strong>{pct(quote?.metrics.buyPerpSellStock.basisPct)}</strong><small>Capacity {money(quote?.metrics.buyPerpSellStock.capacityUsdt)}</small></div>
-          </div>
-          <details className={styles.history}><summary>Session basis tape <span>{history[id]?.length ?? 0} real samples</span></summary><BasisTape points={history[id] ?? []} /></details>
-          <footer><span>Stock depth {money(quote ? Math.min(quote.metrics.depthUsdt.stockBid ?? Infinity, quote.metrics.depthUsdt.stockAsk ?? Infinity) : null)}</span><span>Perp depth {money(quote ? Math.min(quote.metrics.depthUsdt.binanceBid ?? Infinity, quote.metrics.depthUsdt.binanceAsk ?? Infinity) : null)}</span><button aria-label={`Remove ${pair.perpSymbol}`} onClick={() => savePairs(pairs.filter((item) => item.stockSymbol !== pair.stockSymbol || item.perpSymbol !== pair.perpSymbol))}>Remove</button></footer>
+          {activeTab === "overview" ? <div className={styles.tabPanel} role="tabpanel">
+            <dl className={styles.coreMetrics}>
+              <div><dt>Futu benchmark · HKD</dt><dd>{number(quote?.metrics.stockReferenceHkd)}</dd></div>
+              <div><dt>Fair perp · USDT</dt><dd>{number(quote?.metrics.fairUsdt)}</dd></div>
+              <div><dt>Perp midpoint</dt><dd>{number(quote?.metrics.binanceMid)}</dd></div>
+              <div><dt>Latest funding</dt><dd className={fundingPct !== null && fundingPct < 0 ? styles.negative : styles.positive}>{pct(fundingPct, 4)}</dd><small>Next {time(quote?.binance?.nextFundingTime)} HKT</small></div>
+            </dl>
+            <div className={styles.marketStrip}>
+              <div><span>FUTU BENCHMARK</span><strong>{number(quote?.metrics.stockReferenceHkd)} HKD</strong><small>{quote?.metrics.stockReferenceSource?.replaceAll("-", " ") ?? "Waiting"} · {time(quote?.futu?.marketTimestamp)} HKT</small></div>
+              <div><span>BINANCE BEST BID / ASK</span><strong><b>{number(binanceFresh ? quote?.binance?.bid : null)}</b><i>×</i><em>{number(binanceFresh ? quote?.binance?.ask : null)}</em></strong><small>{time(quote?.binance?.marketTimestamp)} HKT</small></div>
+            </div>
+            <div className={styles.depthPanel}>
+              <div className={styles.depthTitle}><div><span>BINANCE PERP DEPTH</span><strong>Five executable levels</strong></div><small>Quantity in contracts</small></div>
+              <div className={styles.depthHead}><span>Bid qty</span><span>Bid price</span><span>Ask price</span><span>Ask qty</span></div>
+              {Array.from({ length: 5 }, (_, index) => {
+                const bidLevel = binanceFresh ? quote?.binance?.bids[index] : undefined;
+                const askLevel = binanceFresh ? quote?.binance?.asks[index] : undefined;
+                return <div className={styles.depthRow} key={index}><span>{number(bidLevel?.size, 3)}</span><b>{number(bidLevel?.price)}</b><em>{number(askLevel?.price)}</em><span>{number(askLevel?.size, 3)}</span></div>;
+              })}
+            </div>
+            <div className={styles.edges}>
+              <div><span>SHORT BINANCE / LONG FUTU</span><strong>{pct(quote?.metrics.sellPerpBuyStock.basisPct)}</strong><small>Top-level capacity {money(quote?.metrics.sellPerpBuyStock.capacityUsdt)}</small></div>
+              <div><span>LONG BINANCE / SHORT FUTU</span><strong>{pct(quote?.metrics.buyPerpSellStock.basisPct)}</strong><small>Top-level capacity {money(quote?.metrics.buyPerpSellStock.capacityUsdt)}</small></div>
+            </div>
+          </div> : <div className={styles.tabPanel} role="tabpanel"><SpreadHistory points={history[id] ?? []} cursor={historyCursor[id]} onCursor={(index) => setHistoryCursor((current) => ({ ...current, [id]: index }))} /></div>}
+          <footer><span>Futu {time(quote?.futu?.marketTimestamp)} HKT</span><span>Binance {time(quote?.binance?.marketTimestamp)} HKT</span><button aria-label={`Remove ${pair.perpSymbol}`} onClick={() => savePairs(pairs.filter((item) => item.stockSymbol !== pair.stockSymbol || item.perpSymbol !== pair.perpSymbol))}>Remove</button></footer>
         </article>;
       })}</div>
     </section>
