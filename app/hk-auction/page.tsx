@@ -5,7 +5,6 @@ import PageSwitcher from "../components/PageSwitcher";
 import styles from "./page.module.css";
 
 type PairConfig = { stockSymbol: string; perpSymbol: string; sharesPerContract: number };
-type Level = { price: number; size: number };
 type Book = { bid: number; ask: number; bidSize: number | null; askSize: number | null; marketTimestamp: number; stale: boolean | null };
 type FutuBook = Omit<Book, "marketTimestamp"> & {
   name: string | null;
@@ -17,7 +16,7 @@ type Direction = { basisPct: number | null; capacityContracts: number | null; ca
 type Quote = PairConfig & {
   id: string;
   futu: FutuBook | null;
-  binance: (Book & { mid: number; bids: Level[]; asks: Level[]; fundingRate: number | null; nextFundingTime: number | null }) | null;
+  binance: (Book & { mid: number; fundingRate: number | null; nextFundingTime: number | null }) | null;
   metrics: {
     stockReferenceHkd: number | null;
     stockReferenceSource: "auction-price" | "book-mid" | "close-price" | null;
@@ -31,7 +30,7 @@ type Quote = PairConfig & {
   status: "live" | "stale" | "partial";
 };
 type Payload = { quotes: Quote[]; usdHkd: number; timestamp: number; sources: { futu: boolean; binance: boolean }; errors: string[] };
-type HistoryPoint = { t: number; value: number };
+type HistoryPoint = { t: number; value: number; stockCloseHkd?: number; perpClose?: number };
 
 const STORAGE_KEY = "hk-auction-pairs-v2";
 const LEGACY_STORAGE_KEY = "hk-auction-pairs-v1";
@@ -50,7 +49,6 @@ const DEFAULT_PAIRS: PairConfig[] = [
 const defaultShares = (perp: string) => ["HK0700USDT", "HK1810USDT"].includes(perp.toUpperCase()) ? 7.83 : 1;
 const number = (value: number | null | undefined, digits = 3) => value === null || value === undefined || !Number.isFinite(value) ? "—" : value.toLocaleString("en-US", { maximumFractionDigits: digits });
 const pct = (value: number | null | undefined, digits = 3) => value === null || value === undefined || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
-const money = (value: number | null | undefined) => value === null || value === undefined || !Number.isFinite(value) ? "—" : `$${value >= 1_000_000 ? `${(value / 1_000_000).toFixed(2)}m` : value >= 1_000 ? `${(value / 1_000).toFixed(1)}k` : value.toFixed(0)}`;
 const time = (value: number | null | undefined) => value ? new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(value) : "—";
 
 function sessionState(now: number, futuState?: string | null) {
@@ -87,7 +85,7 @@ function SpreadHistory({ points, cursor, onCursor }: { points: HistoryPoint[]; c
   const selectedIndex = Math.min(points.length - 1, Math.max(0, cursor ?? points.length - 1));
   const selected = points[selectedIndex];
   return <div className={styles.chartWrap}>
-    <div className={styles.chartReadout}><div><span>SELECTED BASIS</span><strong className={selected.value < 0 ? styles.negative : styles.positive}>{pct(selected.value)}</strong></div><div><span>TIME</span><strong>{time(selected.t)} HKT</strong></div><div><span>RANGE</span><strong>{pct(rawMin)} → {pct(rawMax)}</strong></div></div>
+    <div className={styles.chartReadout}><div><span>SELECTED BASIS</span><strong className={selected.value < 0 ? styles.negative : styles.positive}>{pct(selected.value)}</strong></div><div><span>FUTU / BINANCE CLOSE</span><strong>{number(selected.stockCloseHkd)} / {number(selected.perpClose)}</strong></div><div><span>TIME · 1 MINUTE</span><strong>{time(selected.t)} HKT</strong></div></div>
     <svg className={styles.chart} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Historical midpoint basis trend">
       <defs><linearGradient id="basisFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#248e69" stopOpacity=".22"/><stop offset="1" stopColor="#248e69" stopOpacity="0"/></linearGradient></defs>
       <line x1="18" x2={width - 18} y1={y(0)} y2={y(0)} className={styles.zeroLine}/>
@@ -98,7 +96,7 @@ function SpreadHistory({ points, cursor, onCursor }: { points: HistoryPoint[]; c
       <text x="18" y="208">{time(points[0].t)}</text><text x={width - 18} y="208" textAnchor="end">{time(points.at(-1)?.t)}</text>
     </svg>
     <input className={styles.chartSlider} type="range" min="0" max={Math.max(0, points.length - 1)} value={selectedIndex} onChange={(event) => onCursor(Number(event.target.value))} aria-label="Select a historical basis sample" />
-    <p>{points.length.toLocaleString()} real samples · drag to inspect an exact value</p>
+    <p>{points.length.toLocaleString()} aligned Futu + Binance one-minute bars · range {pct(rawMin)} → {pct(rawMax)}</p>
   </div>;
 }
 
@@ -113,6 +111,8 @@ export default function HkAuctionPage() {
   const [draft, setDraft] = useState({ stockSymbol: "HK.", perpSymbol: "", sharesPerContract: "1" });
   const [pairError, setPairError] = useState("");
   const [history, setHistory] = useState<Record<string, HistoryPoint[]>>({});
+  const [historyLoading, setHistoryLoading] = useState<Record<string, boolean>>({});
+  const [historyError, setHistoryError] = useState<Record<string, string>>({});
   const [cardTabs, setCardTabs] = useState<Record<string, "overview" | "history">>({});
   const [historyCursor, setHistoryCursor] = useState<Record<string, number>>({});
   const requestRef = useRef(false);
@@ -146,16 +146,6 @@ export default function HkAuctionPage() {
       const next = await response.json() as Payload & { error?: string };
       if (!response.ok) throw new Error(next.error || "Auction quotes unavailable.");
       setPayload(next);
-      setHistory((current) => {
-        const updated = { ...current };
-        next.quotes.forEach((quote) => {
-          if (quote.metrics.midBasisPct === null || quote.status !== "live") return;
-          const prior = updated[quote.id] ?? [];
-          if (prior.at(-1)?.t === next.timestamp) return;
-          updated[quote.id] = [...prior, { t: next.timestamp, value: quote.metrics.midBasisPct }].slice(-1800);
-        });
-        return updated;
-      });
     } catch (error) {
       setPayload((current) => current ? { ...current, errors: [error instanceof Error ? error.message : "Auction quotes unavailable."] } : null);
     } finally {
@@ -163,6 +153,28 @@ export default function HkAuctionPage() {
       setLoading(false);
     }
   }, [pairs, usdHkd]);
+
+  const loadHistory = useCallback(async (id: string, pair: PairConfig) => {
+    setHistoryLoading((current) => ({ ...current, [id]: true }));
+    setHistoryError((current) => ({ ...current, [id]: "" }));
+    try {
+      const params = new URLSearchParams({
+        stock: pair.stockSymbol,
+        perp: pair.perpSymbol,
+        shares: String(pair.sharesPerContract),
+        usdhkd: usdHkd,
+      });
+      const response = await fetch(`/api/hk-auction/history?${params}`, { cache: "no-store" });
+      const result = await response.json() as { points?: HistoryPoint[]; error?: string };
+      if (!response.ok || !Array.isArray(result.points)) throw new Error(result.error || "Historical spread is unavailable.");
+      setHistory((current) => ({ ...current, [id]: result.points ?? [] }));
+      setHistoryCursor((current) => ({ ...current, [id]: Math.max(0, (result.points?.length ?? 1) - 1) }));
+    } catch (error) {
+      setHistoryError((current) => ({ ...current, [id]: error instanceof Error ? error.message : "Historical spread is unavailable." }));
+    } finally {
+      setHistoryLoading((current) => ({ ...current, [id]: false }));
+    }
+  }, [usdHkd]);
 
   useEffect(() => {
     void load();
@@ -251,7 +263,6 @@ export default function HkAuctionPage() {
         const quote = quoteById.get(id);
         const basisValue = quote?.metrics.midBasisPct ?? null;
         const hot = basisValue !== null && Math.abs(basisValue) >= alert;
-        const binanceFresh = quote?.binance?.stale === false;
         const sellPerpBasis = quote?.metrics.sellPerpBuyStock.basisPct ?? null;
         const buyPerpBasis = quote?.metrics.buyPerpSellStock.basisPct ?? null;
         const richEdge = sellPerpBasis ?? basisValue;
@@ -269,14 +280,14 @@ export default function HkAuctionPage() {
           <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{pair.sharesPerContract.toLocaleString()} shares per 1 perp</small></div><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></header>
           <div className={styles.basisHero}><span>MID BASIS</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>{quote?.metrics.stockReferenceSource === "close-price" ? "Futu official close · overnight benchmark" : quote?.metrics.stockReferenceSource === "auction-price" ? "Futu auction / IEP reference" : quote?.metrics.stockReferenceSource === "book-mid" ? "Futu BBO midpoint proxy" : "No valid stock benchmark"}</small></div>
           <div className={`${styles.tradeSignal} ${!signalReady ? styles.signalWaiting : ""}`}>
-            <div><span>{signalReady ? `SHORT ${shortVenue}` : "SHORT"}</span><strong>{signalReady ? shortSymbol : "WAITING"}</strong><small>{shortPerp ? "Perpetual leg" : "Hong Kong stock leg"}</small></div>
+            <div><span>SHORT LEG</span><strong>{signalReady ? `SHORT ${shortVenue}` : "WAITING"}</strong><small>{signalReady ? `${shortSymbol} · ${shortPerp ? "perpetual" : "Hong Kong stock"}` : "Awaiting both venues"}</small></div>
             <i>→</i>
-            <div><span>{signalReady ? `LONG ${longVenue}` : "LONG"}</span><strong>{signalReady ? longSymbol : "WAITING"}</strong><small>{shortPerp ? "Hong Kong stock leg" : "Perpetual leg"}</small></div>
+            <div><span>LONG LEG</span><strong>{signalReady ? `LONG ${longVenue}` : "WAITING"}</strong><small>{signalReady ? `${longSymbol} · ${shortPerp ? "Hong Kong stock" : "perpetual"}` : "Awaiting both venues"}</small></div>
             <b>{signalReady ? `${signalEdge !== null && signalEdge >= 0 ? "EXECUTABLE EDGE" : "DIRECTIONAL BASIS"} ${pct(signalEdge)}` : "AWAITING BOTH VENUES"}</b>
           </div>
           <div className={styles.cardTabs} role="tablist" aria-label={`${pair.perpSymbol} card view`}>
             <button role="tab" aria-selected={activeTab === "overview"} onClick={() => setCardTabs((current) => ({ ...current, [id]: "overview" }))}>Overview</button>
-            <button role="tab" aria-selected={activeTab === "history"} onClick={() => setCardTabs((current) => ({ ...current, [id]: "history" }))}>Spread history <span>{history[id]?.length ?? 0}</span></button>
+            <button role="tab" aria-selected={activeTab === "history"} onClick={() => { setCardTabs((current) => ({ ...current, [id]: "history" })); void loadHistory(id, pair); }}>Spread history <span>{history[id]?.length ?? 0}</span></button>
           </div>
           {activeTab === "overview" ? <div className={styles.tabPanel} role="tabpanel">
             <dl className={styles.coreMetrics}>
@@ -285,24 +296,8 @@ export default function HkAuctionPage() {
               <div><dt>Perp midpoint</dt><dd>{number(quote?.metrics.binanceMid)}</dd></div>
               <div><dt>Latest funding</dt><dd className={fundingPct !== null && fundingPct < 0 ? styles.negative : styles.positive}>{pct(fundingPct, 4)}</dd><small>Next {time(quote?.binance?.nextFundingTime)} HKT</small></div>
             </dl>
-            <div className={styles.marketStrip}>
-              <div><span>FUTU BENCHMARK</span><strong>{number(quote?.metrics.stockReferenceHkd)} HKD</strong><small>{quote?.metrics.stockReferenceSource?.replaceAll("-", " ") ?? "Waiting"} · {time(quote?.futu?.marketTimestamp)} HKT</small></div>
-              <div><span>BINANCE BEST BID / ASK</span><strong><b>{number(binanceFresh ? quote?.binance?.bid : null)}</b><i>×</i><em>{number(binanceFresh ? quote?.binance?.ask : null)}</em></strong><small>{time(quote?.binance?.marketTimestamp)} HKT</small></div>
-            </div>
-            <div className={styles.depthPanel}>
-              <div className={styles.depthTitle}><div><span>BINANCE PERP DEPTH</span><strong>Five executable levels</strong></div><small>Quantity in contracts</small></div>
-              <div className={styles.depthHead}><span>Bid qty</span><span>Bid price</span><span>Ask price</span><span>Ask qty</span></div>
-              {Array.from({ length: 5 }, (_, index) => {
-                const bidLevel = binanceFresh ? quote?.binance?.bids[index] : undefined;
-                const askLevel = binanceFresh ? quote?.binance?.asks[index] : undefined;
-                return <div className={styles.depthRow} key={index}><span>{number(bidLevel?.size, 3)}</span><b>{number(bidLevel?.price)}</b><em>{number(askLevel?.price)}</em><span>{number(askLevel?.size, 3)}</span></div>;
-              })}
-            </div>
-            <div className={styles.edges}>
-              <div><span>SHORT BINANCE / LONG FUTU</span><strong>{pct(quote?.metrics.sellPerpBuyStock.basisPct)}</strong><small>Top-level capacity {money(quote?.metrics.sellPerpBuyStock.capacityUsdt)}</small></div>
-              <div><span>LONG BINANCE / SHORT FUTU</span><strong>{pct(quote?.metrics.buyPerpSellStock.basisPct)}</strong><small>Top-level capacity {money(quote?.metrics.buyPerpSellStock.capacityUsdt)}</small></div>
-            </div>
-          </div> : <div className={styles.tabPanel} role="tabpanel"><SpreadHistory points={history[id] ?? []} cursor={historyCursor[id]} onCursor={(index) => setHistoryCursor((current) => ({ ...current, [id]: index }))} /></div>}
+            <div className={styles.referenceNote}><span>LIVE REFERENCE</span><strong>{quote?.metrics.stockReferenceSource?.replaceAll("-", " ") ?? "Waiting for Futu"}</strong><small>Futu {time(quote?.futu?.marketTimestamp)} HKT · Binance {time(quote?.binance?.marketTimestamp)} HKT</small></div>
+          </div> : <div className={styles.tabPanel} role="tabpanel">{historyLoading[id] ? <div className={styles.emptyChart}>Reading Futu and Binance one-minute history…</div> : historyError[id] ? <div className={styles.historyFailure}><strong>History unavailable</strong><span>{historyError[id]}</span><button onClick={() => void loadHistory(id, pair)}>Retry</button></div> : <SpreadHistory points={history[id] ?? []} cursor={historyCursor[id]} onCursor={(index) => setHistoryCursor((current) => ({ ...current, [id]: index }))} />}</div>}
           <footer><span>Futu {time(quote?.futu?.marketTimestamp)} HKT</span><span>Binance {time(quote?.binance?.marketTimestamp)} HKT</span><button aria-label={`Remove ${pair.perpSymbol}`} onClick={() => savePairs(pairs.filter((item) => item.stockSymbol !== pair.stockSymbol || item.perpSymbol !== pair.perpSymbol))}>Remove</button></footer>
         </article>;
       })}</div>

@@ -10,9 +10,10 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from futu import OpenQuoteContext, RET_OK, SubType
+from futu import AuType, KLType, OpenQuoteContext, RET_OK, SubType
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,7 +33,10 @@ SYMBOLS = [
     if item.strip()
 ]
 INTERVAL_SECONDS = max(0.8, float(os.getenv("FUTU_PUSH_INTERVAL", "1")))
+HISTORY_REFRESH_SECONDS = max(60, float(os.getenv("FUTU_HISTORY_REFRESH_INTERVAL", "600")))
+HISTORY_LIMIT = 720
 RUNNING = True
+HKT = timezone(timedelta(hours=8))
 
 
 def stop(*_: object) -> None:
@@ -61,7 +65,51 @@ def levels(raw: object) -> list[dict[str, float]]:
     return result
 
 
-def build_payload(context: OpenQuoteContext) -> dict[str, object]:
+def history_timestamp(value: object) -> int | None:
+    try:
+        moment = datetime.fromisoformat(str(value)).replace(tzinfo=HKT)
+        return int(moment.timestamp() * 1000)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_history(context: OpenQuoteContext) -> dict[str, list[list[float | int]]]:
+    today = datetime.now(HKT).date()
+    start = (today - timedelta(days=7)).isoformat()
+    end = today.isoformat()
+    result: dict[str, list[list[float | int]]] = {}
+    for symbol in SYMBOLS:
+        frames = []
+        page_key = None
+        while True:
+            ret, frame, page_key = context.request_history_kline(
+                symbol,
+                start=start,
+                end=end,
+                ktype=KLType.K_1M,
+                autype=AuType.NONE,
+                max_count=1000,
+                page_req_key=page_key,
+            )
+            if ret != RET_OK:
+                raise RuntimeError(f"Futu history failed for {symbol}: {frame}")
+            frames.extend(frame[["time_key", "close"]].to_dict("records"))
+            if not page_key:
+                break
+        points: list[list[float | int]] = []
+        for row in frames[-HISTORY_LIMIT:]:
+            timestamp = history_timestamp(row.get("time_key"))
+            close = positive(row.get("close"))
+            if timestamp is not None and close is not None:
+                points.append([timestamp, close])
+        if points:
+            result[symbol] = points
+    if not result:
+        raise RuntimeError("Futu returned no historical one-minute bars.")
+    return result
+
+
+def build_payload(context: OpenQuoteContext, history: dict[str, list[list[float | int]]]) -> dict[str, object]:
     generated_at = int(time.time() * 1000)
     state_ret, state = context.get_global_state()
     market_state = str(state.get("market_hk")) if state_ret == RET_OK and hasattr(state, "get") else None
@@ -101,7 +149,7 @@ def build_payload(context: OpenQuoteContext) -> dict[str, object]:
             orderbooks.append({"symbol": symbol, "bids": bids, "asks": asks, "marketTimestamp": generated_at})
     if not quotes:
         raise RuntimeError("Futu returned no complete two-sided books.")
-    return {"generatedAt": generated_at, "quotes": quotes, "orderbooks": orderbooks}
+    return {"generatedAt": generated_at, "quotes": quotes, "orderbooks": orderbooks, "history": history}
 
 
 def push(payload: dict[str, object], token: str) -> None:
@@ -130,10 +178,16 @@ def main() -> int:
         if subscribe_ret != RET_OK:
             raise RuntimeError(f"Futu subscription failed: {message}")
         failures = 0
+        history: dict[str, list[list[float | int]]] = {}
+        history_refreshed_at = 0.0
         while RUNNING:
             started = time.monotonic()
             try:
-                push(build_payload(context), token)
+                if not history or started - history_refreshed_at >= HISTORY_REFRESH_SECONDS:
+                    history = build_history(context)
+                    history_refreshed_at = started
+                    print(f"Loaded {sum(len(points) for points in history.values())} Futu one-minute history points.", flush=True)
+                push(build_payload(context, history), token)
                 if failures:
                     print("Futu push recovered.", flush=True)
                 failures = 0

@@ -100,6 +100,7 @@ type FutuPushPayload = {
   generatedAt: number;
   quotes: Array<Record<string, unknown>>;
   orderbooks?: Array<Record<string, unknown>>;
+  history?: Record<string, Array<[number, number]>>;
 };
 
 type FutuPushStore = typeof globalThis & {
@@ -143,7 +144,7 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
   }
 
   const declaredSize = Number(request.headers.get("content-length") ?? 0);
-  if (declaredSize > 256_000) return json({ error: "Futu payload is too large." }, 413);
+  if (declaredSize > 512_000) return json({ error: "Futu payload is too large." }, 413);
   let payload: FutuPushPayload;
   try {
     payload = await request.json() as FutuPushPayload;
@@ -155,7 +156,15 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
     !payload || !Number.isFinite(payload.generatedAt) || Math.abs(now - payload.generatedAt) > 30_000 ||
     !Array.isArray(payload.quotes) || payload.quotes.length < 1 || payload.quotes.length > 24 ||
     payload.quotes.some((quote) => typeof quote?.symbol !== "string" || !/^HK\.\d{5}$/.test(quote.symbol)) ||
-    (payload.orderbooks !== undefined && (!Array.isArray(payload.orderbooks) || payload.orderbooks.length > 24))
+    (payload.orderbooks !== undefined && (!Array.isArray(payload.orderbooks) || payload.orderbooks.length > 24)) ||
+    (payload.history !== undefined && (
+      !payload.history || typeof payload.history !== "object" ||
+      Object.keys(payload.history).length > 24 ||
+      Object.entries(payload.history).some(([symbol, points]) =>
+        !/^HK\.\d{5}$/.test(symbol) || !Array.isArray(points) || points.length > 1000 ||
+        points.some((point) => !Array.isArray(point) || point.length !== 2 || !Number.isFinite(point[0]) || !Number.isFinite(point[1]))
+      )
+    ))
   ) {
     return json({ error: "Futu payload failed validation." }, 400);
   }

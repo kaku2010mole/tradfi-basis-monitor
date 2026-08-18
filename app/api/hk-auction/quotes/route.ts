@@ -48,13 +48,6 @@ type BinanceBookTicker = {
   time?: number;
 };
 
-type BinanceDepth = {
-  E?: number;
-  T?: number;
-  bids?: [string, string][];
-  asks?: [string, string][];
-};
-
 type BinancePremiumIndex = {
   lastFundingRate?: string;
   nextFundingTime?: number;
@@ -340,27 +333,14 @@ async function getBinanceQuote(symbol: string) {
         return value;
       });
 
-  const [depthResult, fundingResult] = await Promise.allSettled([
-    requestJson<BinanceDepth>(`/fapi/v1/depth?symbol=${encodeURIComponent(symbol)}&limit=5`),
+  const [bookResult, fundingResult] = await Promise.allSettled([
+    requestJson<BinanceBookTicker>(`/fapi/v1/ticker/bookTicker?symbol=${encodeURIComponent(symbol)}`),
     fundingPromise,
   ]);
-  const depth = depthResult.status === "fulfilled" ? depthResult.value : null;
-  const bids = normalizeLevels(depth?.bids).slice(0, 5);
-  const asks = normalizeLevels(depth?.asks).slice(0, 5);
-  let bid = bids[0]?.price ?? null;
-  let ask = asks[0]?.price ?? null;
-  let bidSize = bids[0]?.size ?? null;
-  let askSize = asks[0]?.size ?? null;
-
-  // Some newly listed contracts intermittently omit the depth snapshot. Keep
-  // the live BBO available, while leaving the five-level table honestly blank.
-  if (bid === null || ask === null) {
-    const book = await requestJson<BinanceBookTicker>(`/fapi/v1/ticker/bookTicker?symbol=${encodeURIComponent(symbol)}`);
-    bid = positive(book.bidPrice);
-    ask = positive(book.askPrice);
-    bidSize = positive(book.bidQty);
-    askSize = positive(book.askQty);
-  }
+  if (bookResult.status === "rejected") throw bookResult.reason;
+  const book = bookResult.value;
+  const bid = positive(book.bidPrice);
+  const ask = positive(book.askPrice);
   if (bid === null || ask === null) throw new Error(`${symbol}: incomplete Binance book ticker.`);
   const receivedAt = Date.now();
   const funding = fundingResult.status === "fulfilled"
@@ -371,10 +351,8 @@ async function getBinanceQuote(symbol: string) {
     bid,
     ask,
     mid: (bid + ask) / 2,
-    bidSize,
-    askSize,
-    bids,
-    asks,
+    bidSize: positive(book.bidQty),
+    askSize: positive(book.askQty),
     ...funding,
     // A successful REST bookTicker response is a current BBO snapshot even if
     // its exchange event time is old because neither side has changed.
