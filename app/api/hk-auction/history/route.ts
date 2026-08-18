@@ -68,9 +68,17 @@ export async function GET(request: Request) {
   }
 
   try {
-    const startTime = stockHistory[0][0];
-    const endTime = stockHistory.at(-1)![0] + 59_999;
-    const klines = await getBinanceKlines(perpSymbol, startTime, endTime);
+    // Fetch each Hong Kong trading day separately. A single continuous Binance
+    // request would spend its 1,500-bar limit on overnight/weekend minutes and
+    // miss later stock-session bars.
+    const stockDays = new Map<string, number[]>();
+    stockHistory.forEach(([timestamp]) => {
+      const hktDay = new Date(timestamp + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      stockDays.set(hktDay, [...(stockDays.get(hktDay) ?? []), timestamp]);
+    });
+    const klines = (await Promise.all([...stockDays.values()].map((timestamps) =>
+      getBinanceKlines(perpSymbol, Math.min(...timestamps), Math.max(...timestamps) + 59_999)
+    ))).flat();
     const perpByMinute = new Map(klines.flatMap((bar) => {
       const timestamp = Number(bar[0]);
       const close = positive(bar[4]);
