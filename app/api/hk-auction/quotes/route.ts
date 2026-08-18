@@ -7,7 +7,6 @@ const BINANCE_FUTURES_APIS = [
 const DEFAULT_USD_HKD = 7.83;
 const MAX_PAIRS = 24;
 const FETCH_TIMEOUT_MS = 5_000;
-const BINANCE_STALE_MS = 15_000;
 const FUTU_STALE_MS = 20_000;
 
 type FutuPushStore = typeof globalThis & {
@@ -303,7 +302,6 @@ async function getBinanceQuote(symbol: string) {
   const ask = positive(book.askPrice);
   if (bid === null || ask === null) throw new Error(`${symbol}: incomplete Binance book ticker.`);
   const receivedAt = Date.now();
-  const marketTimestamp = timestamp(book.time) ?? receivedAt;
   return {
     symbol,
     bid,
@@ -311,9 +309,11 @@ async function getBinanceQuote(symbol: string) {
     mid: (bid + ask) / 2,
     bidSize: positive(book.bidQty),
     askSize: positive(book.askQty),
-    marketTimestamp,
+    // A successful REST bookTicker response is a current BBO snapshot even if
+    // its exchange event time is old because neither side has changed.
+    marketTimestamp: receivedAt,
     receivedAt,
-    stale: stale(marketTimestamp, receivedAt, BINANCE_STALE_MS),
+    stale: false,
   };
 }
 
