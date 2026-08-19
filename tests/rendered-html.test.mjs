@@ -24,8 +24,23 @@ test("server-renders the TradFi dashboard shell", async () => {
   assert.match(html, /Set the anchor\. Then watch the drift\./);
   assert.match(html, /href="\/taker"/);
   assert.match(html, /Hyperliquid Taker–Taker/);
-  assert.doesNotMatch(html, /href="\/blog"/);
+  assert.match(html, /href="\/blog"/);
   assert.doesNotMatch(html, /href="\/trade"/);
+});
+
+test("restores the Relative Value Monitor and its global prediction-error broadcast", async () => {
+  const [response, alerts, config] = await Promise.all([
+    render("/blog"),
+    readFile(new URL("../app/components/GlobalOracleAlerts.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/relativeValueAlerts.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Relative Value Monitor/);
+  assert.match(config, /RELATIVE_VALUE_ALERT_THRESHOLD = 2/);
+  assert.match(alerts, /RELATIVE_VALUE_SIGNAL_EVENT/);
+  assert.match(alerts, /window\.setInterval\(\(\) => void pollRelative\(\), 10_000\)/);
+  assert.match(alerts, /PREDICTION ERROR/);
 });
 
 test("discovers and normalizes Posley ADR streams for HK auction basis", async () => {
