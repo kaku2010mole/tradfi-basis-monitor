@@ -24,6 +24,27 @@ test("server-renders the TradFi dashboard shell", async () => {
   assert.match(html, /Set the anchor\. Then watch the drift\./);
   assert.match(html, /href="\/taker"/);
   assert.match(html, /Hyperliquid Taker–Taker/);
+  assert.doesNotMatch(html, /href="\/blog"/);
+  assert.doesNotMatch(html, /href="\/trade"/);
+});
+
+test("discovers and normalizes Posley ADR streams for HK auction basis", async () => {
+  const auction = await readFile(new URL("../app/hk-auction/page.tsx", import.meta.url), "utf8");
+  assert.match(auction, /\/api\/hk-auction\/adr-streams/);
+  assert.match(auction, /orderbook:\*/i);
+  assert.match(auction, /TCEHY/);
+  assert.match(auction, /XIACY/);
+  assert.match(auction, /KSHTY/);
+  assert.match(auction, /MPNGY/);
+  assert.match(auction, /PMRTY/);
+  assert.match(auction, /MMXGY/);
+  assert.match(auction, /SHORT \$\{pair\.adrSymbol\} \/ LONG FUTU/);
+  assert.match(auction, /ADR_BENCHMARK_MAX_AGE_MS/);
+});
+
+test("does not proxy the Posley stream directory without a Cognito token", async () => {
+  const response = await render("/api/hk-auction/adr-streams");
+  assert.equal(response.status, 401);
 });
 
 test("keeps live taker execution explicitly gated", async () => {

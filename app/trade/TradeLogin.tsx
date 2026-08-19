@@ -6,9 +6,9 @@ import styles from "./page.module.css";
 
 export default function TradeLogin({
   configured,
-  title = "Relative Value Execution",
-  description = "This page can submit two real Binance USDⓈ-M market orders. Enter the separate execution password to continue.",
-  returnHref = "/blog",
+  title = "Protected Execution",
+  description = "Enter the separate execution password to continue.",
+  returnHref = "/",
 }: {
   configured: boolean;
   title?: string;

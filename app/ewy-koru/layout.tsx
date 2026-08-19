@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Leveraged Pair Relative Value Monitor",
+  title: "Leveraged Pair Monitor",
   description: "Live normalized-return, residual and order-book monitoring across five linked-product pairs.",
 };
 

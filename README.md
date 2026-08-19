@@ -143,6 +143,18 @@ exits, and uses `caffeinate -s` so the display may turn off while the Mac stays
 awake on AC power. The pusher also retries OpenD startup and socket resets
 without manual intervention. Futu OpenD still needs a valid logged-in session.
 
+## Posley ADR feed
+
+The HK Auction Basis page discovers currently published ADR order-book keys from
+the Posley Redis stream directory after Cognito/Google login, then subscribes to
+the exact returned IBKR or Futu stream keys. Default mappings include TCEHY for
+Tencent (1:1), XIACY for Xiaomi (1 ADR:5 HK shares), KSHTY for Kuaishou
+(5 ADRs:1 HK share), MPNGY for Meituan (1 ADR:2 HK shares), PMRTY for Pop Mart
+(1:1), and MMXGY for MiniMax (5 ADRs:1 HK share). Every pair can override the ADR ticker and HK-shares-per-ADR ratio in the
+page's pair setup. Live ADR quotes use a 30-second freshness indicator; the most
+recent US quote can remain an explicitly labelled benchmark for up to 96 hours
+so the HK pre-open session can compare against the prior US close.
+
 ## Taker–Taker live execution
 
 The password-protected `/taker` page supports paper DCA and explicitly armed
