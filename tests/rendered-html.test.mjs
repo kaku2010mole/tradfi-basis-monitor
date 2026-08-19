@@ -30,8 +30,8 @@ test("server-renders the TradFi dashboard shell", async () => {
 
 test("discovers and normalizes Posley ADR streams for HK auction basis", async () => {
   const auction = await readFile(new URL("../app/hk-auction/page.tsx", import.meta.url), "utf8");
-  assert.match(auction, /\/api\/hk-auction\/adr-streams/);
-  assert.match(auction, /orderbook:\*/i);
+  assert.match(auction, /\/api\/hk-auction\/adr-quotes/);
+  assert.doesNotMatch(auction, /beginPosleyLogin/);
   assert.match(auction, /TCEHY/);
   assert.match(auction, /XIACY/);
   assert.match(auction, /KSHTY/);
@@ -40,6 +40,16 @@ test("discovers and normalizes Posley ADR streams for HK auction basis", async (
   assert.match(auction, /MMXGY/);
   assert.match(auction, /SHORT \$\{pair\.adrSymbol\} \/ LONG FUTU/);
   assert.match(auction, /ADR_BENCHMARK_MAX_AGE_MS/);
+});
+
+test("keeps the Posley refresh token on the server", async () => {
+  const [auction, proxy] = await Promise.all([
+    readFile(new URL("../app/hk-auction/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/posleyAdr.ts", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(auction, /POSLEY_REFRESH_TOKEN/);
+  assert.match(proxy, /process\.env\.POSLEY_REFRESH_TOKEN/);
+  assert.doesNotMatch(proxy, /refreshToken[^\n]*return/);
 });
 
 test("does not proxy the Posley stream directory without a Cognito token", async () => {

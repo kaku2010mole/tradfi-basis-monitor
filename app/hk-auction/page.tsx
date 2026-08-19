@@ -32,14 +32,10 @@ type Quote = PairConfig & {
 type Payload = { quotes: Quote[]; usdHkd: number; timestamp: number; sources: { futu: boolean; binance: boolean }; errors: string[] };
 type HistoryPoint = { t: number; value: number; stockCloseHkd?: number; perpClose?: number };
 type AdrBook = { symbol: string; streamKey: string; bid: number | null; ask: number | null; last: number | null; bidSize: number | null; askSize: number | null; timestamp: number };
-type AdrFeedState = "connecting" | "live" | "auth-required" | "partial" | "reconnecting";
+type AdrFeedState = "connecting" | "live" | "partial" | "reconnecting" | "unconfigured";
 
 const STORAGE_KEY = "hk-auction-pairs-v3";
 const LEGACY_STORAGE_KEYS = ["hk-auction-pairs-v2", "hk-auction-pairs-v1"];
-const OFFICE_RELAY = "ws://192.168.50.112:8787/ws";
-const REMOTE_GATEWAY = process.env.NEXT_PUBLIC_REDIS_BACKEND_URL ?? "https://redis-data.posley.capital";
-const COGNITO_CLIENT_ID = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID ?? "5qup0una5tdma3l33pnn1gm87i";
-const COGNITO_DOMAIN = process.env.NEXT_PUBLIC_COGNITO_DOMAIN ?? "posley.auth.us-east-1.amazoncognito.com";
 const ADR_STALE_MS = 30_000;
 const ADR_BENCHMARK_MAX_AGE_MS = 96 * 60 * 60_000;
 const DEFAULT_ADR: Record<string, { adrSymbol: string; hkSharesPerAdr: number }> = {
@@ -72,63 +68,6 @@ const normalizeSavedPair = (pair: PairConfig): PairConfig => {
   if (!mapping || pair.adrSymbol) return pair;
   return { ...pair, ...mapping };
 };
-
-const parsePosleyLevels = (value?: string) => !value ? [] : value.split("|").flatMap((level) => {
-  const [rawPrice, rawSize] = level.split(",", 2);
-  const price = Number(rawPrice);
-  const size = Number(rawSize);
-  return Number.isFinite(price) && price > 0 && Number.isFinite(size) && size >= 0 ? [{ price, size }] : [];
-});
-
-const posleyTimestamp = (data: Record<string, string>) => {
-  const values = [data.last_tick_ts_ms, data.bids_receive_ts_ms, data.asks_receive_ts_ms, data.event_emit_ts_ms].map(Number).filter((value) => Number.isFinite(value) && value > 0);
-  return values.length ? Math.max(...values) : Date.now();
-};
-
-const streamAdrSymbol = (streamKey: string, symbols: Set<string>) => {
-  const [category, venue, ...codeParts] = streamKey.toUpperCase().split(":");
-  if (category !== "ORDERBOOK" || !["IBKR", "FUTU"].includes(venue)) return null;
-  const code = codeParts.join(":");
-  return [...symbols].find((symbol) => code === symbol || code === `US.${symbol}` || code.endsWith(`.${symbol}`)) ?? null;
-};
-
-const encodeBase64Url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-
-async function beginPosleyLogin() {
-  const verifier = encodeBase64Url(crypto.getRandomValues(new Uint8Array(48)));
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-  sessionStorage.setItem("equity_monitor_pkce", verifier);
-  sessionStorage.setItem("equity_monitor_return_to", "/hk-auction");
-  const params = new URLSearchParams({
-    client_id: COGNITO_CLIENT_ID,
-    response_type: "code",
-    scope: "openid email profile",
-    redirect_uri: `${location.origin}/`,
-    identity_provider: "Google",
-    code_challenge_method: "S256",
-    code_challenge: encodeBase64Url(new Uint8Array(digest)),
-  });
-  location.assign(`https://${COGNITO_DOMAIN}/oauth2/authorize?${params}`);
-}
-
-async function validPosleyToken() {
-  const token = localStorage.getItem("equity_monitor_id_token");
-  const expiresAt = Number(localStorage.getItem("equity_monitor_expires_at") || 0);
-  if (token && expiresAt > Date.now() + 60_000) return token;
-  const refreshToken = localStorage.getItem("equity_monitor_refresh_token");
-  if (!refreshToken) return null;
-  const response = await fetch(`https://${COGNITO_DOMAIN}/oauth2/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "refresh_token", client_id: COGNITO_CLIENT_ID, refresh_token: refreshToken }),
-  });
-  if (!response.ok) return null;
-  const refreshed = await response.json() as { id_token?: string; expires_in?: number };
-  if (!refreshed.id_token) return null;
-  localStorage.setItem("equity_monitor_id_token", refreshed.id_token);
-  localStorage.setItem("equity_monitor_expires_at", String(Date.now() + (refreshed.expires_in ?? 3600) * 1000));
-  return refreshed.id_token;
-}
 
 function sessionState(now: number, futuState?: string | null) {
   const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(now);
@@ -221,147 +160,41 @@ export default function HkAuctionPage() {
   const adrSymbolsKey = useMemo(() => [...new Set(pairs.flatMap((pair) => pair.adrSymbol ? [pair.adrSymbol.toUpperCase()] : []))].sort().join(","), [pairs]);
 
   useEffect(() => {
-    const symbols = new Set(adrSymbolsKey.split(",").filter(Boolean));
-    if (!symbols.size) {
+    const symbols = adrSymbolsKey.split(",").filter(Boolean);
+    if (!symbols.length) {
       setAdrFeedState("partial");
       setMissingAdrStreams([]);
       return;
     }
     let cancelled = false;
-    let socket: WebSocket | null = null;
-    let retryTimer: number | null = null;
-    let hasMissingStreams = false;
-    const symbolByStream = new Map<string, string>();
-
-    const resolveStreams = (keys: string[]) => {
-      symbolByStream.clear();
-      for (const key of keys) {
-        const symbol = streamAdrSymbol(key, symbols);
-        if (symbol && ![...symbolByStream.values()].includes(symbol)) symbolByStream.set(key, symbol);
-      }
-      const found = new Set(symbolByStream.values());
-      const missing = [...symbols].filter((symbol) => !found.has(symbol));
-      hasMissingStreams = missing.length > 0;
-      setMissingAdrStreams(missing);
-      return [...symbolByStream.keys()];
-    };
-
-    const acceptBook = (streamKey: string, data: Record<string, string>) => {
-      const symbol = symbolByStream.get(streamKey);
-      if (!symbol) return;
-      const bids = parsePosleyLevels(data.bids);
-      const asks = parsePosleyLevels(data.asks);
-      const bid = bids[0]?.price ?? null;
-      const ask = asks[0]?.price ?? null;
-      const last = Number(data.last_price);
-      if (bid === null && ask === null && (!Number.isFinite(last) || last <= 0)) return;
-      const marketTimestamp = posleyTimestamp(data);
-      setAdrBooks((current) => ({ ...current, [symbol]: {
-        symbol,
-        streamKey,
-        bid,
-        ask,
-        last: Number.isFinite(last) && last > 0 ? last : null,
-        bidSize: bids[0]?.size ?? null,
-        askSize: asks[0]?.size ?? null,
-        timestamp: marketTimestamp,
-      } }));
-      setAdrFeedState(!hasMissingStreams && Date.now() - marketTimestamp <= ADR_STALE_MS ? "live" : "partial");
-      setAdrFeedError("");
-    };
-
-    const retry = (connect: () => void, delay = 3_000) => {
-      if (cancelled || retryTimer !== null) return;
-      setAdrFeedState("reconnecting");
-      if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
-      retryTimer = window.setTimeout(() => { retryTimer = null; connect(); }, delay);
-    };
-
-    const connectRemote = async () => {
-      setAdrFeedState("connecting");
+    const loadAdr = async () => {
+      if (document.visibilityState === "hidden") return;
       try {
-        const token = await validPosleyToken();
-        if (!token) {
-          setAdrFeedState("auth-required");
-          setAdrFeedError("Connect your Posley account to read ADR streams.");
-          return;
-        }
-        const directoryResponse = await fetch("/api/hk-auction/adr-streams", {
-          headers: { Authorization: `Bearer ${token}` },
+        const params = new URLSearchParams();
+        symbols.forEach((symbol) => params.append("symbol", symbol));
+        const response = await fetch(`/api/hk-auction/adr-quotes?${params}`, {
           cache: "no-store",
           signal: AbortSignal.timeout(8_000),
         });
-        if (directoryResponse.status === 401) {
-          localStorage.removeItem("equity_monitor_id_token");
-          localStorage.removeItem("equity_monitor_expires_at");
-          setAdrFeedState("auth-required");
-          setAdrFeedError("Posley session expired. Reconnect to continue.");
-          return;
-        }
-        if (!directoryResponse.ok) throw new Error(`Posley stream directory HTTP ${directoryResponse.status}`);
-        const directory = await directoryResponse.json() as { streamKeys?: Array<string | { key?: string }> };
-        const streamKeys = resolveStreams((directory.streamKeys ?? []).flatMap((item) => typeof item === "string" ? [item] : item.key ? [item.key] : []));
-        if (!streamKeys.length) {
-          setAdrFeedState("partial");
-          setAdrFeedError("No matching live ADR stream is currently published by Posley.");
-          retry(() => void connectRemote(), 15_000);
-          return;
-        }
-        const url = new URL("/socket.io/", REMOTE_GATEWAY);
-        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-        url.search = "EIO=4&transport=websocket";
-        socket = new WebSocket(url);
-        socket.onopen = () => socket?.send(`40${JSON.stringify({ token })}`);
-        socket.onmessage = (message) => {
-          const frame = String(message.data);
-          if (frame === "2") return socket?.send("3");
-          if (frame.startsWith("40")) {
-            streamKeys.forEach((streamKey) => socket?.send(`42${JSON.stringify(["stream:subscribe", { streamKey, region: "tokyo" }])}`));
-            setAdrFeedState("connecting");
-            return;
-          }
-          if (!frame.startsWith("42")) return;
-          const [eventName, event] = JSON.parse(frame.slice(2)) as [string, { streamKey?: string; entries?: Array<{ data?: Record<string, string> }> }];
-          if (eventName !== "stream:data" || !event.streamKey) return;
-          const data = event.entries?.at(-1)?.data;
-          if (data) acceptBook(event.streamKey, data);
-        };
-        socket.onerror = () => retry(() => void connectRemote());
-        socket.onclose = () => retry(() => void connectRemote());
+        const snapshot = await response.json() as { configured?: boolean; state?: AdrFeedState; error?: string; books?: AdrBook[]; missing?: string[] };
+        if (cancelled) return;
+        if (!response.ok && response.status !== 503) throw new Error(snapshot.error || `ADR proxy HTTP ${response.status}`);
+        setAdrFeedState(snapshot.state ?? (snapshot.configured ? "connecting" : "unconfigured"));
+        setAdrFeedError(snapshot.error ?? "");
+        setMissingAdrStreams(snapshot.missing ?? []);
+        if (snapshot.books?.length) setAdrBooks((current) => ({ ...current, ...Object.fromEntries(snapshot.books!.map((book) => [book.symbol, book])) }));
       } catch (error) {
-        setAdrFeedError(error instanceof Error ? error.message : "Posley ADR feed unavailable.");
-        retry(() => void connectRemote());
+        if (!cancelled) {
+          setAdrFeedState("reconnecting");
+          setAdrFeedError(error instanceof Error ? error.message : "Posley ADR proxy unavailable.");
+        }
       }
     };
-
-    const connectOffice = () => {
-      setAdrFeedState("connecting");
-      socket = new WebSocket(OFFICE_RELAY);
-      socket.onopen = () => socket?.send(JSON.stringify({ action: "list", pattern: "orderbook:*" }));
-      socket.onmessage = (message) => {
-        const event = JSON.parse(String(message.data)) as { type?: string; keys?: string[]; key?: string; fields?: Record<string, string> };
-        if (event.type === "streams") {
-          const keys = resolveStreams(event.keys ?? []);
-          if (!keys.length) {
-            setAdrFeedState("partial");
-            setAdrFeedError("No matching live ADR stream is currently published by Posley.");
-            retry(connectOffice, 15_000);
-            return;
-          }
-          socket?.send(JSON.stringify({ action: "subscribe", keys, snapshot: 1 }));
-        }
-        if (event.type === "entry" && event.key && event.fields) acceptBook(event.key, event.fields);
-      };
-      socket.onerror = () => retry(connectOffice);
-      socket.onclose = () => retry(connectOffice);
-    };
-
-    if (location.protocol === "http:") connectOffice();
-    else void connectRemote();
+    void loadAdr();
+    const timer = window.setInterval(() => void loadAdr(), 3_000);
     return () => {
       cancelled = true;
-      if (retryTimer !== null) window.clearTimeout(retryTimer);
-      socket?.close();
+      window.clearInterval(timer);
     };
   }, [adrSymbolsKey]);
 
@@ -473,7 +306,7 @@ export default function HkAuctionPage() {
       <div className={styles.links}>
         <span className={payload?.sources.futu ? styles.online : ""}><i />Futu {payload?.sources.futu ? "connected" : "waiting for relay"}</span>
         <span className={payload?.sources.binance ? styles.online : ""}><i />Binance {payload?.sources.binance ? "live" : "reconnecting"}</span>
-        <button className={adrFeedState === "live" || (adrFeedState === "partial" && !adrFeedError) ? styles.online : ""} onClick={() => adrFeedState === "auth-required" ? void beginPosleyLogin() : undefined}><i />{adrFeedState === "live" ? "Posley ADR live" : adrFeedState === "auth-required" ? "Connect Posley ADR" : adrFeedState === "partial" ? missingAdrStreams.length ? "ADR partial" : "ADR benchmark" : "ADR reconnecting"}</button>
+        <button className={adrFeedState === "live" || (adrFeedState === "partial" && !adrFeedError) ? styles.online : ""} disabled><i />{adrFeedState === "live" ? "Posley ADR live" : adrFeedState === "unconfigured" ? "ADR server setup" : adrFeedState === "partial" ? missingAdrStreams.length ? "ADR partial" : "ADR benchmark" : "ADR reconnecting"}</button>
       </div>
     </section>
 
@@ -495,7 +328,7 @@ export default function HkAuctionPage() {
     </section>}
 
     {payload?.errors?.length ? <div className={styles.notice}><strong>Partial data</strong><span>{payload.errors.join(" · ")}</span></div> : null}
-    {adrFeedError || missingAdrStreams.length ? <div className={styles.notice}><strong>Posley ADR</strong><span>{adrFeedError || "Some configured ADR streams are not currently published."}{missingAdrStreams.length ? ` Missing: ${missingAdrStreams.join(", ")}.` : ""}</span>{adrFeedState === "auth-required" && <button onClick={() => void beginPosleyLogin()}>Connect</button>}</div> : null}
+    {adrFeedError || missingAdrStreams.length ? <div className={styles.notice}><strong>Posley ADR</strong><span>{adrFeedError || "Some configured ADR streams are not currently published."}{missingAdrStreams.length ? ` Missing: ${missingAdrStreams.join(", ")}.` : ""}</span></div> : null}
 
     <section className={styles.board}>
       <div className={styles.boardHead}><div><span>MONITORED MAPPINGS</span><h2>Executable auction basis</h2></div><p>{loading ? "Connecting…" : `${payload?.quotes.filter((quote) => quote.status === "live").length ?? 0}/${pairs.length} fully live`} · sorted by |mid basis|</p></div>
