@@ -2,16 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
+import LiveDcaPanel from "./LiveDcaPanel";
+import type { TakerQuote } from "./types";
 import styles from "./page.module.css";
 
 type Direction = "auto" | "shortHyper" | "longHyper";
-type Quote = {
-  hyperliquid: { coin: string; bid: number; ask: number; bidSize: number | null; askSize: number | null; timestamp: number };
-  binance: { symbol: string; bid: number; ask: number; bidSize: number | null; askSize: number | null; timestamp: number };
-  multiplier: number;
-  spreads: { shortHyperLongBinance: number; longHyperShortBinance: number };
-  timestamp: number;
-};
 type PaperFill = { id: number; time: number; notional: number; spread: number; direction: "shortHyper" | "longHyper"; hyperPrice: number; binancePrice: number };
 
 const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
@@ -29,9 +24,12 @@ export default function TakerStudio() {
   const [intervalSeconds, setIntervalSeconds] = useState("10");
   const [triggerSpread, setTriggerSpread] = useState("0.10");
   const [maxSlippageBps, setMaxSlippageBps] = useState("15");
-  const [quote, setQuote] = useState<Quote | null>(null);
+  const [quote, setQuote] = useState<TakerQuote | null>(null);
+  const [lastQuoteAt, setLastQuoteAt] = useState(0);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [pageVisible, setPageVisible] = useState(true);
+  const [now, setNow] = useState(0);
   const [running, setRunning] = useState(false);
   const [paperFilled, setPaperFilled] = useState(0);
   const [fills, setFills] = useState<PaperFill[]>([]);
@@ -46,9 +44,10 @@ export default function TakerStudio() {
     try {
       const params = new URLSearchParams({ hyper: hyperCoin.trim(), binance: binanceSymbol.trim(), multiplier: String(multiple) });
       const response = await fetch(`/api/taker/quote?${params}`, { cache: "no-store" });
-      const next = await response.json() as Quote & { error?: string };
+      const next = await response.json() as TakerQuote & { error?: string };
       if (!response.ok) throw new Error(next.error || "Cross-venue quote unavailable.");
       setQuote(next);
+      setLastQuoteAt(Date.now());
       setError("");
     } catch (quoteError) {
       setError(quoteError instanceof Error ? quoteError.message : "Cross-venue quote unavailable.");
@@ -63,6 +62,14 @@ export default function TakerStudio() {
     const timer = window.setInterval(() => void loadQuote(), 1_000);
     return () => { window.clearTimeout(initial); window.clearInterval(timer); };
   }, [loadQuote]);
+
+  useEffect(() => {
+    const updateVisibility = () => setPageVisible(document.visibilityState === "visible");
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    updateVisibility();
+    document.addEventListener("visibilitychange", updateVisibility);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", updateVisibility); };
+  }, []);
 
   const selected = useMemo(() => {
     const shortSpread = quote?.spreads.shortHyperLongBinance ?? null;
@@ -84,7 +91,7 @@ export default function TakerStudio() {
   const trigger = Number(triggerSpread) || 0;
   const slices = slice > 0 ? Math.ceil(total / slice) : 0;
   const progress = total > 0 ? Math.min(100, paperFilled / total * 100) : 0;
-  const quoteFresh = Boolean(quote && !error);
+  const quoteFresh = Boolean(quote && !error && pageVisible && now - lastQuoteAt < 5_000);
   const canStage = Boolean(quoteFresh && total > 0 && slice > 0 && selected.spread !== null);
 
   useEffect(() => {
@@ -133,7 +140,7 @@ export default function TakerStudio() {
     <section className={styles.hero}>
       <div><span>SELECTED EXECUTABLE SPREAD</span><strong className={(selected.spread ?? 0) >= 0 ? styles.positive : styles.negative}>{pct(selected.spread)}</strong><small>{loading ? "Connecting to both venues…" : error || `Updated ${quote ? time(quote.timestamp) : "—"} HKT`}</small></div>
       <div className={styles.direction}><div><span>SHORT</span><strong>{selected.shortLeg}</strong></div><i>→</i><div><span>LONG</span><strong>{selected.longLeg}</strong></div></div>
-      <div className={styles.mode}><span>EXECUTION MODE</span><strong>PAPER DCA</strong><small>Real order submission is intentionally locked.</small></div>
+      <div className={styles.mode}><span>EXECUTION MODE</span><strong>PAPER + LIVE</strong><small>Mainnet requires explicit arming and both venue keys.</small></div>
     </section>
 
     <section className={styles.layout}>
@@ -167,6 +174,8 @@ export default function TakerStudio() {
           <div className={styles.botControls}><button className={styles.start} disabled={!canStage || running} onClick={startPaper}>{paperFilled >= total && total > 0 ? "Run paper DCA again" : "Start paper DCA"}</button><button disabled={!running} onClick={() => setRunning(false)}>Pause</button><button onClick={() => { setRunning(false); setPaperFilled(0); setFills([]); }}>Reset</button><span>{running ? selected.spread !== null && selected.spread >= trigger ? "Waiting for next slice interval" : "Waiting for spread trigger" : "Bot idle"}</span></div>
         </section>
 
+        <LiveDcaPanel quote={quote} quoteFresh={quoteFresh} selected={selected} hyperCoin={hyperCoin.trim()} binanceSymbol={binanceSymbol.trim()} total={total} slice={slice} interval={interval} trigger={trigger} slippageBps={Math.max(0, Number(maxSlippageBps) || 0)} />
+
         <section className={styles.panel}>
           <div className={styles.panelHead}><div><span>PAPER FILL TAPE</span><h2>Simulated two-leg slices</h2></div><small>{fills.length} fills</small></div>
           {!fills.length ? <div className={styles.empty}>Start the paper bot to record triggered slices against live executable prices.</div> : <div className={styles.fillTable}><div className={styles.fillHead}><span>Time</span><span>Direction</span><span>Notional</span><span>Spread</span><span>HL price</span><span>BN price</span></div>{fills.map((fill) => <div className={styles.fillRow} key={fill.id}><span>{time(fill.time)}</span><strong>{fill.direction === "shortHyper" ? "SHORT HL" : "LONG HL"}</strong><span>{money(fill.notional)}</span><span>{pct(fill.spread)}</span><span>{price(fill.hyperPrice)}</span><span>{price(fill.binancePrice)}</span></div>)}</div>}
@@ -174,7 +183,7 @@ export default function TakerStudio() {
       </div>
 
       <aside className={styles.sideColumn}>
-        <section className={styles.riskCard}><span>LIVE EXECUTION GATE</span><h2>Locked by design</h2><p>This first version validates market mapping, trigger logic and DCA timing without touching funds.</p><ul><li>Dedicated Hyperliquid API wallet</li><li>Binance Futures key with withdrawals disabled</li><li>IOC orders with per-slice slippage caps</li><li>Atomic nonce manager</li><li>Fill reconciliation and emergency hedge</li><li>Dead-man switch and exposure ceiling</li></ul><small>Max slippage staged: {Number(maxSlippageBps) || 0} bps</small></section>
+        <section className={styles.riskCard}><span>LIVE EXECUTION GATE</span><h2>Explicitly armed</h2><p>Paper mode remains the default. Live mode unlocks only after valid-looking dedicated keys and a mainnet risk acknowledgement are entered.</p><ul><li>Hyperliquid IOC with per-slice slippage cap</li><li>Binance hedge sized from actual HL fill</li><li>Automatic stop on any incomplete leg</li><li>No credential persistence</li><li>No automatic retry after uncertain submission</li></ul><small>Max Hyperliquid IOC slippage: {Number(maxSlippageBps) || 0} bps</small></section>
         <section className={styles.riskCard}><span>TAKER–TAKER SEQUENCE</span><ol><li>Read both BBOs.</li><li>Require spread ≥ trigger.</li><li>Submit the thinner-risk leg first.</li><li>Size the hedge from actual fill.</li><li>Stop on partial fill or stale quote.</li></ol></section>
       </aside>
     </section>

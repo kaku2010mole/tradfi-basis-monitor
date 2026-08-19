@@ -14,7 +14,7 @@ export default async function TakerPage() {
     : <TradeLogin
         configured={configured}
         title="Taker–Taker DCA"
-        description="Protected cross-venue execution design. Enter the separate execution password to view live spreads and stage a paper DCA run."
+        description="Protected Hyperliquid ↔ Binance DCA. Enter the separate execution password to view live spreads, stage paper runs, or explicitly arm mainnet orders."
         returnHref="/"
       />;
 }

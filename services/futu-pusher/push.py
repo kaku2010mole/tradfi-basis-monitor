@@ -164,14 +164,8 @@ def push(payload: dict[str, object], token: str) -> None:
             raise RuntimeError(f"Push endpoint returned HTTP {response.status}")
 
 
-def main() -> int:
-    if not TOKEN_FILE.exists():
-        print(f"Missing push token: {TOKEN_FILE}", file=sys.stderr)
-        return 2
-    token = TOKEN_FILE.read_text(encoding="utf-8").strip()
-    if len(token) < 32:
-        print("Push token is invalid.", file=sys.stderr)
-        return 2
+def relay_session(token: str) -> None:
+    """Run one OpenD session; the caller reconnects if startup drops."""
     context = OpenQuoteContext(host=OPEND_HOST, port=OPEND_PORT)
     try:
         subscribe_ret, message = context.subscribe(SYMBOLS, [SubType.QUOTE, SubType.ORDER_BOOK], subscribe_push=False)
@@ -201,6 +195,26 @@ def main() -> int:
             time.sleep(max(0.1, INTERVAL_SECONDS - (time.monotonic() - started)))
     finally:
         context.close()
+
+
+def main() -> int:
+    if not TOKEN_FILE.exists():
+        print(f"Missing push token: {TOKEN_FILE}", file=sys.stderr)
+        return 2
+    token = TOKEN_FILE.read_text(encoding="utf-8").strip()
+    if len(token) < 32:
+        print("Push token is invalid.", file=sys.stderr)
+        return 2
+    while RUNNING:
+        try:
+            relay_session(token)
+        except (RuntimeError, ConnectionError, TimeoutError, OSError) as error:
+            if not RUNNING:
+                break
+            # OpenD may still be launching, logging in, or reconnecting after a
+            # network change. Never make a manual restart part of recovery.
+            print(f"Futu OpenD session unavailable: {error}; retrying in 5s.", file=sys.stderr, flush=True)
+            time.sleep(5)
     return 0
 
 

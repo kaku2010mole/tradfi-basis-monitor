@@ -136,6 +136,23 @@ an isolated push credential from `SITE_PASSWORD` when a separate token is not
 configured. The local derived token belongs in `.futu-push-token`, which is
 ignored by Git.
 
+On the relay Mac, double-click
+`services/futu-pusher/Install Futu Relay.command` once. It installs a per-user
+LaunchAgent that starts OpenD when needed, restarts the pusher after unexpected
+exits, and uses `caffeinate -s` so the display may turn off while the Mac stays
+awake on AC power. The pusher also retries OpenD startup and socket resets
+without manual intervention. Futu OpenD still needs a valid logged-in session.
+
+## Taker–Taker live execution
+
+The password-protected `/taker` page supports paper DCA and explicitly armed
+Hyperliquid ↔ Binance mainnet DCA. Hyperliquid uses an IOC order capped by the
+configured slippage; Binance then submits the opposite market hedge sized from
+the actual Hyperliquid fill. Any incomplete second leg stops the bot and is
+reported as unhedged exposure. Credentials exist only in the current browser
+tab and are cleared by closing or locking it. Keep the page visible while live
+DCA is armed; hidden or stale tabs pause automatically.
+
 ## Learn More
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
