@@ -13,8 +13,8 @@ export default async function TakerPage() {
     ? <TakerStudio />
     : <TradeLogin
         configured={configured}
-        title="Taker–Taker DCA"
-        description="Protected Hyperliquid ↔ Binance DCA. Enter the separate execution password to view live spreads, stage paper runs, or explicitly arm mainnet orders."
+        title="Hyperliquid Internal Taker–Taker"
+        description="Protected two-perp Hyperliquid DCA. Enter the separate execution password to view the internal executable spread, stage paper runs, or explicitly arm mainnet IOC orders."
         returnHref="/"
       />;
 }

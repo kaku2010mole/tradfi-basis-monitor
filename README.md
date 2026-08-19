@@ -146,12 +146,13 @@ without manual intervention. Futu OpenD still needs a valid logged-in session.
 ## Taker–Taker live execution
 
 The password-protected `/taker` page supports paper DCA and explicitly armed
-Hyperliquid ↔ Binance mainnet DCA. Hyperliquid uses an IOC order capped by the
-configured slippage; Binance then submits the opposite market hedge sized from
-the actual Hyperliquid fill. Any incomplete second leg stops the bot and is
-reported as unhedged exposure. Credentials exist only in the current browser
-tab and are cleared by closing or locking it. Keep the page visible while live
-DCA is armed; hidden or stale tabs pause automatically.
+internal Hyperliquid taker–taker mainnet execution. The user selects two
+Hyperliquid perps, a fair A/B price ratio, a USD hedge ratio, trigger, interval,
+slice size, and IOC slippage cap. Each slice submits both perp IOC orders in one
+signed exchange action. A multi-order action is not atomic, so any one-leg fill
+stops the bot and is reported as unhedged exposure. The API wallet key exists
+only in the current browser tab and is cleared by closing or locking it. Hidden
+or stale tabs pause automatically.
 
 ## Learn More
 

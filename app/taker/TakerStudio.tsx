@@ -3,22 +3,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
 import LiveDcaPanel from "./LiveDcaPanel";
-import type { TakerQuote } from "./types";
+import type { TakerDirection, TakerQuote } from "./types";
 import styles from "./page.module.css";
 
-type Direction = "auto" | "shortHyper" | "longHyper";
-type PaperFill = { id: number; time: number; notional: number; spread: number; direction: "shortHyper" | "longHyper"; hyperPrice: number; binancePrice: number };
+type Direction = "auto" | TakerDirection;
+type PaperFill = { id: number; time: number; notionalA: number; notionalB: number; spread: number; direction: TakerDirection; priceA: number; priceB: number };
 
-const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
+const money = (value: number, digits = 0) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: digits }).format(value);
 const price = (value: number | null | undefined) => value === null || value === undefined || !Number.isFinite(value) ? "—" : value.toLocaleString("en-US", { maximumFractionDigits: 8 });
 const pct = (value: number | null | undefined, digits = 3) => value === null || value === undefined || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 const time = (value: number) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(value);
 
 export default function TakerStudio() {
-  const [hyperCoin, setHyperCoin] = useState("BTC");
-  const [binanceSymbol, setBinanceSymbol] = useState("BTCUSDT");
-  const [multiplier, setMultiplier] = useState("1");
+  const [coinA, setCoinA] = useState("BTC");
+  const [coinB, setCoinB] = useState("ETH");
+  const [fairRatio, setFairRatio] = useState("");
   const [direction, setDirection] = useState<Direction>("auto");
+  const [hedgeRatio, setHedgeRatio] = useState("1");
   const [totalNotional, setTotalNotional] = useState("1000");
   const [sliceNotional, setSliceNotional] = useState("100");
   const [intervalSeconds, setIntervalSeconds] = useState("10");
@@ -38,24 +39,25 @@ export default function TakerStudio() {
 
   const loadQuote = useCallback(async () => {
     if (requestRef.current || document.visibilityState === "hidden") return;
-    const multiple = Number(multiplier);
-    if (!hyperCoin.trim() || !binanceSymbol.trim() || !Number.isFinite(multiple) || multiple <= 0) return;
+    const ratio = fairRatio.trim() ? Number(fairRatio) : null;
+    if (!coinA.trim() || !coinB.trim() || coinA.trim() === coinB.trim() || (ratio !== null && (!Number.isFinite(ratio) || ratio <= 0))) return;
     requestRef.current = true;
     try {
-      const params = new URLSearchParams({ hyper: hyperCoin.trim(), binance: binanceSymbol.trim(), multiplier: String(multiple) });
+      const params = new URLSearchParams({ coinA: coinA.trim(), coinB: coinB.trim(), fairRatio: ratio === null ? "auto" : String(ratio) });
       const response = await fetch(`/api/taker/quote?${params}`, { cache: "no-store" });
       const next = await response.json() as TakerQuote & { error?: string };
-      if (!response.ok) throw new Error(next.error || "Cross-venue quote unavailable.");
+      if (!response.ok) throw new Error(next.error || "Hyperliquid pair quote unavailable.");
       setQuote(next);
+      if (ratio === null) setFairRatio(String(Number(next.fairRatio.toPrecision(10))));
       setLastQuoteAt(Date.now());
       setError("");
     } catch (quoteError) {
-      setError(quoteError instanceof Error ? quoteError.message : "Cross-venue quote unavailable.");
+      setError(quoteError instanceof Error ? quoteError.message : "Hyperliquid pair quote unavailable.");
     } finally {
       requestRef.current = false;
       setLoading(false);
     }
-  }, [binanceSymbol, hyperCoin, multiplier]);
+  }, [coinA, coinB, fairRatio]);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void loadQuote(), 0);
@@ -72,52 +74,54 @@ export default function TakerStudio() {
   }, []);
 
   const selected = useMemo(() => {
-    const shortSpread = quote?.spreads.shortHyperLongBinance ?? null;
-    const longSpread = quote?.spreads.longHyperShortBinance ?? null;
-    const resolved: "shortHyper" | "longHyper" = direction === "auto"
-      ? (shortSpread ?? -Infinity) >= (longSpread ?? -Infinity) ? "shortHyper" : "longHyper"
+    const shortSpread = quote?.spreads.shortALongB ?? null;
+    const longSpread = quote?.spreads.longAShortB ?? null;
+    const resolved: TakerDirection = direction === "auto"
+      ? (shortSpread ?? -Infinity) >= (longSpread ?? -Infinity) ? "shortA" : "longA"
       : direction;
     return {
       direction: resolved,
-      spread: resolved === "shortHyper" ? shortSpread : longSpread,
-      shortLeg: resolved === "shortHyper" ? `Hyperliquid ${hyperCoin}` : `Binance ${binanceSymbol}`,
-      longLeg: resolved === "shortHyper" ? `Binance ${binanceSymbol}` : `Hyperliquid ${hyperCoin}`,
+      spread: resolved === "shortA" ? shortSpread : longSpread,
+      shortLeg: resolved === "shortA" ? coinA : coinB,
+      longLeg: resolved === "shortA" ? coinB : coinA,
+      liquidityUsd: resolved === "shortA" ? quote?.liquidityUsd.shortALongB ?? null : quote?.liquidityUsd.longAShortB ?? null,
     };
-  }, [binanceSymbol, direction, hyperCoin, quote]);
+  }, [coinA, coinB, direction, quote]);
 
   const total = Math.max(0, Number(totalNotional) || 0);
   const slice = Math.max(0, Number(sliceNotional) || 0);
+  const hedge = Math.max(0, Number(hedgeRatio) || 0);
   const interval = Math.max(1, Number(intervalSeconds) || 1);
   const trigger = Number(triggerSpread) || 0;
   const slices = slice > 0 ? Math.ceil(total / slice) : 0;
   const progress = total > 0 ? Math.min(100, paperFilled / total * 100) : 0;
-  const quoteFresh = Boolean(quote && !error && pageVisible && now - lastQuoteAt < 5_000);
-  const canStage = Boolean(quoteFresh && total > 0 && slice > 0 && selected.spread !== null);
+  const quoteMatchesPair = Boolean(quote && quote.legA.coin === coinA.trim() && quote.legB.coin === coinB.trim());
+  const quoteFresh = Boolean(quoteMatchesPair && !error && pageVisible && now - lastQuoteAt < 5_000);
+  const canStage = Boolean(quoteFresh && total > 0 && slice > 0 && hedge > 0 && selected.spread !== null);
 
   useEffect(() => {
     if (!running || !quote || !quoteFresh || selected.spread === null || selected.spread < trigger || paperFilled >= total) return;
-    const now = Date.now();
-    const delay = Math.max(0, interval * 1_000 - (now - lastSliceRef.current));
+    const delay = Math.max(0, interval * 1_000 - (Date.now() - lastSliceRef.current));
     const timer = window.setTimeout(() => {
       const executedAt = Date.now();
-      const notional = Math.min(slice, total - paperFilled);
-      if (notional <= 0) return;
-      const shortHyper = selected.direction === "shortHyper";
+      const notionalA = Math.min(slice, total - paperFilled);
+      if (notionalA <= 0) return;
       setFills((current) => [{
         id: executedAt,
         time: executedAt,
-        notional,
+        notionalA,
+        notionalB: notionalA * hedge,
         spread: selected.spread ?? 0,
         direction: selected.direction,
-        hyperPrice: shortHyper ? quote.hyperliquid.bid : quote.hyperliquid.ask,
-        binancePrice: shortHyper ? quote.binance.ask : quote.binance.bid,
+        priceA: selected.direction === "shortA" ? quote.legA.bid : quote.legA.ask,
+        priceB: selected.direction === "shortA" ? quote.legB.ask : quote.legB.bid,
       }, ...current].slice(0, 50));
-      setPaperFilled((current) => Math.min(total, current + notional));
-      if (paperFilled + notional >= total) setRunning(false);
+      setPaperFilled((current) => Math.min(total, current + notionalA));
+      if (paperFilled + notionalA >= total) setRunning(false);
       lastSliceRef.current = executedAt;
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [interval, paperFilled, quote, quoteFresh, running, selected.direction, selected.spread, slice, total, trigger]);
+  }, [hedge, interval, paperFilled, quote, quoteFresh, running, selected.direction, selected.spread, slice, total, trigger]);
 
   const startPaper = () => {
     setPaperFilled(0);
@@ -133,58 +137,59 @@ export default function TakerStudio() {
 
   return <main className={styles.shell}>
     <header className={styles.topbar}>
-      <div><p>PROTECTED CROSS-VENUE EXECUTION</p><h1>Taker–Taker DCA</h1><small>Hyperliquid ↔ Binance · live executable spread · paper staging</small></div>
+      <div><p>PROTECTED HYPERLIQUID EXECUTION</p><h1>Internal Taker–Taker DCA</h1><small>Two Hyperliquid perps · one multi-order IOC action · live executable spread</small></div>
       <div className={styles.actions}><span className={quoteFresh ? styles.live : styles.offline}><i />{quoteFresh ? "LIVE" : "RECONNECTING"}</span><button onClick={lockPage}>Lock</button><PageSwitcher active="taker" /></div>
     </header>
 
     <section className={styles.hero}>
-      <div><span>SELECTED EXECUTABLE SPREAD</span><strong className={(selected.spread ?? 0) >= 0 ? styles.positive : styles.negative}>{pct(selected.spread)}</strong><small>{loading ? "Connecting to both venues…" : error || `Updated ${quote ? time(quote.timestamp) : "—"} HKT`}</small></div>
-      <div className={styles.direction}><div><span>SHORT</span><strong>{selected.shortLeg}</strong></div><i>→</i><div><span>LONG</span><strong>{selected.longLeg}</strong></div></div>
-      <div className={styles.mode}><span>EXECUTION MODE</span><strong>PAPER + LIVE</strong><small>Mainnet requires explicit arming and both venue keys.</small></div>
+      <div><span>SELECTED EXECUTABLE SPREAD</span><strong className={(selected.spread ?? 0) >= 0 ? styles.positive : styles.negative}>{pct(selected.spread)}</strong><small>{loading ? "Connecting to Hyperliquid…" : error || `Updated ${quote ? time(quote.timestamp) : "—"} HKT · top liquidity ${selected.liquidityUsd === null ? "—" : money(selected.liquidityUsd)}`}</small></div>
+      <div className={styles.direction}><div><span>SHORT</span><strong>Hyperliquid {selected.shortLeg}</strong></div><i>↔</i><div><span>LONG</span><strong>Hyperliquid {selected.longLeg}</strong></div></div>
+      <div className={styles.mode}><span>EXECUTION MODE</span><strong>PAPER + LIVE</strong><small>Both IOC legs share one signed Hyperliquid action.</small></div>
     </section>
 
     <section className={styles.layout}>
       <div className={styles.mainColumn}>
         <section className={styles.panel}>
-          <div className={styles.panelHead}><div><span>MARKET MAPPING</span><h2>Live spread inputs</h2></div><small>Refresh 1 second</small></div>
+          <div className={styles.panelHead}><div><span>PAIR DEFINITION</span><h2>Internal executable spread</h2></div><button className={styles.anchorAction} onClick={() => setFairRatio("")}>Re-anchor fair ratio</button></div>
           <div className={styles.marketForm}>
-            <label>Hyperliquid coin<input value={hyperCoin} onChange={(event) => setHyperCoin(event.target.value)} placeholder="BTC or xyz:NVDA" /></label>
-            <label>Binance USDⓈ-M symbol<input value={binanceSymbol} onChange={(event) => setBinanceSymbol(event.target.value.toUpperCase())} placeholder="BTCUSDT" /></label>
-            <label>Binance price multiplier<input type="number" min="0.000001" step="0.01" value={multiplier} onChange={(event) => setMultiplier(event.target.value)} /></label>
-            <label>Direction<select value={direction} onChange={(event) => setDirection(event.target.value as Direction)}><option value="auto">Auto · best positive spread</option><option value="shortHyper">Short Hyperliquid / Long Binance</option><option value="longHyper">Long Hyperliquid / Short Binance</option></select></label>
+            <label>Hyperliquid leg A<input value={coinA} onChange={(event) => setCoinA(event.target.value)} placeholder="BTC or xyz:XYZ100" /></label>
+            <label>Hyperliquid leg B<input value={coinB} onChange={(event) => setCoinB(event.target.value)} placeholder="ETH or para:TOTAL2" /></label>
+            <label>Fair A / B price ratio<input type="number" min="0.00000001" step="any" value={fairRatio} onChange={(event) => setFairRatio(event.target.value)} placeholder="Auto-lock current midpoint ratio" /></label>
+            <label>Direction<select value={direction} onChange={(event) => setDirection(event.target.value as Direction)}><option value="auto">Auto · best executable spread</option><option value="shortA">Short A / Long B</option><option value="longA">Long A / Short B</option></select></label>
           </div>
           <div className={styles.quotes}>
-            <div><span>HYPERLIQUID</span><strong>{price(quote?.hyperliquid.bid)} <i>×</i> {price(quote?.hyperliquid.ask)}</strong><small>{hyperCoin} bid / ask</small></div>
-            <div><span>BINANCE</span><strong>{price(quote?.binance.bid)} <i>×</i> {price(quote?.binance.ask)}</strong><small>{binanceSymbol} bid / ask · multiplier {multiplier || "—"}</small></div>
-            <div><span>SHORT HL / LONG BN</span><strong>{pct(quote?.spreads.shortHyperLongBinance)}</strong><small>HL bid versus Binance ask</small></div>
-            <div><span>LONG HL / SHORT BN</span><strong>{pct(quote?.spreads.longHyperShortBinance)}</strong><small>Binance bid versus HL ask</small></div>
+            <div><span>HYPERLIQUID · LEG A</span><strong>{price(quote?.legA.bid)} <i>×</i> {price(quote?.legA.ask)}</strong><small>{coinA} bid / ask</small></div>
+            <div><span>HYPERLIQUID · LEG B</span><strong>{price(quote?.legB.bid)} <i>×</i> {price(quote?.legB.ask)}</strong><small>{coinB} bid / ask · fair ratio {price(quote?.fairRatio)}</small></div>
+            <div><span>SHORT A / LONG B</span><strong>{pct(quote?.spreads.shortALongB)}</strong><small>Top executable {quote?.liquidityUsd.shortALongB == null ? "—" : money(quote.liquidityUsd.shortALongB)}</small></div>
+            <div><span>LONG A / SHORT B</span><strong>{pct(quote?.spreads.longAShortB)}</strong><small>Top executable {quote?.liquidityUsd.longAShortB == null ? "—" : money(quote.liquidityUsd.longAShortB)}</small></div>
           </div>
         </section>
 
         <section className={styles.panel}>
-          <div className={styles.panelHead}><div><span>DCA ENGINE</span><h2>Slice the two-leg order</h2></div><small>{slices} planned slices · ~{Math.max(0, slices - 1) * interval}s minimum</small></div>
+          <div className={styles.panelHead}><div><span>DCA ENGINE</span><h2>Slice both Hyperliquid legs</h2></div><small>{slices} planned slices · ~{Math.max(0, slices - 1) * interval}s minimum</small></div>
           <div className={styles.dcaForm}>
-            <label>Total notional · USDT<input type="number" min="1" step="10" value={totalNotional} onChange={(event) => setTotalNotional(event.target.value)} /></label>
-            <label>Notional per slice<input type="number" min="1" step="10" value={sliceNotional} onChange={(event) => setSliceNotional(event.target.value)} /></label>
+            <label>Total leg A notional · USD<input type="number" min="1" step="10" value={totalNotional} onChange={(event) => setTotalNotional(event.target.value)} /></label>
+            <label>Leg A per slice<input type="number" min="1" step="10" value={sliceNotional} onChange={(event) => setSliceNotional(event.target.value)} /></label>
+            <label>Leg B USD ratio<input type="number" min="0.0001" step="0.01" value={hedgeRatio} onChange={(event) => setHedgeRatio(event.target.value)} /></label>
             <label>Interval · seconds<input type="number" min="1" step="1" value={intervalSeconds} onChange={(event) => setIntervalSeconds(event.target.value)} /></label>
             <label>Minimum spread · %<input type="number" step="0.01" value={triggerSpread} onChange={(event) => setTriggerSpread(event.target.value)} /></label>
-            <label>Maximum slippage · bps<input type="number" min="0" step="1" value={maxSlippageBps} onChange={(event) => setMaxSlippageBps(event.target.value)} /></label>
+            <label>Maximum IOC slippage · bps<input type="number" min="0" step="1" value={maxSlippageBps} onChange={(event) => setMaxSlippageBps(event.target.value)} /></label>
           </div>
-          <div className={styles.progress}><div><span style={{ width: `${progress}%` }} /></div><p><strong>{money(paperFilled)}</strong> staged of {money(total)} · waits whenever spread is below {pct(trigger, 2)}</p></div>
-          <div className={styles.botControls}><button className={styles.start} disabled={!canStage || running} onClick={startPaper}>{paperFilled >= total && total > 0 ? "Run paper DCA again" : "Start paper DCA"}</button><button disabled={!running} onClick={() => setRunning(false)}>Pause</button><button onClick={() => { setRunning(false); setPaperFilled(0); setFills([]); }}>Reset</button><span>{running ? selected.spread !== null && selected.spread >= trigger ? "Waiting for next slice interval" : "Waiting for spread trigger" : "Bot idle"}</span></div>
+          <div className={styles.progress}><div><span style={{ width: `${progress}%` }} /></div><p><strong>{money(paperFilled)}</strong> staged of {money(total)} on leg A · leg B targets {hedge.toFixed(3)}× USD · waits below {pct(trigger, 2)}</p></div>
+          <div className={styles.botControls}><button className={styles.start} disabled={!canStage || running} onClick={startPaper}>{paperFilled >= total && total > 0 ? "Run paper DCA again" : "Start paper DCA"}</button><button disabled={!running} onClick={() => setRunning(false)}>Pause</button><button onClick={() => { setRunning(false); setPaperFilled(0); setFills([]); }}>Reset</button><span>{running ? selected.spread !== null && selected.spread >= trigger ? "Waiting for next slice interval" : "Waiting for spread trigger" : "Paper bot idle"}</span></div>
         </section>
 
-        <LiveDcaPanel quote={quote} quoteFresh={quoteFresh} selected={selected} hyperCoin={hyperCoin.trim()} binanceSymbol={binanceSymbol.trim()} total={total} slice={slice} interval={interval} trigger={trigger} slippageBps={Math.max(0, Number(maxSlippageBps) || 0)} />
+        <LiveDcaPanel quote={quote} quoteFresh={quoteFresh} selected={selected} coinA={coinA.trim()} coinB={coinB.trim()} hedgeRatio={hedge} total={total} slice={slice} interval={interval} trigger={trigger} slippageBps={Math.max(0, Number(maxSlippageBps) || 0)} />
 
         <section className={styles.panel}>
-          <div className={styles.panelHead}><div><span>PAPER FILL TAPE</span><h2>Simulated two-leg slices</h2></div><small>{fills.length} fills</small></div>
-          {!fills.length ? <div className={styles.empty}>Start the paper bot to record triggered slices against live executable prices.</div> : <div className={styles.fillTable}><div className={styles.fillHead}><span>Time</span><span>Direction</span><span>Notional</span><span>Spread</span><span>HL price</span><span>BN price</span></div>{fills.map((fill) => <div className={styles.fillRow} key={fill.id}><span>{time(fill.time)}</span><strong>{fill.direction === "shortHyper" ? "SHORT HL" : "LONG HL"}</strong><span>{money(fill.notional)}</span><span>{pct(fill.spread)}</span><span>{price(fill.hyperPrice)}</span><span>{price(fill.binancePrice)}</span></div>)}</div>}
+          <div className={styles.panelHead}><div><span>PAPER FILL TAPE</span><h2>Simulated internal IOC slices</h2></div><small>{fills.length} slices</small></div>
+          {!fills.length ? <div className={styles.empty}>Start the paper bot to record triggered two-perp slices against live Hyperliquid BBOs.</div> : <div className={styles.fillTable}><div className={styles.fillHead}><span>Time</span><span>Direction</span><span>A / B USD</span><span>Spread</span><span>{coinA}</span><span>{coinB}</span></div>{fills.map((fill) => <div className={styles.fillRow} key={fill.id}><span>{time(fill.time)}</span><strong>{fill.direction === "shortA" ? `SHORT ${coinA}` : `LONG ${coinA}`}</strong><span>{money(fill.notionalA)} / {money(fill.notionalB)}</span><span>{pct(fill.spread)}</span><span>{price(fill.priceA)}</span><span>{price(fill.priceB)}</span></div>)}</div>}
         </section>
       </div>
 
       <aside className={styles.sideColumn}>
-        <section className={styles.riskCard}><span>LIVE EXECUTION GATE</span><h2>Explicitly armed</h2><p>Paper mode remains the default. Live mode unlocks only after valid-looking dedicated keys and a mainnet risk acknowledgement are entered.</p><ul><li>Hyperliquid IOC with per-slice slippage cap</li><li>Binance hedge sized from actual HL fill</li><li>Automatic stop on any incomplete leg</li><li>No credential persistence</li><li>No automatic retry after uncertain submission</li></ul><small>Max Hyperliquid IOC slippage: {Number(maxSlippageBps) || 0} bps</small></section>
-        <section className={styles.riskCard}><span>TAKER–TAKER SEQUENCE</span><ol><li>Read both BBOs.</li><li>Require spread ≥ trigger.</li><li>Submit the thinner-risk leg first.</li><li>Size the hedge from actual fill.</li><li>Stop on partial fill or stale quote.</li></ol></section>
+        <section className={styles.riskCard}><span>LIVE EXECUTION GATE</span><h2>One wallet, two IOC legs</h2><p>Paper mode remains the default. Live mode requires a dedicated Hyperliquid API wallet and explicit mainnet acknowledgement.</p><ul><li>Both orders share one signed action</li><li>Independent size and price precision per perp</li><li>Configurable USD hedge ratio</li><li>Automatic stop on any incomplete leg</li><li>No credential persistence</li><li>No retry after uncertain submission</li></ul><small>Per-leg IOC slippage cap: {Number(maxSlippageBps) || 0} bps</small></section>
+        <section className={styles.riskCard}><span>INTERNAL TAKER–TAKER</span><ol><li>Read both Hyperliquid BBOs.</li><li>Normalize with the fair A/B ratio.</li><li>Require executable spread ≥ trigger.</li><li>Submit both IOC orders in one action.</li><li>Stop and flag any one-leg fill.</li></ol></section>
       </aside>
     </section>
   </main>;

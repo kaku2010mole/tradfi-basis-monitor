@@ -37,8 +37,8 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
           <small>Password-protected Binance pair orders</small>
         </Link>
         <Link href="/taker" aria-current={active === "taker" ? "page" : undefined}>
-          <span>Taker–Taker DCA</span>
-          <small>Hyperliquid ↔ Binance spread execution studio</small>
+          <span>Hyperliquid Taker–Taker</span>
+          <small>Internal two-perp IOC spread execution</small>
         </Link>
         <Link href="/polymarket" aria-current={active === "polymarket" ? "page" : undefined}>
           <span>Polymarket Perps</span>

@@ -23,7 +23,7 @@ test("server-renders the TradFi dashboard shell", async () => {
   assert.match(html, /<title>TradFi Basis Monitor<\/title>/i);
   assert.match(html, /Set the anchor\. Then watch the drift\./);
   assert.match(html, /href="\/taker"/);
-  assert.match(html, /Taker–Taker DCA/);
+  assert.match(html, /Hyperliquid Taker–Taker/);
 });
 
 test("keeps live taker execution explicitly gated", async () => {
@@ -35,10 +35,11 @@ test("keeps live taker execution explicitly gated", async () => {
 
   assert.match(studio, /PAPER \+ LIVE/);
   assert.match(studio, /now - lastQuoteAt < 5_000/);
-  assert.match(livePanel, /Hyperliquid IOC first · Binance market hedge second/);
-  assert.match(livePanel, /I authorize real Hyperliquid and Binance mainnet orders/);
-  assert.match(livePanel, /UNHEDGED HYPERLIQUID FILL/);
+  assert.match(livePanel, /Two IOC orders · one signed exchange action/);
+  assert.match(livePanel, /I authorize two real Hyperliquid mainnet IOC orders per slice/);
+  assert.ok(livePanel.includes("UNHEDGED ${filled.coin} FILL"));
   assert.match(livePanel, /tif: "Ioc"/);
-  assert.match(livePanel, /newOrderRespType: "RESULT"/);
+  assert.match(livePanel, /orders: \[/);
+  assert.doesNotMatch(livePanel, /Binance/);
   assert.match(auth, /verifyTradeToken/);
 });

@@ -1,10 +1,20 @@
-export type TakerDirection = "shortHyper" | "longHyper";
+export type TakerDirection = "shortA" | "longA";
+
+export type HyperliquidBbo = {
+  coin: string;
+  bid: number;
+  ask: number;
+  bidSize: number | null;
+  askSize: number | null;
+  timestamp: number;
+};
 
 export type TakerQuote = {
-  hyperliquid: { coin: string; bid: number; ask: number; bidSize: number | null; askSize: number | null; timestamp: number };
-  binance: { symbol: string; bid: number; ask: number; bidSize: number | null; askSize: number | null; timestamp: number };
-  multiplier: number;
-  spreads: { shortHyperLongBinance: number; longHyperShortBinance: number };
+  legA: HyperliquidBbo;
+  legB: HyperliquidBbo;
+  fairRatio: number;
+  spreads: { shortALongB: number; longAShortB: number };
+  liquidityUsd: { shortALongB: number | null; longAShortB: number | null };
   timestamp: number;
 };
 
@@ -13,4 +23,5 @@ export type SelectedTakerDirection = {
   spread: number | null;
   shortLeg: string;
   longLeg: string;
+  liquidityUsd: number | null;
 };
