@@ -191,7 +191,10 @@ def main() -> int:
                 if failures:
                     print("Futu push recovered.", flush=True)
                 failures = 0
-            except (RuntimeError, urllib.error.URLError, TimeoutError) as error:
+            # Socket resets, TLS disconnects and DNS/network failures are all
+            # recoverable. Keep the relay alive instead of letting one Render
+            # or OpenD connection reset terminate the overnight process.
+            except (RuntimeError, urllib.error.URLError, TimeoutError, OSError) as error:
                 failures += 1
                 if failures == 1 or failures % 30 == 0:
                     print(f"Futu push unavailable: {error}", file=sys.stderr, flush=True)

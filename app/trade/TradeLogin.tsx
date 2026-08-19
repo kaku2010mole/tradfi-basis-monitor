@@ -4,7 +4,17 @@ import Link from "next/link";
 import { useState } from "react";
 import styles from "./page.module.css";
 
-export default function TradeLogin({ configured }: { configured: boolean }) {
+export default function TradeLogin({
+  configured,
+  title = "Relative Value Execution",
+  description = "This page can submit two real Binance USDⓈ-M market orders. Enter the separate execution password to continue.",
+  returnHref = "/blog",
+}: {
+  configured: boolean;
+  title?: string;
+  description?: string;
+  returnHref?: string;
+}) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -31,15 +41,15 @@ export default function TradeLogin({ configured }: { configured: boolean }) {
   return <main className={styles.loginShell}>
     <section className={styles.loginCard}>
       <p className={styles.eyebrow}>RESTRICTED LIVE EXECUTION</p>
-      <h1>Relative Value Execution</h1>
-      <p>This page can submit two real Binance USDⓈ-M market orders. Enter the separate execution password to continue.</p>
+      <h1>{title}</h1>
+      <p>{description}</p>
       <form onSubmit={unlock}>
         <label>Execution password<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} autoFocus /></label>
         <button disabled={!configured || loading || !password}>{loading ? "Unlocking…" : "Unlock execution page"}</button>
       </form>
       {!configured && <p className={styles.error}>Execution access is not configured on this deployment.</p>}
       {error && <p className={styles.error}>{error}</p>}
-      <Link href="/blog">← Return to Relative Value Monitor</Link>
+      <Link href={returnHref}>← Return to dashboard</Link>
     </section>
   </main>;
 }
