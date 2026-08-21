@@ -313,7 +313,7 @@ export default function HkAuctionPage() {
     <section className={styles.controls}>
       <label><span>USD / HKD</span><input type="number" min="1" max="20" step="0.0001" value={usdHkd} onChange={(event) => setUsdHkd(event.target.value)} /><small>FX conversion · separate from shares/contract</small></label>
       <label><span>Alert threshold</span><input type="number" min="0" max="100" step="0.05" value={threshold} onChange={(event) => setThreshold(event.target.value)} /><small>Absolute midpoint basis %</small></label>
-      <div className={styles.formula}><span>CROSS-VENUE NORMALIZATION</span><strong>HK fair: stock × perp shares · ADR fair: stock × ADR shares</strong><small>Both are converted with the same USD/HKD input.</small></div>
+      <div className={styles.formula}><span>CROSS-VENUE NORMALIZATION</span><strong>HK basis: Futu stock ↔ Binance perp · ADR basis: Posley ADR ↔ Binance perp</strong><small>Each comparison is normalized by its HK-share exposure.</small></div>
       <button onClick={() => setManagerOpen((open) => !open)}>{managerOpen ? "Close pair setup" : "Manage pairs"}</button>
     </section>
 
@@ -355,10 +355,11 @@ export default function HkAuctionPage() {
         const adrUsable = Boolean(adr && now - adr.timestamp <= ADR_BENCHMARK_MAX_AGE_MS);
         const adrMid = adrUsable && adr ? adr.bid !== null && adr.ask !== null ? (adr.bid + adr.ask) / 2 : adr.last : null;
         const adrRatio = pair.hkSharesPerAdr ?? null;
-        const adrFairUsd = quote?.metrics.stockReferenceHkd !== null && quote?.metrics.stockReferenceHkd !== undefined && adrRatio !== null
-          ? quote.metrics.stockReferenceHkd * adrRatio / Number(usdHkd) : null;
-        const adrBasisPct = adrMid !== null && adrFairUsd !== null && adrFairUsd > 0 ? (adrMid / adrFairUsd - 1) * 100 : null;
-        const adrImpliedHkd = adrMid !== null && adrRatio !== null ? adrMid * Number(usdHkd) / adrRatio : null;
+        const perpsPerAdr = adrRatio !== null ? adrRatio / pair.sharesPerContract : null;
+        const binanceImpliedAdrUsd = quote?.metrics.binanceMid !== null && quote?.metrics.binanceMid !== undefined && perpsPerAdr !== null
+          ? quote.metrics.binanceMid * perpsPerAdr : null;
+        const adrBasisPct = adrMid !== null && binanceImpliedAdrUsd !== null && binanceImpliedAdrUsd > 0
+          ? (adrMid / binanceImpliedAdrUsd - 1) * 100 : null;
         const adrRich = adrBasisPct !== null && adrBasisPct >= 0;
         return <article key={id} className={`${styles.card} ${hot ? styles.hotCard : ""}`}>
           <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{pair.sharesPerContract.toLocaleString()} shares / perp{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></header>
@@ -382,8 +383,8 @@ export default function HkAuctionPage() {
             </dl>
             {pair.adrSymbol ? <div className={`${styles.adrPanel} ${adrBasisPct !== null && Math.abs(adrBasisPct) >= alert ? styles.adrHot : ""}`}>
               <div><span>POSLEY ADR BASIS</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small title={adr?.streamKey}>{adrFresh ? `Live Posley · ${time(adr?.timestamp)} HKT` : adrUsable && adr ? `Latest US benchmark · ${time(adr.timestamp)} HKT` : adr ? `Too old · ${time(adr.timestamp)} HKT` : "Waiting for the matching Posley stream"}</small></div>
-              <dl><div><dt>{pair.adrSymbol} midpoint · USD</dt><dd>{number(adrMid, 4)}</dd></div><div><dt>ADR-implied HK share · HKD</dt><dd>{number(adrImpliedHkd, 3)}</dd></div><div><dt>ADR conversion</dt><dd>1 : {number(adrRatio, 3)}</dd><small>ADR : HK shares</small></div></dl>
-              <div className={styles.adrDirection}><span>RELATIVE DIRECTION</span><strong>{adrBasisPct === null ? "WAITING FOR ADR" : adrRich ? `SHORT ${pair.adrSymbol} / LONG FUTU` : `LONG ${pair.adrSymbol} / SHORT FUTU`}</strong><small>{adrBasisPct === null ? "Unavailable or expired data is excluded" : `${adrFresh ? "Live" : "Latest US benchmark"} midpoint indication ${pct(Math.abs(adrBasisPct))}`}</small></div>
+              <dl><div><dt>{pair.adrSymbol} midpoint · USD</dt><dd>{number(adrMid, 4)}</dd></div><div><dt>Binance-implied ADR · USD</dt><dd>{number(binanceImpliedAdrUsd, 4)}</dd></div><div><dt>Exposure match</dt><dd>1 : {number(perpsPerAdr, 4)}</dd><small>ADR : {pair.perpSymbol} contracts</small></div></dl>
+              <div className={styles.adrDirection}><span>RELATIVE DIRECTION</span><strong>{adrBasisPct === null ? "WAITING FOR BOTH VENUES" : adrRich ? `SHORT ${pair.adrSymbol} / LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} / SHORT ${pair.perpSymbol}`}</strong><small>{adrBasisPct === null ? "Unavailable or expired data is excluded" : `${adrFresh ? "Live" : "Latest US benchmark"} ADR versus Binance indication ${pct(Math.abs(adrBasisPct))}`}</small></div>
             </div> : null}
             <div className={styles.referenceNote}><span>LIVE REFERENCE</span><strong>{quote?.metrics.stockReferenceSource?.replaceAll("-", " ") ?? "Waiting for Futu"}</strong><small>Futu {time(quote?.futu?.marketTimestamp)} HKT · Binance {time(quote?.binance?.marketTimestamp)} HKT</small></div>
           </div> : <div className={styles.tabPanel} role="tabpanel">{historyLoading[id] ? <div className={styles.emptyChart}>Reading Futu and Binance one-minute history…</div> : historyError[id] ? <div className={styles.historyFailure}><strong>History unavailable</strong><span>{historyError[id]}</span><button onClick={() => void loadHistory(id, pair)}>Retry</button></div> : <SpreadHistory points={history[id] ?? []} cursor={historyCursor[id]} onCursor={(index) => setHistoryCursor((current) => ({ ...current, [id]: index }))} />}</div>}
@@ -392,6 +393,6 @@ export default function HkAuctionPage() {
       })}</div>
     </section>
 
-    <footer className={styles.pageFooter}>Raw basis excludes fees, funding, FX execution cost, ADR fees and stock-lot rounding. ADR data older than 96 hours and missing venue data remain blank.</footer>
+    <footer className={styles.pageFooter}>Raw basis excludes fees, funding, FX execution cost, ADR fees and lot-size rounding. ADR basis compares Posley ADR directly with Binance perp after HK-share exposure normalization; ADR data older than 96 hours and missing venue data remain blank.</footer>
   </main>;
 }

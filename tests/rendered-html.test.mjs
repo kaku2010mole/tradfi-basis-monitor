@@ -53,7 +53,10 @@ test("discovers and normalizes Posley ADR streams for HK auction basis", async (
   assert.match(auction, /MPNGY/);
   assert.match(auction, /PMRTY/);
   assert.match(auction, /MMXGY/);
-  assert.match(auction, /SHORT \$\{pair\.adrSymbol\} \/ LONG FUTU/);
+  assert.match(auction, /Binance-implied ADR/);
+  assert.match(auction, /SHORT \$\{pair\.adrSymbol\} \/ LONG \$\{pair\.perpSymbol\}/);
+  assert.ok(auction.includes("const perpsPerAdr = adrRatio !== null ? adrRatio / pair.sharesPerContract : null;"));
+  assert.doesNotMatch(auction, /SHORT \$\{pair\.adrSymbol\} \/ LONG FUTU/);
   assert.match(auction, /ADR_BENCHMARK_MAX_AGE_MS/);
 });
 
