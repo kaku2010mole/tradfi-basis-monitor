@@ -361,33 +361,35 @@ export default function HkAuctionPage() {
         const adrBasisPct = adrMid !== null && binanceImpliedAdrUsd !== null && binanceImpliedAdrUsd > 0
           ? (adrMid / binanceImpliedAdrUsd - 1) * 100 : null;
         const adrRich = adrBasisPct !== null && adrBasisPct >= 0;
-        return <article key={id} className={`${styles.card} ${hot ? styles.hotCard : ""}`}>
+        const cardHot = hot || (adrBasisPct !== null && Math.abs(adrBasisPct) >= alert);
+        return <article key={id} className={`${styles.card} ${cardHot ? styles.hotCard : ""}`}>
           <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{pair.sharesPerContract.toLocaleString()} shares / perp{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></header>
-          <div className={styles.basisHero}><span>MID BASIS</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>{quote?.metrics.stockReferenceSource === "close-price" ? "Futu official close · overnight benchmark" : quote?.metrics.stockReferenceSource === "auction-price" ? "Futu auction / IEP reference" : quote?.metrics.stockReferenceSource === "book-mid" ? "Futu BBO midpoint proxy" : "No valid stock benchmark"}</small></div>
-          <div className={`${styles.tradeSignal} ${!signalReady ? styles.signalWaiting : ""}`}>
-            <div><span>SHORT LEG</span><strong>{signalReady ? `SHORT ${shortVenue}` : "WAITING"}</strong><small>{signalReady ? `${shortSymbol} · ${shortPerp ? "perpetual" : "Hong Kong stock"}` : "Awaiting both venues"}</small></div>
-            <i>→</i>
-            <div><span>LONG LEG</span><strong>{signalReady ? `LONG ${longVenue}` : "WAITING"}</strong><small>{signalReady ? `${longSymbol} · ${shortPerp ? "Hong Kong stock" : "perpetual"}` : "Awaiting both venues"}</small></div>
-            <b>{signalReady ? `${signalEdge !== null && signalEdge >= 0 ? "EXECUTABLE EDGE" : "DIRECTIONAL BASIS"} ${pct(signalEdge)}` : "AWAITING BOTH VENUES"}</b>
+          <div className={styles.cardSignals}>
+            <section className={`${styles.signalRow} ${styles.hkSignal} ${!signalReady ? styles.signalWaiting : ""}`}>
+              <div className={styles.signalBasis}><span>FUTU ↔ BINANCE</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>MID BASIS · {quote?.metrics.stockReferenceSource === "close-price" ? "official close" : quote?.metrics.stockReferenceSource === "auction-price" ? "auction / IEP" : quote?.metrics.stockReferenceSource === "book-mid" ? "live BBO" : "waiting"}</small></div>
+              <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{signalReady ? `SHORT ${shortVenue} → LONG ${longVenue}` : "WAITING FOR BOTH VENUES"}</strong><small>{signalReady ? `${shortSymbol} → ${longSymbol} · executable edge ${pct(signalEdge)}` : "No stale price is used for a trading signal"}</small></div>
+              <dl className={styles.signalMetrics}>
+                <div><dt>Futu · HKD</dt><dd>{number(quote?.metrics.stockReferenceHkd)}</dd></div>
+                <div><dt>Fair perp · USDT</dt><dd>{number(quote?.metrics.fairUsdt)}</dd></div>
+                <div><dt>Binance midpoint</dt><dd>{number(quote?.metrics.binanceMid)}</dd></div>
+                <div><dt>Funding</dt><dd className={fundingPct !== null && fundingPct < 0 ? styles.negative : styles.positive}>{pct(fundingPct, 4)}</dd><small>Next {time(quote?.binance?.nextFundingTime)}</small></div>
+              </dl>
+            </section>
+            {pair.adrSymbol ? <section className={`${styles.signalRow} ${styles.adrSignal} ${adrBasisPct === null ? styles.signalWaiting : ""} ${adrBasisPct !== null && Math.abs(adrBasisPct) >= alert ? styles.signalRowHot : ""}`}>
+              <div className={styles.signalBasis}><span>POSLEY ADR ↔ BINANCE</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small title={adr?.streamKey}>{adrFresh ? `LIVE ADR · ${time(adr?.timestamp)}` : adrUsable && adr ? `US BENCHMARK · ${time(adr.timestamp)}` : adr ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
+              <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{adrBasisPct === null ? "WAITING FOR BOTH VENUES" : adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}`}</strong><small>{adrBasisPct === null ? "Unavailable or expired data is excluded" : `${adrFresh ? "Live" : "Latest US benchmark"} ADR versus Binance · gap ${pct(Math.abs(adrBasisPct))}`}</small></div>
+              <dl className={`${styles.signalMetrics} ${styles.adrMetrics}`}>
+                <div><dt>{pair.adrSymbol} · USD</dt><dd>{number(adrMid, 4)}</dd></div>
+                <div><dt>Binance-implied ADR</dt><dd>{number(binanceImpliedAdrUsd, 4)}</dd></div>
+                <div><dt>Market-neutral hedge</dt><dd>1 ADR ↔ {number(perpsPerAdr, 4)} perp</dd><small>{pair.perpSymbol}</small></div>
+              </dl>
+            </section> : null}
           </div>
           <div className={styles.cardTabs} role="tablist" aria-label={`${pair.perpSymbol} card view`}>
             <button role="tab" aria-selected={activeTab === "overview"} onClick={() => setCardTabs((current) => ({ ...current, [id]: "overview" }))}>Overview</button>
-            <button role="tab" aria-selected={activeTab === "history"} onClick={() => { setCardTabs((current) => ({ ...current, [id]: "history" })); void loadHistory(id, pair); }}>Spread history <span>{history[id]?.length ?? 0}</span></button>
+            <button role="tab" aria-selected={activeTab === "history"} onClick={() => { if (activeTab === "history") setCardTabs((current) => ({ ...current, [id]: "overview" })); else { setCardTabs((current) => ({ ...current, [id]: "history" })); void loadHistory(id, pair); } }}>{activeTab === "history" ? "Close history" : "Open spread history"} <span>{history[id]?.length ?? 0}</span></button>
           </div>
-          {activeTab === "overview" ? <div className={styles.tabPanel} role="tabpanel">
-            <dl className={styles.coreMetrics}>
-              <div><dt>Futu benchmark · HKD</dt><dd>{number(quote?.metrics.stockReferenceHkd)}</dd></div>
-              <div><dt>Fair perp · USDT</dt><dd>{number(quote?.metrics.fairUsdt)}</dd></div>
-              <div><dt>Perp midpoint</dt><dd>{number(quote?.metrics.binanceMid)}</dd></div>
-              <div><dt>Latest funding</dt><dd className={fundingPct !== null && fundingPct < 0 ? styles.negative : styles.positive}>{pct(fundingPct, 4)}</dd><small>Next {time(quote?.binance?.nextFundingTime)} HKT</small></div>
-            </dl>
-            {pair.adrSymbol ? <div className={`${styles.adrPanel} ${adrBasisPct !== null && Math.abs(adrBasisPct) >= alert ? styles.adrHot : ""}`}>
-              <div><span>POSLEY ADR BASIS</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small title={adr?.streamKey}>{adrFresh ? `Live Posley · ${time(adr?.timestamp)} HKT` : adrUsable && adr ? `Latest US benchmark · ${time(adr.timestamp)} HKT` : adr ? `Too old · ${time(adr.timestamp)} HKT` : "Waiting for the matching Posley stream"}</small></div>
-              <dl><div><dt>{pair.adrSymbol} midpoint · USD</dt><dd>{number(adrMid, 4)}</dd></div><div><dt>Binance-implied ADR · USD</dt><dd>{number(binanceImpliedAdrUsd, 4)}</dd></div><div><dt>Exposure match</dt><dd>1 : {number(perpsPerAdr, 4)}</dd><small>ADR : {pair.perpSymbol} contracts</small></div></dl>
-              <div className={styles.adrDirection}><span>RELATIVE DIRECTION</span><strong>{adrBasisPct === null ? "WAITING FOR BOTH VENUES" : adrRich ? `SHORT ${pair.adrSymbol} / LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} / SHORT ${pair.perpSymbol}`}</strong><small>{adrBasisPct === null ? "Unavailable or expired data is excluded" : `${adrFresh ? "Live" : "Latest US benchmark"} ADR versus Binance indication ${pct(Math.abs(adrBasisPct))}`}</small></div>
-            </div> : null}
-            <div className={styles.referenceNote}><span>LIVE REFERENCE</span><strong>{quote?.metrics.stockReferenceSource?.replaceAll("-", " ") ?? "Waiting for Futu"}</strong><small>Futu {time(quote?.futu?.marketTimestamp)} HKT · Binance {time(quote?.binance?.marketTimestamp)} HKT</small></div>
-          </div> : <div className={styles.tabPanel} role="tabpanel">{historyLoading[id] ? <div className={styles.emptyChart}>Reading Futu and Binance one-minute history…</div> : historyError[id] ? <div className={styles.historyFailure}><strong>History unavailable</strong><span>{historyError[id]}</span><button onClick={() => void loadHistory(id, pair)}>Retry</button></div> : <SpreadHistory points={history[id] ?? []} cursor={historyCursor[id]} onCursor={(index) => setHistoryCursor((current) => ({ ...current, [id]: index }))} />}</div>}
+          {activeTab === "history" ? <div className={styles.tabPanel} role="tabpanel">{historyLoading[id] ? <div className={styles.emptyChart}>Reading Futu and Binance one-minute history…</div> : historyError[id] ? <div className={styles.historyFailure}><strong>History unavailable</strong><span>{historyError[id]}</span><button onClick={() => void loadHistory(id, pair)}>Retry</button></div> : <SpreadHistory points={history[id] ?? []} cursor={historyCursor[id]} onCursor={(index) => setHistoryCursor((current) => ({ ...current, [id]: index }))} />}</div> : null}
           <footer><span>Futu {time(quote?.futu?.marketTimestamp)} HKT</span><span>Binance {time(quote?.binance?.marketTimestamp)} HKT</span><button aria-label={`Remove ${pair.perpSymbol}`} onClick={() => savePairs(pairs.filter((item) => item.stockSymbol !== pair.stockSymbol || item.perpSymbol !== pair.perpSymbol))}>Remove</button></footer>
         </article>;
       })}</div>
