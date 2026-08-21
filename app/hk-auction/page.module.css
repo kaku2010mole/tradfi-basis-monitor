@@ -49,22 +49,26 @@
 .positive { color:#11825e; }
 .negative { color:#cf4c45; }
 .cardSignals { display:grid; }
-.signalRow { position:relative; display:grid; grid-template-columns:minmax(145px,.65fr) minmax(230px,1.15fr) minmax(330px,1.45fr); min-width:0; border-bottom:1px solid #dfe5e0; background:#fff; }
-.hkSignal { background:linear-gradient(100deg,#f0f6f2 0,#fff 58%); }
-.adrSignal { background:linear-gradient(100deg,#fff8e9 0,#fff 58%); }
+.signalRow { position:relative; display:grid; grid-template-columns:minmax(160px,.7fr) minmax(240px,1.1fr) minmax(360px,1.55fr); min-width:0; border-bottom:2px solid #d8e0da; background:#fff; }
+.hkSignal { border-left:5px solid #117d5d; background:linear-gradient(100deg,#eaf6f0 0,#fff 62%); }
+.adrSignal { border-left:5px solid #d2942d; background:linear-gradient(100deg,#fff3d8 0,#fff 62%); }
 .signalRowHot { box-shadow:inset 4px 0 #d99a37; }
-.signalBasis,.signalDirection,.signalMetrics { min-width:0; padding:14px 15px; }
+.signalBasis,.signalDirection,.signalMetrics { min-width:0; padding:15px 16px; }
 .signalBasis,.signalDirection { border-right:1px solid #dfe5e0; }
 .signalBasis { display:grid; align-content:center; }
-.signalBasis>strong { display:block; margin-top:7px; font:950 34px/1 monospace; letter-spacing:-.065em; }
+.signalBasis>span { width:max-content; max-width:100%; padding:5px 8px; border-radius:5px; color:#fff; background:#14271f; font-size:10px; letter-spacing:.08em; }
+.hkSignal .signalBasis>span { background:#117d5d; }
+.adrSignal .signalBasis>span { background:#b87818; }
+.signalBasis>strong { display:block; margin-top:9px; font:950 37px/1 monospace; letter-spacing:-.065em; }
 .signalBasis small,.signalDirection small,.signalMetrics small { display:block; margin-top:5px; color:#718078; font:8px/1.4 monospace; }
 .signalDirection { display:grid; align-content:center; }
-.signalDirection>strong { display:block; overflow-wrap:anywhere; margin-top:7px; color:#14231d; font:950 17px/1.15 monospace; letter-spacing:-.035em; }
-.signalMetrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); align-items:stretch; gap:0; margin:0; }
-.signalMetrics>div { min-width:0; padding:2px 10px; border-right:1px solid #e2e7e3; }
+.signalDirection>span { color:#3f5047; font-size:9px; }
+.signalDirection>strong { display:block; overflow-wrap:anywhere; margin-top:8px; color:#14231d; font:950 19px/1.15 monospace; letter-spacing:-.04em; }
+.signalMetrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); align-items:stretch; gap:7px; margin:0; background:rgba(245,248,245,.7); }
+.signalMetrics>div { min-width:0; padding:10px 11px; border:1px solid #dce4de; border-radius:6px; background:rgba(255,255,255,.88); }
 .signalMetrics>div:last-child { border-right:0; }
-.signalMetrics dt { color:#718078; font:800 8px/1.3 monospace; text-transform:uppercase; }
-.signalMetrics dd { overflow-wrap:anywhere; margin:7px 0 0; color:#203229; font:900 14px/1.15 monospace; }
+.signalMetrics dt { color:#53635a; font:900 9px/1.3 monospace; letter-spacing:.03em; text-transform:uppercase; }
+.signalMetrics dd { overflow-wrap:anywhere; margin:8px 0 0; color:#172a21; font:950 18px/1.1 monospace; letter-spacing:-.025em; }
 .signalMetrics dd.positive { color:#11825e; }
 .signalMetrics dd.negative { color:#cf4c45; }
 .adrMetrics { grid-template-columns:repeat(3,minmax(0,1fr)); }
