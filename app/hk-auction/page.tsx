@@ -290,17 +290,23 @@ export default function HkAuctionPage() {
   };
 
   const quoteById = useMemo(() => new Map(payload?.quotes.map((quote) => [quote.id, quote]) ?? []), [payload]);
+  const hktHour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", hour12: false }).format(now));
+  const adrSortActive = hktHour >= 21 || hktHour < 6;
   const orderedPairs = useMemo(() => [...pairs].sort((left, right) => {
-    const leftQuote = quoteById.get(`${left.stockSymbol}:${left.perpSymbol}`);
-    const rightQuote = quoteById.get(`${right.stockSymbol}:${right.perpSymbol}`);
-    const leftScore = leftQuote?.metrics.midBasisPct === null || leftQuote?.metrics.midBasisPct === undefined
-      ? -1
-      : Math.abs(leftQuote.metrics.midBasisPct);
-    const rightScore = rightQuote?.metrics.midBasisPct === null || rightQuote?.metrics.midBasisPct === undefined
-      ? -1
-      : Math.abs(rightQuote.metrics.midBasisPct);
+    const score = (pair: PairConfig) => {
+      const quote = quoteById.get(`${pair.stockSymbol}:${pair.perpSymbol}`);
+      if (!adrSortActive) return quote?.metrics.midBasisPct === null || quote?.metrics.midBasisPct === undefined ? -1 : Math.abs(quote.metrics.midBasisPct);
+      const adr = pair.adrSymbol ? adrBooks[pair.adrSymbol] : undefined;
+      if (!adr || now - adr.timestamp > ADR_BENCHMARK_MAX_AGE_MS || quote?.metrics.binanceMid === null || quote?.metrics.binanceMid === undefined || !pair.hkSharesPerAdr) return -1;
+      const adrMid = adr.bid !== null && adr.ask !== null ? (adr.bid + adr.ask) / 2 : adr.last;
+      const perpsPerAdr = pair.hkSharesPerAdr / pair.sharesPerContract;
+      const binanceImpliedAdr = quote.metrics.binanceMid * perpsPerAdr;
+      return adrMid === null || binanceImpliedAdr <= 0 ? -1 : Math.abs((adrMid / binanceImpliedAdr - 1) * 100);
+    };
+    const leftScore = score(left);
+    const rightScore = score(right);
     return rightScore - leftScore;
-  }), [pairs, quoteById]);
+  }), [adrBooks, adrSortActive, now, pairs, quoteById]);
   const futuState = payload?.quotes.find((quote) => quote.futu?.marketState)?.futu?.marketState;
   const session = sessionState(now, futuState);
   const alert = Number(threshold) || 0;
@@ -342,7 +348,7 @@ export default function HkAuctionPage() {
     {adrFeedError || missingAdrStreams.length ? <div className={styles.notice}><strong>Posley ADR</strong><span>{adrFeedError || "Some configured ADR streams are not currently published."}{missingAdrStreams.length ? ` Missing: ${missingAdrStreams.join(", ")}.` : ""}</span></div> : null}
 
     <section className={styles.board}>
-      <div className={styles.boardHead}><div><span>MONITORED MAPPINGS</span><h2>Executable auction basis</h2></div><p>{loading ? "Connecting…" : `${payload?.quotes.filter((quote) => quote.status === "live").length ?? 0}/${pairs.length} fully live`} · sorted by |mid basis|</p></div>
+      <div className={styles.boardHead}><div><span>MONITORED MAPPINGS</span><h2>Executable auction basis</h2></div><p>{loading ? "Connecting…" : `${payload?.quotes.filter((quote) => quote.status === "live").length ?? 0}/${pairs.length} fully live`} · {adrSortActive ? "night ranking by |ADR/Binance basis| · 21:00–06:00 HKT" : "ranking by |Futu/Binance basis|"}</p></div>
       <div className={styles.cards}>{orderedPairs.map((pair) => {
         const id = `${pair.stockSymbol}:${pair.perpSymbol}`;
         const quote = quoteById.get(id);
@@ -377,7 +383,7 @@ export default function HkAuctionPage() {
           <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{pair.sharesPerContract.toLocaleString()} shares / perp{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></header>
           <div className={styles.cardSignals}>
             <section className={`${styles.signalRow} ${styles.hkSignal} ${!signalReady ? styles.signalWaiting : ""}`}>
-              <div className={styles.signalBasis}><span>FUTU ↔ BINANCE</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>MID BASIS · {quote?.metrics.stockReferenceSource === "close-price" ? "official close" : quote?.metrics.stockReferenceSource === "auction-price" ? "auction / IEP" : quote?.metrics.stockReferenceSource === "book-mid" ? "live BBO" : "waiting"}</small></div>
+              <div className={styles.signalBasis}><span>PRIMARY · FUTU ↔ BINANCE</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>MID BASIS · {quote?.metrics.stockReferenceSource === "close-price" ? "official close" : quote?.metrics.stockReferenceSource === "auction-price" ? "auction / IEP" : quote?.metrics.stockReferenceSource === "book-mid" ? "live BBO" : "waiting"}</small></div>
               <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{signalReady ? `SHORT ${shortVenue} → LONG ${longVenue}` : "WAITING FOR BOTH VENUES"}</strong><small>{signalReady ? `${shortSymbol} → ${longSymbol} · executable edge ${pct(signalEdge)}` : "No stale price is used for a trading signal"}</small></div>
               <dl className={styles.signalMetrics}>
                 <div><dt>Futu · HKD</dt><dd>{number(quote?.metrics.stockReferenceHkd)}</dd></div>
@@ -387,7 +393,7 @@ export default function HkAuctionPage() {
               </dl>
             </section>
             {pair.adrSymbol ? <section className={`${styles.signalRow} ${styles.adrSignal} ${adrBasisPct === null ? styles.signalWaiting : ""} ${adrBasisPct !== null && Math.abs(adrBasisPct) >= alert ? styles.signalRowHot : ""}`}>
-              <div className={styles.signalBasis}><span>POSLEY ADR ↔ BINANCE</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small title={adr?.streamKey}>{adrFresh ? `LIVE ADR · ${time(adr?.timestamp)}` : adrUsable && adr ? `US BENCHMARK · ${time(adr.timestamp)}` : adr ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
+              <div className={styles.signalBasis}><span>OVERNIGHT · POSLEY ADR ↔ BINANCE</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small title={adr?.streamKey}>{adrFresh ? `LIVE ADR · ${time(adr?.timestamp)}` : adrUsable && adr ? `US BENCHMARK · ${time(adr.timestamp)}` : adr ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
               <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{adrBasisPct === null ? "WAITING FOR BOTH VENUES" : adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}`}</strong><small>{adrBasisPct === null ? "Unavailable or expired data is excluded" : `${adrFresh ? "Live" : "Latest US benchmark"} ADR versus Binance · gap ${pct(Math.abs(adrBasisPct))}`}</small></div>
               <dl className={`${styles.signalMetrics} ${styles.adrMetrics}`}>
                 <div><dt>{pair.adrSymbol} · USD</dt><dd>{number(adrMid, 4)}</dd></div>
