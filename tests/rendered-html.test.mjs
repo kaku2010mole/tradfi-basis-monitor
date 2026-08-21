@@ -60,6 +60,8 @@ test("discovers and normalizes Posley ADR streams for HK auction basis", async (
   assert.match(auction, /Binance-implied ADR/);
   assert.match(auction, /FUTU ↔ BINANCE/);
   assert.match(auction, /POSLEY ADR ↔ BINANCE/);
+  assert.match(auction, /hktHour >= 21 \|\| hktHour < 6/);
+  assert.match(auction, /night ranking by \|ADR\/Binance basis\|/);
   assert.doesNotMatch(auction, /perpSymbol: "XIAOMIUSDT"/);
   assert.match(auction, /withoutRemovedPairs/);
   assert.doesNotMatch(auction, /className=\{styles\.tradeSignal\}/);
