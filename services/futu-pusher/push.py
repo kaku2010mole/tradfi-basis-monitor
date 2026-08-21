@@ -37,6 +37,7 @@ HISTORY_REFRESH_SECONDS = max(60, float(os.getenv("FUTU_HISTORY_REFRESH_INTERVAL
 HISTORY_LIMIT = 720
 RUNNING = True
 HKT = timezone(timedelta(hours=8))
+LIVE_BOOK_STATES = {"AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"}
 
 
 def stop(*_: object) -> None:
@@ -117,7 +118,7 @@ def build_payload(context: OpenQuoteContext, history: dict[str, list[list[float 
     if snapshot_ret != RET_OK:
         raise RuntimeError(f"Futu snapshot failed: {snapshot}")
     snapshot_by_code = {str(row.get("code")): row for _, row in snapshot.iterrows()}
-    market_closed = market_state is not None and market_state.upper() == "CLOSED"
+    book_required = market_state is not None and market_state.upper() in LIVE_BOOK_STATES
     quotes: list[dict[str, object]] = []
     orderbooks: list[dict[str, object]] = []
     for symbol in SYMBOLS:
@@ -128,7 +129,11 @@ def build_payload(context: OpenQuoteContext, history: dict[str, list[list[float 
         bids = levels(book.get("Bid", [])) if book_ret == RET_OK else []
         asks = levels(book.get("Ask", [])) if book_ret == RET_OK else []
         last = positive(row.get("last_price"))
-        if (not bids or not asks) and not (market_closed and last is not None):
+        # Futu reports NONE, REST or CLOSED outside the live HK session. Those
+        # states legitimately have no two-sided book, but the official last is
+        # still the required overnight / pre-open benchmark. During auction or
+        # continuous trading, never hide a missing book behind the last price.
+        if (not bids or not asks) and (book_required or last is None):
             continue
         quotes.append({
             "symbol": symbol,

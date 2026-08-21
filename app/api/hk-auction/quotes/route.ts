@@ -8,6 +8,7 @@ const DEFAULT_USD_HKD = 7.83;
 const MAX_PAIRS = 24;
 const FETCH_TIMEOUT_MS = 5_000;
 const FUTU_STALE_MS = 20_000;
+const FUTU_LIVE_BOOK_STATES = new Set(["AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"]);
 
 type FutuPushStore = typeof globalThis & {
   __FUTU_PUSH_SNAPSHOT__?: { payload: unknown; receivedAt: number };
@@ -424,13 +425,15 @@ export async function GET(request: Request) {
     const activeBinance = binance?.stale === false ? binance : null;
 
     // During the HK auction, an explicit IEP is preferred, followed by the
-    // visible Futu BBO midpoint. Once Futu reports CLOSED, the official session
-    // last/close becomes the overnight benchmark so the 24/7 perp stays comparable.
-    const closed = activeFutu?.marketState?.toUpperCase() === "CLOSED";
-    const stockReferenceHkd = closed
+    // visible Futu BBO midpoint. Outside live-book states (including NONE,
+    // REST and CLOSED), the official last becomes the overnight benchmark so
+    // the 24/7 perp stays comparable.
+    const futuMarketState = activeFutu?.marketState?.toUpperCase() ?? null;
+    const useOfficialLast = activeFutu !== null && futuMarketState !== null && !FUTU_LIVE_BOOK_STATES.has(futuMarketState);
+    const stockReferenceHkd = useOfficialLast
       ? activeFutu?.last ?? null
       : activeFutu?.auctionPrice ?? (activeFutu ? midpoint(activeFutu.bid, activeFutu.ask) : null);
-    const stockReferenceSource = closed && stockReferenceHkd !== null
+    const stockReferenceSource = useOfficialLast && stockReferenceHkd !== null
       ? "close-price"
       : activeFutu?.auctionPrice !== null && activeFutu?.auctionPrice !== undefined
         ? "auction-price"

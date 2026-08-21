@@ -44,7 +44,11 @@ test("restores the Relative Value Monitor and its global prediction-error broadc
 });
 
 test("discovers and normalizes Posley ADR streams for HK auction basis", async () => {
-  const auction = await readFile(new URL("../app/hk-auction/page.tsx", import.meta.url), "utf8");
+  const [auction, quotes, pusher] = await Promise.all([
+    readFile(new URL("../app/hk-auction/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/hk-auction/quotes/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
+  ]);
   assert.match(auction, /\/api\/hk-auction\/adr-quotes/);
   assert.doesNotMatch(auction, /beginPosleyLogin/);
   assert.match(auction, /TCEHY/);
@@ -58,6 +62,9 @@ test("discovers and normalizes Posley ADR streams for HK auction basis", async (
   assert.ok(auction.includes("const perpsPerAdr = adrRatio !== null ? adrRatio / pair.sharesPerContract : null;"));
   assert.doesNotMatch(auction, /SHORT \$\{pair\.adrSymbol\} \/ LONG FUTU/);
   assert.match(auction, /ADR_BENCHMARK_MAX_AGE_MS/);
+  assert.match(pusher, /LIVE_BOOK_STATES = \{"AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"\}/);
+  assert.match(pusher, /book_required or last is None/);
+  assert.match(quotes, /useOfficialLast/);
 });
 
 test("keeps the Posley refresh token on the server", async () => {

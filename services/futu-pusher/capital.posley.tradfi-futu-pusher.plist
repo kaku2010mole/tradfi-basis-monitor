@@ -6,10 +6,10 @@
   <string>capital.posley.tradfi-futu-pusher</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/posley3302_15/Documents/Codex/2026-07-30/ban/services/futu-pusher/run-macos.sh</string>
+    <string>/Users/posley3302_15/Library/Application Support/TradFiFutuRelay/run-macos.sh</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/posley3302_15/Documents/Codex/2026-07-30/ban</string>
+  <string>/Users/posley3302_15/Library/Application Support/TradFiFutuRelay</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>

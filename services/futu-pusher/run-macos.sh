@@ -2,15 +2,20 @@
 
 set -u
 
-relay_root="/Users/posley3302_15/Documents/Codex/2026-07-30/ban"
+relay_root="/Users/posley3302_15/Library/Application Support/TradFiFutuRelay"
 opend_binary="/Applications/Futu_OpenD.app/Contents/MacOS/Futu_OpenD"
 pid_file="/tmp/tradfi-futu-pusher.pid"
 
 if [[ -r "$pid_file" ]]; then
   existing_pid="$(<"$pid_file")"
-  if [[ "$existing_pid" == <-> ]] && /bin/kill -0 "$existing_pid" >/dev/null 2>&1; then
+  existing_command=""
+  if [[ "$existing_pid" == <-> ]]; then
+    existing_command="$(/bin/ps -p "$existing_pid" -o command= 2>/dev/null || true)"
+  fi
+  if [[ "$existing_command" == *"TradFiFutuRelay/run-macos.sh"* ]]; then
     exit 0
   fi
+  /bin/rm -f "$pid_file"
 fi
 print -r -- "$$" >"$pid_file"
 cleanup() { /bin/rm -f "$pid_file"; }
@@ -28,7 +33,8 @@ trap 'cleanup; exit 0' INT TERM
 trap cleanup EXIT
 while true; do
   /usr/bin/caffeinate -s \
-    "$relay_root/services/futu-pusher/.venv/bin/python" -u \
-    "$relay_root/services/futu-pusher/push.py"
+    /usr/bin/env FUTU_PUSH_TOKEN_FILE="$relay_root/.futu-push-token" \
+    "$relay_root/.venv/bin/python" -u \
+    "$relay_root/push.py"
   /bin/sleep 5
 done
