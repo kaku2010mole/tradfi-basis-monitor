@@ -61,7 +61,6 @@ type BinanceFunding = {
 
 const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.00700", perpSymbol: "TENCENTUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.01810", perpSymbol: "XIAOMIUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.01024", perpSymbol: "KUAISHOUUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.03690", perpSymbol: "MEITUANUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.09992", perpSymbol: "POPMARTUSDT", sharesPerContract: 1 },
@@ -117,6 +116,7 @@ const normalizeStockSymbol = (value: string) => {
 const normalizePerpSymbol = (value: string) => {
   const symbol = value.trim().toUpperCase();
   if (!/^[A-Z0-9_]{3,32}USDT$/.test(symbol)) throw new Error(`Invalid Binance perp symbol: ${value}`);
+  if (symbol === "XIAOMIUSDT") throw new Error("XIAOMIUSDT has been removed from this monitor.");
   return symbol;
 };
 
