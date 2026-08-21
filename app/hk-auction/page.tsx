@@ -36,6 +36,7 @@ type AdrFeedState = "connecting" | "live" | "partial" | "reconnecting" | "unconf
 
 const STORAGE_KEY = "hk-auction-pairs-v3";
 const LEGACY_STORAGE_KEYS = ["hk-auction-pairs-v2", "hk-auction-pairs-v1"];
+const REMOVED_PERPS = new Set(["XIAOMIUSDT"]);
 const ADR_STALE_MS = 30_000;
 const ADR_BENCHMARK_MAX_AGE_MS = 96 * 60 * 60_000;
 const DEFAULT_ADR: Record<string, { adrSymbol: string; hkSharesPerAdr: number }> = {
@@ -48,7 +49,6 @@ const DEFAULT_ADR: Record<string, { adrSymbol: string; hkSharesPerAdr: number }>
 };
 const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.00700", perpSymbol: "TENCENTUSDT", sharesPerContract: 1, ...DEFAULT_ADR["HK.00700"] },
-  { stockSymbol: "HK.01810", perpSymbol: "XIAOMIUSDT", sharesPerContract: 1, ...DEFAULT_ADR["HK.01810"] },
   { stockSymbol: "HK.01024", perpSymbol: "KUAISHOUUSDT", sharesPerContract: 1, ...DEFAULT_ADR["HK.01024"] },
   { stockSymbol: "HK.03690", perpSymbol: "MEITUANUSDT", sharesPerContract: 1, ...DEFAULT_ADR["HK.03690"] },
   { stockSymbol: "HK.09992", perpSymbol: "POPMARTUSDT", sharesPerContract: 1, ...DEFAULT_ADR["HK.09992"] },
@@ -68,6 +68,8 @@ const normalizeSavedPair = (pair: PairConfig): PairConfig => {
   if (!mapping || pair.adrSymbol) return pair;
   return { ...pair, ...mapping };
 };
+
+const withoutRemovedPairs = (pairs: PairConfig[]) => pairs.filter((pair) => !REMOVED_PERPS.has(pair.perpSymbol.toUpperCase()));
 
 function sessionState(now: number, futuState?: string | null) {
   const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(now);
@@ -144,14 +146,18 @@ export default function HkAuctionPage() {
       const current = window.localStorage.getItem(STORAGE_KEY);
       if (current !== null) {
         const saved = JSON.parse(current) as PairConfig[];
-        if (Array.isArray(saved)) setPairs(saved.slice(0, 24));
+        if (Array.isArray(saved)) {
+          const cleaned = withoutRemovedPairs(saved).map(normalizeSavedPair).slice(0, 24);
+          setPairs(cleaned);
+          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
+        }
         return;
       }
       const legacyRaw = LEGACY_STORAGE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const legacy = JSON.parse(legacyRaw || "[]") as PairConfig[];
       const merged = new Map(DEFAULT_PAIRS.map((pair) => [`${pair.stockSymbol}:${pair.perpSymbol}`, pair]));
       if (Array.isArray(legacy)) legacy.forEach((pair) => merged.set(`${pair.stockSymbol}:${pair.perpSymbol}`, normalizeSavedPair(pair)));
-      const migrated = [...merged.values()].map(normalizeSavedPair).slice(0, 24);
+      const migrated = withoutRemovedPairs([...merged.values()]).map(normalizeSavedPair).slice(0, 24);
       setPairs(migrated);
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
     } catch { /* Keep safe defaults. */ }
@@ -248,8 +254,9 @@ export default function HkAuctionPage() {
   }, [load]);
 
   const savePairs = (next: PairConfig[]) => {
-    setPairs(next);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    const cleaned = withoutRemovedPairs(next);
+    setPairs(cleaned);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
   };
   const addPair = () => {
     const stockSymbol = draft.stockSymbol.trim().toUpperCase();
@@ -257,6 +264,10 @@ export default function HkAuctionPage() {
     const sharesPerContract = Number(draft.sharesPerContract);
     const adrSymbol = draft.adrSymbol.trim().toUpperCase();
     const hkSharesPerAdr = Number(draft.hkSharesPerAdr);
+    if (REMOVED_PERPS.has(perpSymbol)) {
+      setPairError("This Binance symbol has been permanently removed from the monitor.");
+      return;
+    }
     if (!/^HK\.\d{5}$/.test(stockSymbol) || !/^[A-Z0-9_]{3,32}USDT$/.test(perpSymbol) || !Number.isFinite(sharesPerContract) || sharesPerContract <= 0) {
       setPairError("Use Futu format HK.00700, a Binance USDT symbol, and positive shares per contract.");
       return;
