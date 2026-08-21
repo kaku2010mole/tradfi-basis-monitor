@@ -60,6 +60,8 @@ test("discovers and normalizes Posley ADR streams for HK auction basis", async (
   assert.match(auction, /Binance-implied ADR/);
   assert.match(auction, /FUTU ↔ BINANCE/);
   assert.match(auction, /POSLEY ADR ↔ BINANCE/);
+  assert.doesNotMatch(auction, /perpSymbol: "XIAOMIUSDT"/);
+  assert.match(auction, /withoutRemovedPairs/);
   assert.doesNotMatch(auction, /className=\{styles\.tradeSignal\}/);
   assert.match(auction, /SHORT \$\{pair\.adrSymbol\} → LONG \$\{pair\.perpSymbol\}/);
   assert.ok(auction.includes("const perpsPerAdr = adrRatio !== null ? adrRatio / pair.sharesPerContract : null;"));
