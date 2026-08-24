@@ -34,8 +34,8 @@ type HistoryPoint = { t: number; value: number; stockCloseHkd?: number; perpClos
 type AdrBook = { symbol: string; streamKey: string; bid: number | null; ask: number | null; last: number | null; bidSize: number | null; askSize: number | null; timestamp: number };
 type AdrFeedState = "connecting" | "live" | "partial" | "reconnecting" | "unconfigured";
 
-const STORAGE_KEY = "hk-auction-pairs-v3";
-const LEGACY_STORAGE_KEYS = ["hk-auction-pairs-v2", "hk-auction-pairs-v1"];
+const STORAGE_KEY = "hk-auction-pairs-v4";
+const LEGACY_STORAGE_KEYS = ["hk-auction-pairs-v3", "hk-auction-pairs-v2", "hk-auction-pairs-v1"];
 const REMOVED_PERPS = new Set(["XIAOMIUSDT"]);
 const ADR_STALE_MS = 30_000;
 const ADR_BENCHMARK_MAX_AGE_MS = 96 * 60 * 60_000;
@@ -47,6 +47,10 @@ const DEFAULT_ADR: Record<string, { adrSymbol: string; hkSharesPerAdr: number }>
   "HK.09992": { adrSymbol: "PMRTY", hkSharesPerAdr: 1 },
   "HK.00100": { adrSymbol: "MMXGY", hkSharesPerAdr: 0.2 },
 };
+const REQUIRED_NEW_PAIRS: PairConfig[] = [
+  { stockSymbol: "HK.03308", perpSymbol: "ZHONGJIUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.03986", perpSymbol: "GIGADEVUSDT", sharesPerContract: 1 },
+];
 const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.00700", perpSymbol: "TENCENTUSDT", sharesPerContract: 1, ...DEFAULT_ADR["HK.00700"] },
   { stockSymbol: "HK.01024", perpSymbol: "KUAISHOUUSDT", sharesPerContract: 1, ...DEFAULT_ADR["HK.01024"] },
@@ -54,6 +58,7 @@ const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.09992", perpSymbol: "POPMARTUSDT", sharesPerContract: 1, ...DEFAULT_ADR["HK.09992"] },
   { stockSymbol: "HK.00100", perpSymbol: "MINIMAXUSDT", sharesPerContract: 1, ...DEFAULT_ADR["HK.00100"] },
   { stockSymbol: "HK.02513", perpSymbol: "ZHIPUUSDT", sharesPerContract: 1 },
+  ...REQUIRED_NEW_PAIRS,
   { stockSymbol: "HK.00700", perpSymbol: "HK0700USDT", sharesPerContract: 7.83, ...DEFAULT_ADR["HK.00700"] },
   { stockSymbol: "HK.01810", perpSymbol: "HK1810USDT", sharesPerContract: 7.83, ...DEFAULT_ADR["HK.01810"] },
 ];
@@ -155,8 +160,12 @@ export default function HkAuctionPage() {
       }
       const legacyRaw = LEGACY_STORAGE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const legacy = JSON.parse(legacyRaw || "[]") as PairConfig[];
-      const merged = new Map(DEFAULT_PAIRS.map((pair) => [`${pair.stockSymbol}:${pair.perpSymbol}`, pair]));
-      if (Array.isArray(legacy)) legacy.forEach((pair) => merged.set(`${pair.stockSymbol}:${pair.perpSymbol}`, normalizeSavedPair(pair)));
+      const base = Array.isArray(legacy) && legacy.length ? legacy.map(normalizeSavedPair) : DEFAULT_PAIRS;
+      const merged = new Map(base.map((pair) => [`${pair.stockSymbol}:${pair.perpSymbol}`, pair]));
+      REQUIRED_NEW_PAIRS.forEach((pair) => {
+        const key = `${pair.stockSymbol}:${pair.perpSymbol}`;
+        if (!merged.has(key)) merged.set(key, pair);
+      });
       const migrated = withoutRemovedPairs([...merged.values()]).map(normalizeSavedPair).slice(0, 24);
       setPairs(migrated);
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
