@@ -24,6 +24,7 @@ type StoredSnapshot = {
 };
 type RecorderStatus = "starting" | "recording" | "retrying" | "local-storage-unavailable";
 type AxisMode = "auto" | "oracle";
+type DepthScale = readonly [number, number, number, number];
 
 const SYMBOLS = [
   { api: "para:OTHERS", label: "para:OTHERS" },
@@ -43,6 +44,7 @@ const STORE_NAME = "snapshots";
 const RETENTION_MS = 24 * 60 * 60_000;
 const CAPTURE_MS = 10_000;
 const MAX_IMPORT_BYTES = 60 * 1024 * 1024;
+const DEPTH_PERCENTILES = [.25, .5, .75, .9] as const;
 
 const formatPrice = (value: number | null | undefined) => value == null || !Number.isFinite(value)
   ? "—"
@@ -68,6 +70,20 @@ const formatDateTime = (value: number) => new Intl.DateTimeFormat("en-GB", {
   minute: "2-digit",
   hour12: false,
 }).format(value);
+
+const buildDepthScale = (snapshots: StoredSnapshot[]): DepthScale => {
+  const values = snapshots.flatMap((snapshot) => snapshot.levels.map(([price, size]) => price * size)).filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+  if (!values.length) return [0, 0, 0, 0];
+  return DEPTH_PERCENTILES.map((percentile) => values[Math.min(values.length - 1, Math.floor((values.length - 1) * percentile))]) as unknown as DepthScale;
+};
+
+const depthBucket = (usd: number, scale: DepthScale) => {
+  if (usd <= scale[0]) return 0;
+  if (usd <= scale[1]) return 1;
+  if (usd <= scale[2]) return 2;
+  if (usd <= scale[3]) return 3;
+  return 4;
+};
 
 const normalizeSnapshot = (value: unknown): StoredSnapshot | null => {
   if (!value || typeof value !== "object") return null;
@@ -129,7 +145,7 @@ const persistSnapshots = (database: IDBDatabase, snapshots: StoredSnapshot[]) =>
   transaction.onabort = () => reject(transaction.error);
 });
 
-function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, verticalPan, viewEnd, minViewEnd, maxViewEnd, onViewEndChange, onVerticalPanChange }: {
+function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, verticalPan, viewEnd, minViewEnd, maxViewEnd, depthScale, onViewEndChange, onVerticalPanChange }: {
   snapshots: StoredSnapshot[];
   windowMs: number;
   symbol: string;
@@ -139,6 +155,7 @@ function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, ve
   viewEnd: number;
   minViewEnd: number;
   maxViewEnd: number;
+  depthScale: DepthScale;
   onViewEndChange: (value: number) => void;
   onVerticalPanChange: (value: number) => void;
 }) {
@@ -238,7 +255,6 @@ function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, ve
 
       const rows = Math.max(60, Math.min(120, Math.floor(plotHeight / 3)));
       const cells: Array<{ x: number; row: number; side: 0 | 1; usd: number }> = [];
-      let maxUsd = 1;
       snapshots.forEach((snapshot) => {
         const aggregated = new Map<string, number>();
         snapshot.levels.forEach(([price, size, side]) => {
@@ -249,19 +265,26 @@ function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, ve
         });
         aggregated.forEach((usd, key) => {
           const [row, side] = key.split(":").map(Number);
-          maxUsd = Math.max(maxUsd, usd);
           cells.push({ x: x(snapshot.t), row, side: side as 0 | 1, usd });
         });
       });
       const expectedColumns = Math.max(1, windowMs / CAPTURE_MS);
       const cellWidth = Math.max(2, Math.min(10, plotWidth / expectedColumns * 1.7));
       const cellHeight = Math.max(2, plotHeight / rows + .8);
+      const opacities = [.13, .28, .48, .72, .98];
       cells.forEach((cell) => {
-        const strength = Math.pow(Math.log1p(cell.usd) / Math.log1p(maxUsd), .72);
+        const bucket = depthBucket(cell.usd, depthScale);
         context.fillStyle = cell.side === 0
-          ? `rgba(23, 220, 174, ${.08 + strength * .82})`
-          : `rgba(255, 107, 76, ${.08 + strength * .82})`;
-        context.fillRect(cell.x - cellWidth / 2, margin.top + (cell.row / rows) * plotHeight, cellWidth, cellHeight);
+          ? `rgba(20, 232, 177, ${opacities[bucket]})`
+          : `rgba(255, 91, 82, ${opacities[bucket]})`;
+        const top = margin.top + (cell.row / rows) * plotHeight;
+        const emphasizedHeight = cellHeight + bucket * .42;
+        context.fillRect(cell.x - cellWidth / 2, top - (emphasizedHeight - cellHeight) / 2, cellWidth, emphasizedHeight);
+        if (bucket >= 3) {
+          context.strokeStyle = cell.side === 0 ? "rgba(128,255,220,.72)" : "rgba(255,186,169,.72)";
+          context.lineWidth = bucket === 4 ? 1 : .55;
+          context.strokeRect(cell.x - cellWidth / 2, top - (emphasizedHeight - cellHeight) / 2, cellWidth, emphasizedHeight);
+        }
       });
 
       const traceOracle = () => {
@@ -296,7 +319,7 @@ function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, ve
     const observer = new ResizeObserver(render);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [axisMode, oracleRangePct, snapshots, symbol, verticalPan, viewEnd, windowMs]);
+  }, [axisMode, depthScale, oracleRangePct, snapshots, symbol, verticalPan, viewEnd, windowMs]);
 
   return <canvas
     ref={canvasRef}
@@ -420,6 +443,7 @@ export default function ParaDepthHeatmap() {
     snapshot.t >= resolvedViewEnd - windowMs && snapshot.t <= resolvedViewEnd
   )), [resolvedViewEnd, symbolSnapshots, windowMs]);
   const latest = selectedSnapshots.at(-1);
+  const depthScale = useMemo(() => buildDepthScale(selectedSnapshots), [selectedSnapshots]);
   const bestBid = latest?.levels.filter((level) => level[2] === 0).reduce<number | null>((best, level) => best === null || level[0] > best ? level[0] : best, null) ?? null;
   const bestAsk = latest?.levels.filter((level) => level[2] === 1).reduce<number | null>((best, level) => best === null || level[0] < best ? level[0] : best, null) ?? null;
   const visibleDepth = latest?.levels.reduce((total, level) => total + level[0] * level[1], 0) ?? 0;
@@ -514,7 +538,7 @@ export default function ParaDepthHeatmap() {
         <div>
           <p className={styles.eyebrow}>LOCAL PARA ORDERBOOK RECORDER</p>
           <h2>Liquidity heatmap</h2>
-          <p>Top 20 bid and ask levels captured every 10 seconds. The browser keeps a 24-hour local cache; the Render archive records independently.</p>
+          <p>Top 20 bid and ask levels captured every 10 seconds. Five percentile bands separate ordinary liquidity from large and exceptional resting orders.</p>
         </div>
         <div className={styles.depthHeaderActions}>
           <button className={styles.historyToggle} onClick={() => setHistoryOpen((open) => !open)}>{historyOpen ? "Close history data" : "Read history data"}</button>
@@ -555,8 +579,20 @@ export default function ParaDepthHeatmap() {
         <span><i className={styles.oracleLegend} />Oracle price</span>
         <small>Drag left/right through time · drag up/down through price · double-click to reset</small>
       </div>
+      <div className={styles.depthScaleLegend} aria-label="Resting USD notional intensity scale">
+        <div><strong>Resting USD intensity</strong><small>Recalibrated to the visible time window</small></div>
+        <div className={styles.depthScaleBands}>
+          {[
+            ["Low", `≤ ${formatUsd(depthScale[0])}`],
+            ["Normal", `${formatUsd(depthScale[0])}–${formatUsd(depthScale[1])}`],
+            ["Elevated", `${formatUsd(depthScale[1])}–${formatUsd(depthScale[2])}`],
+            ["Large", `${formatUsd(depthScale[2])}–${formatUsd(depthScale[3])}`],
+            ["Exceptional", `> ${formatUsd(depthScale[3])}`],
+          ].map(([label, range], index) => <span key={label}><i className={`${styles.depthBandSwatch} ${[styles.depthBand1, styles.depthBand2, styles.depthBand3, styles.depthBand4, styles.depthBand5][index]}`} /><b>{label}</b><small>{range}</small></span>)}
+        </div>
+      </div>
       <div className={styles.depthCanvasWrap}>
-        <DepthCanvas snapshots={selectedSnapshots} windowMs={windowMs} symbol={SYMBOLS.find((symbol) => symbol.api === selectedSymbol)?.label ?? selectedSymbol} axisMode={axisMode} oracleRangePct={oracleRangePct} verticalPan={verticalPan} viewEnd={resolvedViewEnd} minViewEnd={minViewEnd} maxViewEnd={latestTime} onViewEndChange={updateViewEnd} onVerticalPanChange={setVerticalPan} />
+        <DepthCanvas snapshots={selectedSnapshots} windowMs={windowMs} symbol={SYMBOLS.find((symbol) => symbol.api === selectedSymbol)?.label ?? selectedSymbol} axisMode={axisMode} oracleRangePct={oracleRangePct} verticalPan={verticalPan} viewEnd={resolvedViewEnd} minViewEnd={minViewEnd} maxViewEnd={latestTime} depthScale={depthScale} onViewEndChange={updateViewEnd} onVerticalPanChange={setVerticalPan} />
       </div>
       <div className={styles.timeNavigator}>
         <div><span>{resolvedViewEnd ? `${formatDateTime(resolvedViewEnd - windowMs)} — ${formatDateTime(resolvedViewEnd)} HKT` : "Waiting for history"}</span><button className={viewEnd === null ? styles.liveTime : ""} onClick={() => setViewEnd(null)}>● Live</button></div>
@@ -574,7 +610,7 @@ export default function ParaDepthHeatmap() {
         <small>{historyMessage || "Render history is available from the Render deployment. Local files are parsed in this browser and are not uploaded to a server."}</small>
       </div>}
       <footer className={styles.depthFooter}>
-        <span>Brighter cells represent more resting USD notional at that price level.</span>
+        <span>Brightness and outline indicate the visible-window USD band; the top 25% receives an outline.</span>
         <span>{selectedSnapshots.length.toLocaleString()} samples in this view · {viewEnd === null ? "live" : "historical"}</span>
       </footer>
     </section>
