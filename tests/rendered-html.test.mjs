@@ -119,3 +119,18 @@ test("retries the Futu LaunchAgent registration after replacing the relay", asyn
   assert.match(installer, /launchctl bootstrap/);
   assert.match(installer, /exec \"\$runtime_dir\/run-macos\.sh\"/);
 });
+
+test("uses executable best bid or ask for live Oracle Monitor deviations", async () => {
+  const [page, quotes, alerts] = await Promise.all([
+    readFile(new URL("../app/oracle/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/oracle-monitor/quotes/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/GlobalOracleAlerts.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /const executableSide = mark >= oracle \? "SELL" as const : "BUY" as const/);
+  assert.match(page, /"Best bid" : "Best ask"/);
+  assert.doesNotMatch(page, /const live = \(bid \+ ask\) \/ 2/);
+  assert.match(quotes, /const positive = mark >= oracle/);
+  assert.doesNotMatch(quotes, /const live = \(bid \+ ask\) \/ 2/);
+  assert.match(alerts, /const live = mark >= oracle \? bid : ask/);
+  assert.match(alerts, /executable best bid\/ask/);
+});
