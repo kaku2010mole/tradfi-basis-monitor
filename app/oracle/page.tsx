@@ -110,10 +110,10 @@ const rebuildBinanceQuote = (symbol: string, candidate: Partial<OracleQuote>): O
   const oracle = positiveNumber(candidate.oracle);
   const mark = positiveNumber(candidate.mark);
   if (bid === null || ask === null || oracle === null || mark === null) return null;
-  const live = (bid + ask) / 2;
-  const executableSide = live >= oracle ? "SELL" as const : "BUY" as const;
+  const executableSide = mark >= oracle ? "SELL" as const : "BUY" as const;
   const executablePrice = executableSide === "SELL" ? bid : ask;
   const executableQty = executableSide === "SELL" ? bidQty : askQty;
+  const live = executablePrice;
   return {
     id: `binance:${symbol}`,
     venue: "Binance",
@@ -237,7 +237,7 @@ function QuoteCard({ quote, threshold, selected, stale, rank, onSelect }: { quot
         <span className={`${styles.deviationValue} ${quote.deviation >= 0 ? styles.positive : styles.negative}`}>{formatPct(quote.deviation)}</span>
       </div>
       <div className={styles.cardPrices}>
-        <div><span>Live midpoint</span><b>{formatPrice(quote.live)}</b></div>
+        <div><span>{quote.executableSide === "SELL" ? "Best bid" : "Best ask"}</span><b>{formatPrice(quote.live)}</b></div>
         <div><span>Oracle</span><b>{formatPrice(quote.oracle)}</b></div>
         <div><span>Mark</span><b>{formatPrice(quote.mark)}</b></div>
       </div>
@@ -586,7 +586,7 @@ export default function OracleMonitor() {
           <div>
             <p className={styles.eyebrow}>LIVE / ORACLE INTELLIGENCE</p>
             <h1>Oracle Monitor</h1>
-            <p>Compare market midpoint against oracle and mark prices across Binance TradFi contracts and Hyperliquid para indices. Trigger broadcasts fire on threshold crossings.</p>
+            <p>Compare executable best bid or best ask against oracle prices across Binance TradFi contracts and Hyperliquid para indices. Trigger broadcasts fire on threshold crossings.</p>
           </div>
           <div className={styles.topActions}>
             <div className={styles.links} aria-label="Connection status">
@@ -668,7 +668,7 @@ export default function OracleMonitor() {
             : chartPoints.length > 1 && selected ? <DeviationChart points={chartPoints} threshold={threshold} symbol={selected.symbol} />
               : <div className={styles.emptyChart}>{selected?.venue === "Hyperliquid" ? "Collecting synchronized live para deviation samples…" : "Waiting for synchronized history…"}</div>}
           <footer className={styles.chartFooter}>
-            <span>{selected?.venue === "Binance" ? `Binance market and index-price klines · ${historyInterval}` : "Hyperliquid metaAndAssetCtxs · live midpoint / oracle"}</span>
+            <span>{selected?.venue === "Binance" ? `Binance historical candle close and index-price klines · ${historyInterval}` : "Hyperliquid live executable BBO / oracle"}</span>
             <span>{chartPoints.length.toLocaleString()} points</span>
           </footer>
         </section>
@@ -677,7 +677,7 @@ export default function OracleMonitor() {
 
         <LiquidationPriceMap />
 
-        <footer className={styles.footer}>Oracle and mark prices are reference inputs, not executable prices. Funding is shown in each venue&apos;s native interval.</footer>
+        <footer className={styles.footer}>Live deviation uses the sellable best bid when mark is above oracle, or the buyable best ask when mark is below oracle. Funding is shown in each venue&apos;s native interval.</footer>
       </div>
     </main>
   );
