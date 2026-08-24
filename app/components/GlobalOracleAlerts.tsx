@@ -29,7 +29,7 @@ type AlertQuote = {
   updatedAt: number;
 };
 type BinanceBook = { symbol?: string; bidPrice?: string; askPrice?: string; time?: number };
-type BinancePremium = { symbol?: string; indexPrice?: string; time?: number };
+type BinancePremium = { symbol?: string; indexPrice?: string; markPrice?: string; time?: number };
 
 const POLL_MS = 5_000;
 const MAX_QUOTE_AGE_MS = 30_000;
@@ -122,8 +122,9 @@ async function directBinanceQuotes(symbols: string[], signal: AbortSignal): Prom
     const bid = Number(book?.bidPrice);
     const ask = Number(book?.askPrice);
     const oracle = Number(premium?.indexPrice);
-    if (![bid, ask, oracle].every((value) => Number.isFinite(value) && value > 0)) return [];
-    const live = (bid + ask) / 2;
+    const mark = Number(premium?.markPrice);
+    if (![bid, ask, oracle, mark].every((value) => Number.isFinite(value) && value > 0)) return [];
+    const live = mark >= oracle ? bid : ask;
     return [{
       id: `binance:${symbol}`,
       venue: "Binance" as const,
@@ -262,7 +263,7 @@ export default function GlobalOracleAlerts() {
         setAlert({
           tone,
           title: `${strongest.symbol} ${tone === "positive" ? "POSITIVE" : "NEGATIVE"} ORACLE TRIGGER`,
-          message: `${strongest.venue} live midpoint is ${signed} from oracle, outside the ±${threshold.toFixed(3)}% band${crossings.length > 1 ? ` · ${crossings.length - 1} additional trigger${crossings.length > 2 ? "s" : ""}` : ""}.`,
+          message: `${strongest.venue} executable best bid/ask is ${signed} from oracle, outside the ±${threshold.toFixed(3)}% band${crossings.length > 1 ? ` · ${crossings.length - 1} additional trigger${crossings.length > 2 ? "s" : ""}` : ""}.`,
         });
       } finally {
         window.clearTimeout(timeout);
