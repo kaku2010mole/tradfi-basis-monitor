@@ -54,15 +54,18 @@ const parseSymbols = (value: string | null, venue: "binance" | "para") => {
     .slice(0, MAX_SYMBOLS_PER_VENUE);
 };
 
-const executableQuote = (mark: number, oracle: number, bid: number | null, bidQty: number | null, ask: number | null, askQty: number | null) => {
-  const positive = mark >= oracle;
-  const price = positive ? bid : ask;
-  const quantity = positive ? bidQty : askQty;
-  if (price === null) return null;
+const executableQuote = (oracle: number, bid: number | null, bidQty: number | null, ask: number | null, askQty: number | null) => {
+  if (bid === null || ask === null) return null;
+  const sellDeviation = (bid / oracle - 1) * 100;
+  const buyDeviation = (ask / oracle - 1) * 100;
+  const sellable = sellDeviation > 0 && (buyDeviation >= 0 || sellDeviation >= Math.abs(buyDeviation));
+  const buyable = buyDeviation < 0;
+  const price = sellable ? bid : buyable ? ask : null;
+  const quantity = sellable ? bidQty : buyable ? askQty : null;
   return {
-    live: price,
-    deviation: (price / oracle - 1) * 100,
-    executableSide: positive ? "SELL" as const : "BUY" as const,
+    live: price ?? oracle,
+    deviation: sellable ? sellDeviation : buyable ? buyDeviation : 0,
+    executableSide: sellable ? "SELL" as const : buyable ? "BUY" as const : "NONE" as const,
     executablePrice: price,
     executableQty: quantity,
     executableUsd: price !== null && quantity !== null ? price * quantity : null,
@@ -109,7 +112,7 @@ const buildBinanceQuote = (symbol: string, book?: BinanceBook, premium?: Binance
   const oracle = finite(premium?.indexPrice);
   const mark = finite(premium?.markPrice);
   if (bid === null || ask === null || oracle === null || mark === null) return null;
-  const executable = executableQuote(mark, oracle, bid, bidQty, ask, askQty);
+  const executable = executableQuote(oracle, bid, bidQty, ask, askQty);
   if (!executable) return null;
   return {
     id: `binance:${symbol}`,
@@ -191,7 +194,7 @@ async function getParaQuotes(symbols: string[]) {
     const oracle = finite(context?.oraclePx);
     const mark = finite(context?.markPx);
     if (bid === null || ask === null || oracle === null || mark === null) return [];
-    const executable = executableQuote(mark, oracle, bid, bidQty, ask, askQty);
+    const executable = executableQuote(oracle, bid, bidQty, ask, askQty);
     if (!executable) return [];
     const display = apiSymbol === "para:BTCD" ? "para:BTC.D" : apiSymbol;
     return [{
