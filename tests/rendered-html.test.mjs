@@ -112,3 +112,10 @@ test("keeps live taker execution explicitly gated", async () => {
   assert.doesNotMatch(livePanel, /Binance/);
   assert.match(auth, /verifyTradeToken/);
 });
+
+test("retries the Futu LaunchAgent registration after replacing the relay", async () => {
+  const installer = await readFile(new URL("../services/futu-pusher/Install Futu Relay.command", import.meta.url), "utf8");
+  assert.match(installer, /for attempt in 1 2 3 4 5/);
+  assert.match(installer, /launchctl bootstrap/);
+  assert.match(installer, /exec \"\$runtime_dir\/run-macos\.sh\"/);
+});
