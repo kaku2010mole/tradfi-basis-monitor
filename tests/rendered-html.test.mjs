@@ -151,3 +151,34 @@ test("removes the liquidation map and uses visible-window depth bands", async ()
   assert.match(heatmap, /const depthColors = \["#102c40"/);
   assert.match(heatmap, /One base colour · five high-contrast light levels/);
 });
+
+test("renders an address-verified X Layer Uniswap V3 pool monitor", async () => {
+  const [response, route, registry, page] = await Promise.all([
+    render("/onchain"),
+    readFile(new URL("../app/api/onchain-pools/quote/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/onchainPools.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/onchain/page.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Onchain Pool Monitor/);
+  assert.match(html, /HONG KONG RWA BASIS/);
+  assert.match(page, /xiaox-usdc-005-xlayer/);
+  assert.match(page, /Premium & discount ranking/);
+  assert.match(page, /Futu official close/);
+  assert.match(page, /Add a Hong Kong pair/);
+  assert.match(page, /CUSTOM_STORAGE_KEY/);
+  assert.match(route, /sqrtPriceX96/);
+  assert.match(route, /buyPriceBeforeSlippage/);
+  assert.match(route, /sellPriceBeforeSlippage/);
+  assert.match(route, /group === "hk"/);
+  assert.match(route, /customPoolFromUrl/);
+  assert.match(registry, /0xdc7f2f41b48cd4f482d8c900ac2fa1b5ad058417/);
+  assert.match(registry, /HK\.02097/);
+  assert.match(registry, /HK\.00388/);
+  assert.match(registry, /HK\.00700/);
+  assert.match(registry, /HK\.01024/);
+  assert.match(registry, /HK\.03690/);
+  assert.match(registry, /HK\.09992/);
+  assert.match(registry, /https:\/\/rpc\.xlayer\.tech/);
+});
