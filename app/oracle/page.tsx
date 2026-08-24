@@ -244,11 +244,9 @@ function QuoteCard({ quote, threshold, selected, stale, rank, onSelect }: { quot
     <button className={`${styles.quoteCard} ${quote.venue === "Binance" ? styles.binanceCard : styles.hyperliquidCard} ${quote.executableSide === "SELL" ? styles.sellCard : quote.executableSide === "BUY" ? styles.buyCard : styles.neutralCard} ${selected ? styles.selectedCard : ""} ${triggered ? styles.triggeredCard : ""} ${stale ? styles.staleCard : ""}`} onClick={onSelect}>
       <div className={styles.cardTop}>
         <div className={styles.cardIdentity}><span className={styles.rankBadge}>#{String(rank).padStart(2, "0")}</span><div><small>{quote.venue}</small><strong>{quote.symbol}</strong></div></div>
+        <div className={`${styles.actionDeviation} ${quote.executableSide === "SELL" ? styles.sellDeviation : quote.executableSide === "BUY" ? styles.buyDeviation : styles.neutralDeviation}`}><span>Oracle edge</span><b>{quote.executableSide === "NONE" ? "INSIDE SPREAD" : formatPct(quote.deviation)}</b></div>
       </div>
-      <div className={styles.actionHero}>
-        <div><span>Executable action</span><strong>{action}</strong></div>
-        <div className={styles.actionDeviation}><span>Oracle edge</span><b>{quote.executableSide === "NONE" ? "INSIDE SPREAD" : formatPct(quote.deviation)}</b></div>
-      </div>
+      <div className={styles.actionLine}><span>Executable action</span><strong>{action}</strong></div>
       <div className={styles.cardPrices}>
         <div className={quote.executableSide === "SELL" ? styles.activePrice : ""}><span>Best bid</span><b>{formatPrice(quote.bid)}</b></div>
         <div className={quote.executableSide === "BUY" ? styles.activePrice : ""}><span>Best ask</span><b>{formatPrice(quote.ask)}</b></div>
