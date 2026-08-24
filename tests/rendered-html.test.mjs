@@ -146,8 +146,8 @@ test("removes the liquidation map and uses visible-window depth bands", async ()
   assert.doesNotMatch(page, /LiquidationPriceMap/);
   assert.match(heatmap, /DEPTH_PERCENTILES = \[\.25, \.5, \.75, \.9\]/);
   assert.match(heatmap, /Resting USD intensity/);
-  assert.match(heatmap, /visible-window percentiles/);
+  assert.match(heatmap, /five high-contrast light levels/);
   assert.match(heatmap, /depthBucket\(cell\.usd, depthScale\)/);
-  assert.match(heatmap, /const bidColors = \["#184b73"/);
-  assert.match(heatmap, /Separate bid \/ ask palettes/);
+  assert.match(heatmap, /const depthColors = \["#102c40"/);
+  assert.match(heatmap, /One base colour · five high-contrast light levels/);
 });
