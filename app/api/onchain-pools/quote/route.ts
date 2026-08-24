@@ -1,4 +1,4 @@
-import { createPublicClient, defineChain, fallback, http, type Abi } from "viem";
+import { createPublicClient, defineChain, fallback, getAddress, http, isAddress, type Abi } from "viem";
 import { findOnchainPool, ONCHAIN_POOLS, type OnchainPoolConfig } from "../../../lib/onchainPools";
 
 export const dynamic = "force-dynamic";
@@ -79,6 +79,39 @@ type PoolPayload = {
 
 const quoteCache = new Map<string, { expiresAt: number; payload: PoolPayload }>();
 
+const cleanLabel = (value: string | null, fallbackValue: string) => {
+  const cleaned = (value ?? "").trim().replace(/[^A-Za-z0-9._ -]/g, "").slice(0, 32);
+  return cleaned || fallbackValue;
+};
+
+const customPoolFromUrl = (url: URL): OnchainPoolConfig | null => {
+  const rawAddress = url.searchParams.get("address")?.trim() ?? "";
+  if (!rawAddress) return null;
+  if (!isAddress(rawAddress)) throw new Error("Invalid X Layer pool contract address.");
+  const stockSymbol = (url.searchParams.get("stock") ?? "").trim().toUpperCase();
+  if (!/^HK\.\d{5}$/.test(stockSymbol)) throw new Error("Stock symbol must use HK.00000 format.");
+  const poolAddress = getAddress(rawAddress);
+  const expectedFee = Number(url.searchParams.get("fee") ?? "500");
+  if (!Number.isInteger(expectedFee) || expectedFee < 1 || expectedFee > 1_000_000) throw new Error("Invalid Uniswap V3 fee tier.");
+  const displayBase = cleanLabel(url.searchParams.get("base"), "CUSTOM");
+  const displayQuote = cleanLabel(url.searchParams.get("quote"), "USD");
+  return {
+    id: `custom-${poolAddress.toLowerCase()}`,
+    label: `${displayBase}–${displayQuote}`,
+    name: cleanLabel(url.searchParams.get("name"), displayBase),
+    displayBase,
+    displayQuote,
+    stockSymbol,
+    chain: "X Layer",
+    chainId: 196,
+    protocol: "Uniswap V3",
+    poolAddress,
+    expectedFee,
+    rpcUrls: ["https://rpc.xlayer.tech", "https://xlayerrpc.okx.com"],
+    explorerUrl: `https://www.okx.com/web3/explorer/xlayer/address/${poolAddress}`,
+  };
+};
+
 async function readPool(pool: OnchainPoolConfig, blockNumber: bigint, blockTimestamp: number): Promise<PoolPayload> {
   const cached = quoteCache.get(pool.id);
   if (cached && cached.expiresAt > Date.now()) return cached.payload;
@@ -155,9 +188,15 @@ async function readPool(pool: OnchainPoolConfig, blockNumber: bigint, blockTimes
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const group = url.searchParams.get("group");
+  let customPool: OnchainPoolConfig | null = null;
+  try {
+    customPool = customPoolFromUrl(url);
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Invalid custom pool." }, { status: 400 });
+  }
   const pools = group === "hk"
     ? [...ONCHAIN_POOLS]
-    : [findOnchainPool(url.searchParams.get("id"))].flatMap((pool) => pool ? [pool] : []);
+    : customPool ? [customPool] : [findOnchainPool(url.searchParams.get("id"))].flatMap((pool) => pool ? [pool] : []);
   if (!pools.length) return Response.json({ error: "Unknown or unverified pool." }, { status: 404 });
 
   try {
