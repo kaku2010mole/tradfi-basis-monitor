@@ -69,6 +69,12 @@ test("discovers and normalizes Posley ADR streams for HK auction basis", async (
   assert.ok(auction.includes("const perpsPerAdr = adrRatio !== null ? adrRatio / pair.sharesPerContract : null;"));
   assert.doesNotMatch(auction, /SHORT \$\{pair\.adrSymbol\} \/ LONG FUTU/);
   assert.match(auction, /ADR_BENCHMARK_MAX_AGE_MS/);
+  assert.match(auction, /HK\.03308.*ZHONGJIUSDT/);
+  assert.match(auction, /HK\.03986.*GIGADEVUSDT/);
+  assert.match(quotes, /HK\.03308.*ZHONGJIUSDT/);
+  assert.match(quotes, /HK\.03986.*GIGADEVUSDT/);
+  assert.match(pusher, /HK\.03308/);
+  assert.match(pusher, /HK\.03986/);
   assert.match(pusher, /LIVE_BOOK_STATES = \{"AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"\}/);
   assert.match(pusher, /book_required or last is None/);
   assert.match(quotes, /useOfficialLast/);
