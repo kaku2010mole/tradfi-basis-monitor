@@ -30,7 +30,7 @@ type OracleQuote = {
   fundingHours: number;
   nextFundingTime: number | null;
   updatedAt: number;
-  executableSide: "BUY" | "SELL";
+  executableSide: "BUY" | "SELL" | "NONE";
   executablePrice: number | null;
   executableQty: number | null;
   executableUsd: number | null;
@@ -101,6 +101,18 @@ const finiteNumber = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const resolveExecutableQuote = (oracle: number, bid: number, bidQty: number | null, ask: number, askQty: number | null) => {
+  const sellDeviation = (bid / oracle - 1) * 100;
+  const buyDeviation = (ask / oracle - 1) * 100;
+  if (sellDeviation > 0 && (buyDeviation >= 0 || sellDeviation >= Math.abs(buyDeviation))) {
+    return { executableSide: "SELL" as const, executablePrice: bid, executableQty: bidQty, deviation: sellDeviation };
+  }
+  if (buyDeviation < 0) {
+    return { executableSide: "BUY" as const, executablePrice: ask, executableQty: askQty, deviation: buyDeviation };
+  }
+  return { executableSide: "NONE" as const, executablePrice: null, executableQty: null, deviation: 0 };
+};
+
 const rebuildBinanceQuote = (symbol: string, candidate: Partial<OracleQuote>): OracleQuote | null => {
   const bid = positiveNumber(candidate.bid);
   const bidQty = positiveNumber(candidate.bidQty);
@@ -109,10 +121,8 @@ const rebuildBinanceQuote = (symbol: string, candidate: Partial<OracleQuote>): O
   const oracle = positiveNumber(candidate.oracle);
   const mark = positiveNumber(candidate.mark);
   if (bid === null || ask === null || oracle === null || mark === null) return null;
-  const executableSide = mark >= oracle ? "SELL" as const : "BUY" as const;
-  const executablePrice = executableSide === "SELL" ? bid : ask;
-  const executableQty = executableSide === "SELL" ? bidQty : askQty;
-  const live = executablePrice;
+  const executable = resolveExecutableQuote(oracle, bid, bidQty, ask, askQty);
+  const live = executable.executablePrice ?? oracle;
   return {
     id: `binance:${symbol}`,
     venue: "Binance",
@@ -125,15 +135,15 @@ const rebuildBinanceQuote = (symbol: string, candidate: Partial<OracleQuote>): O
     live,
     oracle,
     mark,
-    deviation: (live / oracle - 1) * 100,
+    deviation: executable.deviation,
     funding: finiteNumber(candidate.funding),
     fundingHours: 8,
     nextFundingTime: finiteNumber(candidate.nextFundingTime),
     updatedAt: finiteNumber(candidate.updatedAt) ?? Date.now(),
-    executableSide,
-    executablePrice,
-    executableQty,
-    executableUsd: executableQty === null ? null : executablePrice * executableQty,
+    executableSide: executable.executableSide,
+    executablePrice: executable.executablePrice,
+    executableQty: executable.executableQty,
+    executableUsd: executable.executablePrice === null || executable.executableQty === null ? null : executable.executablePrice * executable.executableQty,
   };
 };
 
@@ -229,23 +239,28 @@ function DeviationChart({ points, threshold, symbol }: { points: OraclePoint[]; 
 
 function QuoteCard({ quote, threshold, selected, stale, rank, onSelect }: { quote: OracleQuote; threshold: number; selected: boolean; stale: boolean; rank: number; onSelect: () => void }) {
   const triggered = Math.abs(quote.deviation) >= threshold;
+  const action = quote.executableSide === "SELL" ? "SELL · BEST BID" : quote.executableSide === "BUY" ? "BUY · BEST ASK" : "NO EXECUTABLE EDGE";
   return (
-    <button className={`${styles.quoteCard} ${quote.venue === "Binance" ? styles.binanceCard : styles.hyperliquidCard} ${selected ? styles.selectedCard : ""} ${triggered ? styles.triggeredCard : ""} ${stale ? styles.staleCard : ""}`} onClick={onSelect}>
+    <button className={`${styles.quoteCard} ${quote.venue === "Binance" ? styles.binanceCard : styles.hyperliquidCard} ${quote.executableSide === "SELL" ? styles.sellCard : quote.executableSide === "BUY" ? styles.buyCard : styles.neutralCard} ${selected ? styles.selectedCard : ""} ${triggered ? styles.triggeredCard : ""} ${stale ? styles.staleCard : ""}`} onClick={onSelect}>
       <div className={styles.cardTop}>
         <div className={styles.cardIdentity}><span className={styles.rankBadge}>#{String(rank).padStart(2, "0")}</span><div><small>{quote.venue}</small><strong>{quote.symbol}</strong></div></div>
-        <span className={`${styles.deviationValue} ${quote.deviation >= 0 ? styles.positive : styles.negative}`}>{formatPct(quote.deviation)}</span>
+      </div>
+      <div className={styles.actionHero}>
+        <div><span>Executable action</span><strong>{action}</strong></div>
+        <div className={styles.actionDeviation}><span>Oracle edge</span><b>{quote.executableSide === "NONE" ? "INSIDE SPREAD" : formatPct(quote.deviation)}</b></div>
       </div>
       <div className={styles.cardPrices}>
-        <div><span>{quote.executableSide === "SELL" ? "Best bid" : "Best ask"}</span><b>{formatPrice(quote.live)}</b></div>
+        <div className={quote.executableSide === "SELL" ? styles.activePrice : ""}><span>Best bid</span><b>{formatPrice(quote.bid)}</b></div>
+        <div className={quote.executableSide === "BUY" ? styles.activePrice : ""}><span>Best ask</span><b>{formatPrice(quote.ask)}</b></div>
         <div><span>Oracle</span><b>{formatPrice(quote.oracle)}</b></div>
         <div><span>Mark</span><b>{formatPrice(quote.mark)}</b></div>
       </div>
       <div className={styles.executableBar}>
         <div>
-          <span>{quote.executableSide === "SELL" ? "Sell into best bid" : "Buy from best ask"}</span>
-          <strong>{formatUsd(quote.executableUsd)}</strong>
+          <span>Executable top-level capacity</span>
+          <strong>{quote.executableSide === "NONE" ? "No crossed Oracle edge" : formatUsd(quote.executableUsd)}</strong>
         </div>
-        <small>{quote.executableQty == null || quote.executablePrice == null ? "Depth unavailable" : `${formatPrice(quote.executableQty)} @ ${formatPrice(quote.executablePrice)}`}</small>
+        <small>{quote.executableSide === "NONE" ? "Oracle is between bid and ask" : quote.executableQty == null || quote.executablePrice == null ? "Depth unavailable" : `${formatPrice(quote.executableQty)} @ ${formatPrice(quote.executablePrice)}`}</small>
       </div>
       <footer>
         <span>Funding {quote.funding == null ? "—" : formatPct(quote.funding * 100, 4)} / {quote.fundingHours}h</span>
@@ -537,8 +552,9 @@ export default function OracleMonitor() {
     return [...history, ...selectedSession.filter((point) => point.t > lastHistoryTime)];
   }, [history, selected, selectedSession]);
   const byAbsoluteDeviation = (a: OracleQuote, b: OracleQuote) => Math.abs(b.deviation) - Math.abs(a.deviation) || a.symbol.localeCompare(b.symbol);
-  const positive = visibleQuotes.filter((quote) => quote.deviation >= 0).sort(byAbsoluteDeviation);
-  const negative = visibleQuotes.filter((quote) => quote.deviation < 0).sort(byAbsoluteDeviation);
+  const positive = visibleQuotes.filter((quote) => quote.executableSide === "SELL").sort(byAbsoluteDeviation);
+  const negative = visibleQuotes.filter((quote) => quote.executableSide === "BUY").sort(byAbsoluteDeviation);
+  const neutral = visibleQuotes.filter((quote) => quote.executableSide === "NONE").sort((a, b) => a.symbol.localeCompare(b.symbol));
   const triggered = visibleQuotes.filter((quote) => Math.abs(quote.deviation) >= threshold);
   const extreme = visibleQuotes.reduce<OracleQuote | null>((best, quote) => !best || Math.abs(quote.deviation) > Math.abs(best.deviation) ? quote : best, null);
   const binanceCount = visibleQuotes.filter((quote) => quote.venue === "Binance").length;
@@ -585,7 +601,7 @@ export default function OracleMonitor() {
           <div>
             <p className={styles.eyebrow}>LIVE / ORACLE INTELLIGENCE</p>
             <h1>Oracle Monitor</h1>
-            <p>Compare executable best bid or best ask against oracle prices across Binance TradFi contracts and Hyperliquid para indices. Trigger broadcasts fire on threshold crossings.</p>
+            <p>Compare truly executable prices with Oracle: sellable premiums use best bid, buyable discounts use best ask, and markets that straddle Oracle are neutral. Trigger broadcasts fire on threshold crossings.</p>
           </div>
           <div className={styles.topActions}>
             <div className={styles.links} aria-label="Connection status">
@@ -642,18 +658,23 @@ export default function OracleMonitor() {
 
         <section className={styles.deviationBoard}>
           <div className={`${styles.side} ${styles.positiveSide}`}>
-            <header><div className={styles.sideHeading}><span>↗</span><div><strong>Positive deviation</strong><small>Largest |deviation| first</small></div></div><b>{positive.length}</b></header>
+            <header><div className={styles.sideHeading}><span>↗</span><div><strong>Sellable premium</strong><small>SELL · BEST BID · largest first</small></div></div><b>{positive.length}</b></header>
             <div className={styles.cardList}>{positive.map((quote, index) => <QuoteCard key={quote.id} quote={quote} rank={index + 1} threshold={threshold} stale={clock - quote.updatedAt > STALE_AFTER_MS} selected={quote.id === selected?.id} onSelect={() => setSelectedId(quote.id)} />)}
-              {!positive.length && <p>No positive deviations.</p>}
+              {!positive.length && <p>No executable sell premium.</p>}
             </div>
           </div>
           <div className={`${styles.side} ${styles.negativeSide}`}>
-            <header><div className={styles.sideHeading}><span>↘</span><div><strong>Negative deviation</strong><small>Largest |deviation| first</small></div></div><b>{negative.length}</b></header>
+            <header><div className={styles.sideHeading}><span>↘</span><div><strong>Buyable discount</strong><small>BUY · BEST ASK · largest first</small></div></div><b>{negative.length}</b></header>
             <div className={styles.cardList}>{negative.map((quote, index) => <QuoteCard key={quote.id} quote={quote} rank={index + 1} threshold={threshold} stale={clock - quote.updatedAt > STALE_AFTER_MS} selected={quote.id === selected?.id} onSelect={() => setSelectedId(quote.id)} />)}
-              {!negative.length && <p>No negative deviations.</p>}
+              {!negative.length && <p>No executable buy discount.</p>}
             </div>
           </div>
         </section>
+
+        {neutral.length > 0 && <section className={styles.neutralStrip} aria-label="Markets with Oracle inside the spread">
+          <div><strong>Inside spread</strong><small>No executable Oracle edge</small></div>
+          <div>{neutral.map((quote) => <button key={quote.id} className={quote.id === selected?.id ? styles.activeNeutral : ""} onClick={() => setSelectedId(quote.id)}><b>{quote.symbol}</b><span>{formatPrice(quote.bid)} bid</span><i>ORACLE</i><span>{formatPrice(quote.ask)} ask</span></button>)}</div>
+        </section>}
 
         <section className={`${styles.chartPanel} ${selected?.venue === "Binance" ? styles.binancePanel : styles.hyperliquidPanel}`}>
           <div className={styles.panelHead}>
@@ -674,7 +695,7 @@ export default function OracleMonitor() {
 
         <ParaDepthHeatmap />
 
-        <footer className={styles.footer}>Live deviation uses the sellable best bid when mark is above oracle, or the buyable best ask when mark is below oracle. Funding is shown in each venue&apos;s native interval.</footer>
+        <footer className={styles.footer}>Executable deviation uses best bid only when it can be sold above Oracle, and best ask only when it can be bought below Oracle. If Oracle sits inside the spread, the executable edge is zero. Funding is shown in each venue&apos;s native interval.</footer>
       </div>
     </main>
   );
