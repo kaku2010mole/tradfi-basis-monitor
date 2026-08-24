@@ -28,7 +28,7 @@ SYMBOLS = [
     item.strip().upper()
     for item in os.getenv(
         "FUTU_SYMBOLS",
-        "HK.00700,HK.01810,HK.01024,HK.03690,HK.09992,HK.00100,HK.02513,HK.03308,HK.03986",
+        "HK.00388,HK.00700,HK.01024,HK.01810,HK.02097,HK.03690,HK.09992,HK.00100,HK.02513,HK.03308,HK.03986",
     ).split(",")
     if item.strip()
 ]
