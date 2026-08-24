@@ -134,3 +134,15 @@ test("uses executable best bid or ask for live Oracle Monitor deviations", async
   assert.match(alerts, /const live = mark >= oracle \? bid : ask/);
   assert.match(alerts, /executable best bid\/ask/);
 });
+
+test("removes the liquidation map and uses visible-window depth bands", async () => {
+  const [page, heatmap] = await Promise.all([
+    readFile(new URL("../app/oracle/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/oracle/ParaDepthHeatmap.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(page, /LiquidationPriceMap/);
+  assert.match(heatmap, /DEPTH_PERCENTILES = \[\.25, \.5, \.75, \.9\]/);
+  assert.match(heatmap, /Resting USD intensity/);
+  assert.match(heatmap, /Recalibrated to the visible time window/);
+  assert.match(heatmap, /depthBucket\(cell\.usd, depthScale\)/);
+});
