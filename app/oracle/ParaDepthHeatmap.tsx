@@ -271,20 +271,21 @@ function DepthCanvas({ snapshots, windowMs, symbol, axisMode, oracleRangePct, ve
       const expectedColumns = Math.max(1, windowMs / CAPTURE_MS);
       const cellWidth = Math.max(2, Math.min(10, plotWidth / expectedColumns * 1.7));
       const cellHeight = Math.max(2, plotHeight / rows + .8);
-      const opacities = [.13, .28, .48, .72, .98];
+      const bidColors = ["#184b73", "#087e8b", "#10b981", "#a3e635", "#fde047"];
+      const askColors = ["#573b8f", "#9d3ea6", "#e3476f", "#f97316", "#ffd0a6"];
       cells.forEach((cell) => {
         const bucket = depthBucket(cell.usd, depthScale);
-        context.fillStyle = cell.side === 0
-          ? `rgba(20, 232, 177, ${opacities[bucket]})`
-          : `rgba(255, 91, 82, ${opacities[bucket]})`;
+        context.fillStyle = cell.side === 0 ? bidColors[bucket] : askColors[bucket];
+        context.globalAlpha = bucket === 0 ? .6 : bucket === 1 ? .72 : bucket === 2 ? .84 : 1;
         const top = margin.top + (cell.row / rows) * plotHeight;
         const emphasizedHeight = cellHeight + bucket * .42;
         context.fillRect(cell.x - cellWidth / 2, top - (emphasizedHeight - cellHeight) / 2, cellWidth, emphasizedHeight);
         if (bucket >= 3) {
-          context.strokeStyle = cell.side === 0 ? "rgba(128,255,220,.72)" : "rgba(255,186,169,.72)";
-          context.lineWidth = bucket === 4 ? 1 : .55;
+          context.strokeStyle = bucket === 4 ? "#ffffff" : cell.side === 0 ? "#d9f99d" : "#fed7aa";
+          context.lineWidth = bucket === 4 ? 1.25 : .7;
           context.strokeRect(cell.x - cellWidth / 2, top - (emphasizedHeight - cellHeight) / 2, cellWidth, emphasizedHeight);
         }
+        context.globalAlpha = 1;
       });
 
       const traceOracle = () => {
@@ -538,7 +539,7 @@ export default function ParaDepthHeatmap() {
         <div>
           <p className={styles.eyebrow}>LOCAL PARA ORDERBOOK RECORDER</p>
           <h2>Liquidity heatmap</h2>
-          <p>Top 20 bid and ask levels captured every 10 seconds. Five percentile bands separate ordinary liquidity from large and exceptional resting orders.</p>
+          <p>Top 20 bid and ask levels captured every 10 seconds. Bid and ask use separate multi-colour scales, so order size is readable without relying on subtle opacity changes.</p>
         </div>
         <div className={styles.depthHeaderActions}>
           <button className={styles.historyToggle} onClick={() => setHistoryOpen((open) => !open)}>{historyOpen ? "Close history data" : "Read history data"}</button>
@@ -573,23 +574,26 @@ export default function ParaDepthHeatmap() {
         <div><span>Local samples</span><strong>{selectedSnapshots.length.toLocaleString()}</strong></div>
       </div>
 
-      <div className={styles.depthLegend} aria-label="Heatmap legend">
-        <span><i className={styles.bidLegend} />Bid liquidity</span>
-        <span><i className={styles.askLegend} />Ask liquidity</span>
-        <span><i className={styles.oracleLegend} />Oracle price</span>
-        <small>Drag left/right through time · drag up/down through price · double-click to reset</small>
-      </div>
-      <div className={styles.depthScaleLegend} aria-label="Resting USD notional intensity scale">
-        <div><strong>Resting USD intensity</strong><small>Recalibrated to the visible time window</small></div>
-        <div className={styles.depthScaleBands}>
+      <div className={styles.depthVisualGuide}>
+        <div className={styles.depthLegend} aria-label="Heatmap legend">
+          <strong>Book side</strong>
+          <span><i className={styles.bidLegend} />Bid liquidity</span>
+          <span><i className={styles.askLegend} />Ask liquidity</span>
+          <span><i className={styles.oracleLegend} />Oracle price</span>
+        </div>
+        <div className={styles.depthScaleLegend} aria-label="Resting USD notional intensity scale">
+          <div><strong>Resting USD intensity</strong><small>Separate bid / ask palettes · visible-window percentiles</small></div>
+          <div className={styles.depthScaleBands}>
           {[
             ["Low", `≤ ${formatUsd(depthScale[0])}`],
             ["Normal", `${formatUsd(depthScale[0])}–${formatUsd(depthScale[1])}`],
             ["Elevated", `${formatUsd(depthScale[1])}–${formatUsd(depthScale[2])}`],
             ["Large", `${formatUsd(depthScale[2])}–${formatUsd(depthScale[3])}`],
             ["Exceptional", `> ${formatUsd(depthScale[3])}`],
-          ].map(([label, range], index) => <span key={label}><i className={`${styles.depthBandSwatch} ${[styles.depthBand1, styles.depthBand2, styles.depthBand3, styles.depthBand4, styles.depthBand5][index]}`} /><b>{label}</b><small>{range}</small></span>)}
+          ].map(([label, range], index) => <span key={label}><span className={styles.depthBandPair}><i className={`${styles.depthBandSwatch} ${styles[`depthBid${index + 1}` as keyof typeof styles]}`} /><i className={`${styles.depthBandSwatch} ${styles[`depthAsk${index + 1}` as keyof typeof styles]}`} /></span><b>{label}</b><small>{range}</small></span>)}
+          </div>
         </div>
+        <small className={styles.depthGestureHelp}>Drag horizontally through time · vertically through price · double-click to reset</small>
       </div>
       <div className={styles.depthCanvasWrap}>
         <DepthCanvas snapshots={selectedSnapshots} windowMs={windowMs} symbol={SYMBOLS.find((symbol) => symbol.api === selectedSymbol)?.label ?? selectedSymbol} axisMode={axisMode} oracleRangePct={oracleRangePct} verticalPan={verticalPan} viewEnd={resolvedViewEnd} minViewEnd={minViewEnd} maxViewEnd={latestTime} depthScale={depthScale} onViewEndChange={updateViewEnd} onVerticalPanChange={setVerticalPan} />
@@ -610,7 +614,7 @@ export default function ParaDepthHeatmap() {
         <small>{historyMessage || "Render history is available from the Render deployment. Local files are parsed in this browser and are not uploaded to a server."}</small>
       </div>}
       <footer className={styles.depthFooter}>
-        <span>Brightness and outline indicate the visible-window USD band; the top 25% receives an outline.</span>
+        <span>Colour indicates the visible-window USD band; large and exceptional orders receive a bright outline.</span>
         <span>{selectedSnapshots.length.toLocaleString()} samples in this view · {viewEnd === null ? "live" : "historical"}</span>
       </footer>
     </section>
