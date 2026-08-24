@@ -11,7 +11,6 @@ import {
   ORACLE_THRESHOLD_KEY,
 } from "../lib/oracleAlerts";
 import ParaDepthHeatmap from "./ParaDepthHeatmap";
-import LiquidationPriceMap from "./LiquidationPriceMap";
 import styles from "./page.module.css";
 
 type OracleQuote = {
@@ -674,8 +673,6 @@ export default function OracleMonitor() {
         </section>
 
         <ParaDepthHeatmap />
-
-        <LiquidationPriceMap />
 
         <footer className={styles.footer}>Live deviation uses the sellable best bid when mark is above oracle, or the buyable best ask when mark is below oracle. Funding is shown in each venue&apos;s native interval.</footer>
       </div>
