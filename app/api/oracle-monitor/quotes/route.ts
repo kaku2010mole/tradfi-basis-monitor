@@ -54,11 +54,14 @@ const parseSymbols = (value: string | null, venue: "binance" | "para") => {
     .slice(0, MAX_SYMBOLS_PER_VENUE);
 };
 
-const executableLiquidity = (live: number, oracle: number, bid: number | null, bidQty: number | null, ask: number | null, askQty: number | null) => {
-  const positive = live >= oracle;
+const executableQuote = (mark: number, oracle: number, bid: number | null, bidQty: number | null, ask: number | null, askQty: number | null) => {
+  const positive = mark >= oracle;
   const price = positive ? bid : ask;
   const quantity = positive ? bidQty : askQty;
+  if (price === null) return null;
   return {
+    live: price,
+    deviation: (price / oracle - 1) * 100,
     executableSide: positive ? "SELL" as const : "BUY" as const,
     executablePrice: price,
     executableQty: quantity,
@@ -106,7 +109,8 @@ const buildBinanceQuote = (symbol: string, book?: BinanceBook, premium?: Binance
   const oracle = finite(premium?.indexPrice);
   const mark = finite(premium?.markPrice);
   if (bid === null || ask === null || oracle === null || mark === null) return null;
-  const live = (bid + ask) / 2;
+  const executable = executableQuote(mark, oracle, bid, bidQty, ask, askQty);
+  if (!executable) return null;
   return {
     id: `binance:${symbol}`,
     venue: "Binance" as const,
@@ -116,15 +120,13 @@ const buildBinanceQuote = (symbol: string, book?: BinanceBook, premium?: Binance
     bidQty,
     ask,
     askQty,
-    live,
     oracle,
     mark,
-    deviation: (live / oracle - 1) * 100,
     funding: Number.isFinite(Number(premium?.lastFundingRate)) ? Number(premium?.lastFundingRate) : null,
     fundingHours: 8,
     nextFundingTime: premium?.nextFundingTime ?? null,
     updatedAt: Math.max(book?.time ?? 0, premium?.time ?? 0, Date.now()),
-    ...executableLiquidity(live, oracle, bid, bidQty, ask, askQty),
+    ...executable,
   };
 };
 
@@ -186,10 +188,11 @@ async function getParaQuotes(symbols: string[]) {
     const bidQty = finite(book?.levels?.[0]?.[0]?.sz);
     const ask = finite(book?.levels?.[1]?.[0]?.px);
     const askQty = finite(book?.levels?.[1]?.[0]?.sz);
-    const live = bid !== null && ask !== null ? (bid + ask) / 2 : finite(context?.midPx) ?? finite(context?.markPx);
     const oracle = finite(context?.oraclePx);
     const mark = finite(context?.markPx);
-    if (live === null || oracle === null || mark === null) return [];
+    if (bid === null || ask === null || oracle === null || mark === null) return [];
+    const executable = executableQuote(mark, oracle, bid, bidQty, ask, askQty);
+    if (!executable) return [];
     const display = apiSymbol === "para:BTCD" ? "para:BTC.D" : apiSymbol;
     return [{
       id: `hyperliquid:${apiSymbol}`,
@@ -200,15 +203,13 @@ async function getParaQuotes(symbols: string[]) {
       bidQty,
       ask,
       askQty,
-      live,
       oracle,
       mark,
-      deviation: (live / oracle - 1) * 100,
       funding: Number.isFinite(Number(context?.funding)) ? Number(context?.funding) : null,
       fundingHours: 1,
       nextFundingTime: null,
       updatedAt: book?.time ?? Date.now(),
-      ...executableLiquidity(live, oracle, bid, bidQty, ask, askQty),
+      ...executable,
     }];
   });
 }
