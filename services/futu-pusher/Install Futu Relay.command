@@ -27,7 +27,26 @@ fi
 /bin/cp "$source_plist" "$target_plist"
 /bin/chmod 644 "$target_plist"
 /bin/launchctl bootout "$service" >/dev/null 2>&1 || true
-/bin/launchctl bootstrap "gui/$(/usr/bin/id -u)" "$target_plist"
+/bin/rm -f /tmp/tradfi-futu-pusher.pid
+/bin/sleep 1
+/bin/launchctl enable "$service" >/dev/null 2>&1 || true
+
+loaded=false
+for attempt in 1 2 3 4 5; do
+  if /bin/launchctl bootstrap "gui/$(/usr/bin/id -u)" "$target_plist"; then
+    loaded=true
+    break
+  fi
+  /bin/sleep 1
+done
+
+if [[ "$loaded" != true ]]; then
+  echo
+  echo "macOS did not register the background service. Starting the relay in this Terminal window instead."
+  echo "Keep this window open; the display may still sleep normally."
+  exec "$runtime_dir/run-macos.sh"
+fi
+
 /bin/launchctl kickstart -k "$service"
 
 echo
