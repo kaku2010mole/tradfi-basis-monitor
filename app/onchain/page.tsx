@@ -20,6 +20,7 @@ type FutuReference = {
 };
 type ComparisonPoint = { t: number; pool: number; fair: number };
 type Comparison = PoolQuote & { stockHkd: number | null; fairUsd: number | null; basisPct: number | null; referenceSource: FutuReference["metrics"]["stockReferenceSource"]; referenceTime: number | null };
+type CustomPool = { id: string; name: string; displayBase: string; displayQuote: string; stockSymbol: string; poolAddress: string; expectedFee: number };
 
 const FUTU_PAIRS = [
   ["HK.01810", "HK1810USDT"],
@@ -33,6 +34,8 @@ const FUTU_PAIRS = [
 const POLL_MS = 3_000;
 const HISTORY_MS = 2 * 60 * 60_000;
 const STORAGE_KEY = "onchain-hk-basis-history:v2";
+const CUSTOM_STORAGE_KEY = "onchain-hk-custom-pools:v1";
+const PERP_BY_STOCK = new Map(FUTU_PAIRS.map(([stock, perp]) => [stock, perp]));
 
 const formatPrice = (value: number | null, digits = 5) => value === null || !Number.isFinite(value) ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: digits });
 const formatCompact = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format(value);
@@ -76,9 +79,38 @@ export default function OnchainPoolsPage() {
   const [selectedId, setSelectedId] = useState("xiaox-usdc-005-xlayer");
   const [usdHkd, setUsdHkd] = useState("7.83");
   const [errors, setErrors] = useState<string[]>([]);
+  const [customPools, setCustomPools] = useState<CustomPool[]>([]);
+  const [showAddPair, setShowAddPair] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [draft, setDraft] = useState({ displayBase: "", name: "", stockSymbol: "", poolAddress: "", feePct: "0.05" });
   const requestInFlight = useRef(false);
 
-  useEffect(() => { try { const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") as Record<string, ComparisonPoint[]>; const cutoff = Date.now() - HISTORY_MS; setHistory(Object.fromEntries(Object.entries(saved).map(([id, points]) => [id, points.filter((point) => point.t >= cutoff)]))); } catch { /* Start clean. */ } }, []);
+  useEffect(() => { try { const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") as Record<string, ComparisonPoint[]>; const cutoff = Date.now() - HISTORY_MS; setHistory(Object.fromEntries(Object.entries(saved).map(([id, points]) => [id, points.filter((point) => point.t >= cutoff)]))); } catch { /* Start clean. */ } try { setCustomPools(JSON.parse(localStorage.getItem(CUSTOM_STORAGE_KEY) || "[]") as CustomPool[]); } catch { /* Start with verified defaults. */ } }, []);
+
+  const saveCustomPools = (next: CustomPool[]) => {
+    setCustomPools(next);
+    try { localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(next)); } catch { /* Keep in memory. */ }
+  };
+
+  const addCustomPool = (event: React.FormEvent) => {
+    event.preventDefault();
+    const address = draft.poolAddress.trim();
+    const digits = draft.stockSymbol.trim().toUpperCase().replace(/^HK\.?/, "");
+    const stockSymbol = `HK.${digits.padStart(5, "0")}`;
+    const displayBase = draft.displayBase.trim().toUpperCase();
+    const expectedFee = Math.round(Number(draft.feePct) * 10_000);
+    if (!/^0x[a-fA-F0-9]{40}$/.test(address)) return setFormError("Enter a valid X Layer Uniswap V3 pool address.");
+    if (!/^HK\.\d{5}$/.test(stockSymbol)) return setFormError("Enter a Hong Kong stock code, for example HK.01810.");
+    if (!/^[A-Z0-9._-]{2,24}$/.test(displayBase)) return setFormError("Enter a short token label, for example XIAOx.");
+    if (!Number.isInteger(expectedFee) || expectedFee < 1 || expectedFee > 1_000_000) return setFormError("Enter a valid fee percentage.");
+    const id = `custom-${address.toLowerCase()}`;
+    const next = [...customPools.filter((pool) => pool.id !== id), { id, name: draft.name.trim() || displayBase, displayBase, displayQuote: "USD", stockSymbol, poolAddress: address, expectedFee }].slice(-9);
+    saveCustomPools(next);
+    setSelectedId(id);
+    setDraft({ displayBase: "", name: "", stockSymbol: "", poolAddress: "", feePct: "0.05" });
+    setFormError("");
+    setShowAddPair(false);
+  };
 
   const loadQuotes = useCallback(async () => {
     if (requestInFlight.current) return;
@@ -86,22 +118,30 @@ export default function OnchainPoolsPage() {
     const fx = Number(usdHkd);
     try {
       const referenceParams = new URLSearchParams({ usdhkd: String(fx) });
-      FUTU_PAIRS.forEach(([stock, perp]) => referenceParams.append("pair", `${stock}|${perp}|1`));
-      const [poolResponse, futuResponse] = await Promise.all([
+      const stocks = [...new Set([...FUTU_PAIRS.map(([stock]) => stock), ...customPools.map((pool) => pool.stockSymbol)])];
+      stocks.forEach((stock) => referenceParams.append("pair", `${stock}|${PERP_BY_STOCK.get(stock) ?? "TENCENTUSDT"}|1`));
+      const customUrls = customPools.map((pool) => {
+        const params = new URLSearchParams({ address: pool.poolAddress, stock: pool.stockSymbol, base: pool.displayBase, quote: pool.displayQuote, name: pool.name, fee: String(pool.expectedFee) });
+        return `/api/onchain-pools/quote?${params}`;
+      });
+      const [poolResponse, futuResponse, ...customResponses] = await Promise.all([
         fetch("/api/onchain-pools/quote?group=hk", { cache: "no-store" }),
         fetch(`/api/hk-auction/quotes?${referenceParams}`, { cache: "no-store" }),
+        ...customUrls.map((url) => fetch(url, { cache: "no-store" })),
       ]);
       const poolPayload = await poolResponse.json() as { quotes?: PoolQuote[]; errors?: string[]; error?: string };
       const futuPayload = await futuResponse.json() as { quotes?: FutuReference[]; errors?: string[]; error?: string };
+      const customPayloads = await Promise.all(customResponses.map(async (response) => ({ ok: response.ok, payload: await response.json() as PoolQuote & { error?: string } })));
       if (!poolResponse.ok || !poolPayload.quotes?.length) throw new Error(poolPayload.error || "X Layer pools unavailable.");
-      setPools(poolPayload.quotes);
+      const allPoolQuotes = [...poolPayload.quotes, ...customPayloads.flatMap((item) => item.ok && item.payload.id ? [item.payload] : [])];
+      setPools(allPoolQuotes);
       setReferences(futuPayload.quotes ?? []);
-      setErrors([...(poolPayload.errors ?? []), ...(futuPayload.errors ?? []), ...(!futuResponse.ok && futuPayload.error ? [futuPayload.error] : [])]);
+      setErrors([...(poolPayload.errors ?? []), ...(futuPayload.errors ?? []), ...customPayloads.flatMap((item) => !item.ok && item.payload.error ? [item.payload.error] : []), ...(!futuResponse.ok && futuPayload.error ? [futuPayload.error] : [])]);
       const futuByStock = new Map((futuPayload.quotes ?? []).map((quote) => [quote.stockSymbol, quote]));
       const cutoff = Date.now() - HISTORY_MS;
       setHistory((current) => {
         const next = { ...current };
-        poolPayload.quotes!.forEach((pool) => {
+        allPoolQuotes.forEach((pool) => {
           const reference = futuByStock.get(pool.stockSymbol);
           const stockHkd = reference?.metrics.stockReferenceHkd ?? null;
           if (pool.spotPrice === null || stockHkd === null || !Number.isFinite(fx) || fx <= 0) return;
@@ -114,7 +154,7 @@ export default function OnchainPoolsPage() {
       });
     } catch (loadError) { setErrors([loadError instanceof Error ? loadError.message : "Feeds reconnecting."]); }
     finally { requestInFlight.current = false; }
-  }, [usdHkd]);
+  }, [usdHkd, customPools]);
 
   useEffect(() => { const frame = window.requestAnimationFrame(() => void loadQuotes()); const timer = window.setInterval(loadQuotes, POLL_MS); return () => { window.cancelAnimationFrame(frame); window.clearInterval(timer); }; }, [loadQuotes]);
 
@@ -133,9 +173,10 @@ export default function OnchainPoolsPage() {
   return <main className={styles.shell}><div className={styles.frame}>
     <header className={styles.topbar}><div><p className={styles.eyebrow}>X LAYER / HONG KONG RWA BASIS</p><h1>Onchain Pool Monitor</h1><p>Active Hong Kong xStock pools compared with the corresponding Futu share price, normalized through USD/HKD.</p></div><div className={styles.topActions}><span className={poolLive ? styles.live : styles.retrying}><i />X Layer {poolLive ? "live" : "retrying"}</span><span className={futuLive ? styles.live : styles.retrying}><i />Futu {futuLive ? "reference live" : "waiting"}</span><PageSwitcher active="onchain" /></div></header>
 
-    <section className={styles.hero}><div className={styles.poolIdentity}><span>WIDEST ABSOLUTE DEVIATION</span><h2>{widest?.displayBase ?? "HK xSTOCKS"}</h2><p>{widest ? `${widest.name} · ${widest.stockSymbol}` : "Discovering seven verified activity pools"}</p></div><div className={styles.heroPrice}><span>{widest?.basisPct !== null && widest?.basisPct !== undefined && widest.basisPct < 0 ? "DISCOUNT" : "PREMIUM"}</span><strong className={widest?.basisPct !== null && widest?.basisPct !== undefined && widest.basisPct < 0 ? styles.negative : styles.positive}>{formatPct(widest?.basisPct ?? null)}</strong><small>{widest?.basisPct === null || widest === null ? "Waiting for synchronized prices" : widest.basisPct >= 0 ? "Pool rich versus Futu" : "Pool cheap versus Futu"}</small></div><div className={styles.heroChange}><span>LIVE COVERAGE</span><strong>{comparisons.filter((item) => item.basisPct !== null).length} / 7</strong><small>Sorted by |premium / discount|</small></div></section>
+    <section className={styles.hero}><div className={styles.poolIdentity}><span>WIDEST ABSOLUTE DEVIATION</span><h2>{widest?.displayBase ?? "HK xSTOCKS"}</h2><p>{widest ? `${widest.name} · ${widest.stockSymbol}` : "Discovering verified activity pools"}</p></div><div className={styles.heroPrice}><span>{widest?.basisPct !== null && widest?.basisPct !== undefined && widest.basisPct < 0 ? "DISCOUNT" : "PREMIUM"}</span><strong className={widest?.basisPct !== null && widest?.basisPct !== undefined && widest.basisPct < 0 ? styles.negative : styles.positive}>{formatPct(widest?.basisPct ?? null)}</strong><small>{widest?.basisPct === null || widest === null ? "Waiting for synchronized prices" : widest.basisPct >= 0 ? "Pool rich versus Futu" : "Pool cheap versus Futu"}</small></div><div className={styles.heroChange}><span>LIVE COVERAGE</span><strong>{comparisons.filter((item) => item.basisPct !== null).length} / {comparisons.length || 7}</strong><small>Sorted by |premium / discount|</small></div></section>
 
-    <section className={styles.controlBar}><label><span>USD / HKD</span><input type="number" min="1" max="20" step="0.0001" value={usdHkd} onChange={(event) => setUsdHkd(event.target.value)} /></label><div><strong>REFERENCE RULE</strong><span>Futu auction / live midpoint during market hours · official close outside market hours</span></div><div><strong>REFRESH</strong><span>3 seconds · pool addresses verified from the OKX activity page</span></div></section>
+    <section className={styles.controlBar}><label><span>USD / HKD</span><input type="number" min="1" max="20" step="0.0001" value={usdHkd} onChange={(event) => setUsdHkd(event.target.value)} /></label><div><strong>REFERENCE RULE</strong><span>Futu auction / live midpoint during market hours · official close outside market hours</span></div><div><strong>REFRESH</strong><span>3 seconds · verified addresses plus your saved pools</span></div><button className={styles.addPairButton} onClick={() => setShowAddPair((value) => !value)}>{showAddPair ? "CLOSE" : "+ ADD PAIR"}</button></section>
+    {showAddPair && <section className={styles.addPairPanel}><div><p className={styles.eyebrow}>CUSTOM X LAYER POOL</p><h2>Add a Hong Kong pair</h2><p>The contract is read directly. Token symbols, decimals, fee and balances are independently verified before the pair appears.</p></div><form onSubmit={addCustomPool}><label><span>POOL CONTRACT</span><input placeholder="0x…" value={draft.poolAddress} onChange={(event) => setDraft((value) => ({ ...value, poolAddress: event.target.value }))} /></label><label><span>HK STOCK</span><input placeholder="HK.01810" value={draft.stockSymbol} onChange={(event) => setDraft((value) => ({ ...value, stockSymbol: event.target.value }))} /></label><label><span>TOKEN LABEL</span><input placeholder="XIAOx" value={draft.displayBase} onChange={(event) => setDraft((value) => ({ ...value, displayBase: event.target.value }))} /></label><label><span>COMPANY NAME</span><input placeholder="Xiaomi" value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} /></label><label><span>EXPECTED FEE %</span><input type="number" min="0.0001" max="100" step="0.0001" value={draft.feePct} onChange={(event) => setDraft((value) => ({ ...value, feePct: event.target.value }))} /></label><button type="submit">ADD & VERIFY</button>{formError && <p>{formError}</p>}</form>{customPools.length > 0 && <div className={styles.savedPairs}>{customPools.map((pool) => <span key={pool.id}><b>{pool.displayBase}</b>{pool.stockSymbol}<button onClick={() => saveCustomPools(customPools.filter((item) => item.id !== pool.id))} aria-label={`Remove ${pool.displayBase}`}>×</button></span>)}</div>}</section>}
     {errors.length > 0 && <div className={styles.notice}><strong>Partial data</strong><span>{[...new Set(errors)].slice(0, 2).join(" · ")}</span></div>}
 
     <section className={styles.poolSection}><div className={styles.sectionHead}><div><p className={styles.eyebrow}>ACTIVE HONG KONG POOLS</p><h2>Premium & discount ranking</h2></div><span>Select a row to inspect its synchronized history</span></div><div className={styles.poolTable}><div className={styles.poolTableHead}><span>PAIR / STOCK</span><span>ONCHAIN</span><span>FUTU · HKD</span><span>FAIR · USD</span><span>PREMIUM / DISCOUNT</span><span>REFERENCE</span></div>{comparisons.map((item) => <button key={item.id} className={`${styles.poolRow} ${selected?.id === item.id ? styles.selectedRow : ""}`} onClick={() => setSelectedId(item.id)}><span><b>{item.displayBase}</b><small>{item.name} · {item.stockSymbol}</small></span><span><b>{formatPrice(item.spotPrice, 5)}</b><small>{item.quoteSymbol} · {item.feePct.toFixed(2)}%</small></span><span><b>{formatPrice(item.stockHkd, 3)}</b><small>{sourceLabel(item.referenceSource)}</small></span><span><b>{formatPrice(item.fairUsd, 5)}</b><small>HKD ÷ {formatPrice(Number(usdHkd), 4)}</small></span><span className={item.basisPct === null ? "" : item.basisPct >= 0 ? styles.premiumCell : styles.discountCell}><b>{formatPct(item.basisPct)}</b><small>{item.basisPct === null ? "WAITING" : item.basisPct >= 0 ? "SELL POOL / BUY STOCK" : "BUY POOL / SELL STOCK"}</small></span><span><b>{formatTime(item.referenceTime)}</b><small>{shortAddress(item.poolAddress)}</small></span></button>)}</div></section>
