@@ -126,12 +126,15 @@ test("uses executable best bid or ask for live Oracle Monitor deviations", async
     readFile(new URL("../app/api/oracle-monitor/quotes/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/GlobalOracleAlerts.tsx", import.meta.url), "utf8"),
   ]);
-  assert.match(page, /const executableSide = mark >= oracle \? "SELL" as const : "BUY" as const/);
-  assert.match(page, /"Best bid" : "Best ask"/);
+  assert.match(page, /const sellDeviation = \(bid \/ oracle - 1\) \* 100/);
+  assert.match(page, /executableSide: "NONE" as const/);
+  assert.match(page, /SELL · BEST BID/);
+  assert.match(page, /BUY · BEST ASK/);
   assert.doesNotMatch(page, /const live = \(bid \+ ask\) \/ 2/);
-  assert.match(quotes, /const positive = mark >= oracle/);
+  assert.match(quotes, /const sellable = sellDeviation > 0/);
+  assert.match(quotes, /"NONE" as const/);
   assert.doesNotMatch(quotes, /const live = \(bid \+ ask\) \/ 2/);
-  assert.match(alerts, /const live = mark >= oracle \? bid : ask/);
+  assert.match(alerts, /const deviation = sellDeviation > 0 && \(buyDeviation >= 0 \|\| sellDeviation >= Math\.abs\(buyDeviation\)\) \? sellDeviation : buyDeviation < 0 \? buyDeviation : 0/);
   assert.match(alerts, /executable best bid\/ask/);
 });
 
@@ -143,6 +146,8 @@ test("removes the liquidation map and uses visible-window depth bands", async ()
   assert.doesNotMatch(page, /LiquidationPriceMap/);
   assert.match(heatmap, /DEPTH_PERCENTILES = \[\.25, \.5, \.75, \.9\]/);
   assert.match(heatmap, /Resting USD intensity/);
-  assert.match(heatmap, /Recalibrated to the visible time window/);
+  assert.match(heatmap, /visible-window percentiles/);
   assert.match(heatmap, /depthBucket\(cell\.usd, depthScale\)/);
+  assert.match(heatmap, /const bidColors = \["#184b73"/);
+  assert.match(heatmap, /Separate bid \/ ask palettes/);
 });
