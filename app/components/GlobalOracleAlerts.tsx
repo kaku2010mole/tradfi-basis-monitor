@@ -124,12 +124,14 @@ async function directBinanceQuotes(symbols: string[], signal: AbortSignal): Prom
     const oracle = Number(premium?.indexPrice);
     const mark = Number(premium?.markPrice);
     if (![bid, ask, oracle, mark].every((value) => Number.isFinite(value) && value > 0)) return [];
-    const live = mark >= oracle ? bid : ask;
+    const sellDeviation = (bid / oracle - 1) * 100;
+    const buyDeviation = (ask / oracle - 1) * 100;
+    const deviation = sellDeviation > 0 && (buyDeviation >= 0 || sellDeviation >= Math.abs(buyDeviation)) ? sellDeviation : buyDeviation < 0 ? buyDeviation : 0;
     return [{
       id: `binance:${symbol}`,
       venue: "Binance" as const,
       symbol,
-      deviation: (live / oracle - 1) * 100,
+      deviation,
       updatedAt: Math.max(book?.time ?? 0, premium?.time ?? 0, Date.now()),
     }];
   });
