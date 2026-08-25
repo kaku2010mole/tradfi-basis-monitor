@@ -4,12 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
 import { formatPrice, formatSize } from "@nktkas/hyperliquid/utils";
 import { privateKeyToAccount } from "viem/accounts";
-import type { SelectedTakerDirection, TakerQuote } from "./types";
+import type { HyperliquidMarketType, SelectedTakerDirection, TakerQuote } from "./types";
 import styles from "./page.module.css";
 
 type Side = "BUY" | "SELL";
 type HyperMeta = { universe?: Array<{ name?: string; szDecimals?: number }> };
 type PerpDex = { name?: string } | null;
+type SpotMeta = {
+  tokens?: Array<{ name?: string; index?: number; szDecimals?: number }>;
+  universe?: Array<{ name?: string; index?: number; tokens?: [number, number] }>;
+};
 type RawStatus = { filled: { totalSz: string; avgPx: string; oid: number } } | { error: string } | { resting: { oid: number } } | "waitingForFill" | "waitingForTrigger";
 type LiveLeg = { coin: string; side: Side; price: number; size: number; notional: number; orderId: number };
 type SliceReport = {
@@ -44,8 +48,25 @@ async function hyperInfo<T>(payload: Record<string, unknown>) {
   return await response.json() as T;
 }
 
-async function resolveHyperAsset(coin: string) {
+async function resolveHyperAsset(coin: string, marketType: HyperliquidMarketType) {
   const normalized = coin.trim();
+  if (marketType === "spot") {
+    const meta = await hyperInfo<SpotMeta>({ type: "spotMeta" });
+    const tokenByIndex = new Map((meta.tokens ?? []).flatMap((token) => Number.isInteger(token.index) ? [[Number(token.index), token] as const] : []));
+    const requested = normalized.toUpperCase();
+    const market = (meta.universe ?? []).find((item) => {
+      const base = tokenByIndex.get(Number(item.tokens?.[0]))?.name ?? "";
+      const quote = tokenByIndex.get(Number(item.tokens?.[1]))?.name ?? "";
+      return item.name?.toUpperCase() === requested || `@${item.index}`.toUpperCase() === requested
+        || `${base}/${quote}`.toUpperCase() === requested
+        || (!requested.includes("/") && base.toUpperCase() === requested && quote.toUpperCase() === "USDC");
+    });
+    const base = tokenByIndex.get(Number(market?.tokens?.[0]));
+    const quote = tokenByIndex.get(Number(market?.tokens?.[1]));
+    if (!market || !Number.isInteger(market.index) || !base || !Number.isInteger(base.szDecimals)) throw new Error(`${normalized} is not present in Hyperliquid spot metadata.`);
+    if (quote?.name?.toUpperCase() !== "USDC") throw new Error(`${normalized}: only USDC-quoted spot markets are supported.`);
+    return { assetId: 10_000 + Number(market.index), szDecimals: Number(base.szDecimals), marketType };
+  }
   const separator = normalized.indexOf(":");
   const dex = separator > 0 ? normalized.slice(0, separator) : "";
   const meta = await hyperInfo<HyperMeta>(dex ? { type: "meta", dex } : { type: "meta" });
@@ -55,11 +76,11 @@ async function resolveHyperAsset(coin: string) {
   if (index < 0) throw new Error(`${normalized} is not present in Hyperliquid perp metadata.`);
   const szDecimals = Number(universe[index]?.szDecimals);
   if (!Number.isInteger(szDecimals) || szDecimals < 0) throw new Error(`${normalized} has invalid Hyperliquid size precision.`);
-  if (!dex) return { assetId: index, szDecimals };
+  if (!dex) return { assetId: index, szDecimals, marketType };
   const dexes = await hyperInfo<PerpDex[]>({ type: "perpDexs" });
   const dexIndex = dexes.findIndex((entry) => entry?.name === dex);
   if (dexIndex < 0) throw new Error(`Hyperliquid perp dex ${dex} was not found.`);
-  return { assetId: 100_000 + dexIndex * 10_000 + index, szDecimals };
+  return { assetId: 100_000 + dexIndex * 10_000 + index, szDecimals, marketType };
 }
 
 function readFill(status: RawStatus | undefined, coin: string, side: Side): { leg?: LiveLeg; error?: string } {
@@ -73,12 +94,14 @@ function readFill(status: RawStatus | undefined, coin: string, side: Side): { le
   return { leg: { coin, side, price, size, notional: size * price, orderId: status.filled.oid } };
 }
 
-export default function LiveDcaPanel({ quote, quoteFresh, selected, coinA, coinB, hedgeRatio, total, slice, interval, trigger, slippageBps }: {
+export default function LiveDcaPanel({ quote, quoteFresh, selected, coinA, coinB, marketTypeA, marketTypeB, hedgeRatio, total, slice, interval, trigger, slippageBps }: {
   quote: TakerQuote | null;
   quoteFresh: boolean;
   selected: SelectedTakerDirection;
   coinA: string;
   coinB: string;
+  marketTypeA: HyperliquidMarketType;
+  marketTypeB: HyperliquidMarketType;
   hedgeRatio: number;
   total: number;
   slice: number;
@@ -104,7 +127,7 @@ export default function LiveDcaPanel({ quote, quoteFresh, selected, coinA, coinB
   useEffect(() => {
     const timer = window.setTimeout(() => setRunning(false), 0);
     return () => window.clearTimeout(timer);
-  }, [coinA, coinB, hedgeRatio, interval, selected.direction, slice, slippageBps, total, trigger]);
+  }, [coinA, coinB, hedgeRatio, interval, marketTypeA, marketTypeB, selected.direction, slice, slippageBps, total, trigger]);
 
   const executeSlice = useCallback(async (requestedA: number) => {
     if (!quote || selected.spread === null || executionRef.current) return;
@@ -117,7 +140,7 @@ export default function LiveDcaPanel({ quote, quoteFresh, selected, coinA, coinB
     const sideB: Side = buyA ? "SELL" : "BUY";
     let submitted = false;
     try {
-      const [assetA, assetB] = await Promise.all([resolveHyperAsset(coinA), resolveHyperAsset(coinB)]);
+      const [assetA, assetB] = await Promise.all([resolveHyperAsset(coinA, marketTypeA), resolveHyperAsset(coinB, marketTypeB)]);
       const referenceA = buyA ? quote.legA.ask : quote.legA.bid;
       const referenceB = buyA ? quote.legB.bid : quote.legB.ask;
       const sizeA = formatSize(requestedA / referenceA, assetA.szDecimals);
@@ -126,8 +149,8 @@ export default function LiveDcaPanel({ quote, quoteFresh, selected, coinA, coinB
       if (!positive(sizeB)) throw new Error(`${coinB} slice is below its minimum size precision.`);
       const paddedA = referenceA * (buyA ? 1 + slippageBps / 10_000 : 1 - slippageBps / 10_000);
       const paddedB = referenceB * (buyA ? 1 - slippageBps / 10_000 : 1 + slippageBps / 10_000);
-      const orderPriceA = formatPrice(paddedA, assetA.szDecimals, "perp");
-      const orderPriceB = formatPrice(paddedB, assetB.szDecimals, "perp");
+      const orderPriceA = formatPrice(paddedA, assetA.szDecimals, assetA.marketType);
+      const orderPriceB = formatPrice(paddedB, assetB.szDecimals, assetB.marketType);
       const wallet = privateKeyToAccount(privateKey.trim() as `0x${string}`);
       const client = new ExchangeClient({
         transport: new HttpTransport({ timeout: 8_000 }),
@@ -192,7 +215,7 @@ export default function LiveDcaPanel({ quote, quoteFresh, selected, coinA, coinB
       executionRef.current = false;
       setExecuting(false);
     }
-  }, [addReport, coinA, coinB, hedgeRatio, privateKey, quote, selected.direction, selected.spread, slippageBps, total, vaultAddress]);
+  }, [addReport, coinA, coinB, hedgeRatio, marketTypeA, marketTypeB, privateKey, quote, selected.direction, selected.spread, slippageBps, total, vaultAddress]);
 
   useEffect(() => {
     if (!running || executing || !quoteFresh || selected.spread === null || selected.spread < trigger || remaining <= 0) return;
@@ -225,13 +248,13 @@ export default function LiveDcaPanel({ quote, quoteFresh, selected, coinA, coinB
   };
 
   return <section className={`${styles.panel} ${styles.livePanel}`}>
-    <div className={styles.panelHead}><div><span>HYPERLIQUID MAINNET</span><h2>Live internal taker–taker DCA</h2></div><small>Two IOC orders · one signed exchange action</small></div>
+    <div className={styles.panelHead}><div><span>HYPERLIQUID MAINNET</span><h2>Live internal taker–taker DCA</h2></div><small>Perp / spot ready · two IOC orders · one signed action</small></div>
     <div className={styles.liveCredentials}>
       <label>Hyperliquid API wallet private key<input type="password" autoComplete="new-password" value={privateKey} onChange={(event) => setPrivateKey(event.target.value)} placeholder="0x… dedicated API wallet" /></label>
       <label>Vault / subaccount address · optional<input type="password" autoComplete="off" value={vaultAddress} onChange={(event) => setVaultAddress(event.target.value)} placeholder="0x… leave empty for main account" /></label>
     </div>
-    <div className={styles.securityNote}><strong>The API wallet key stays in this browser tab and is sent only as a signature to Hyperliquid.</strong><span>Keep this tab visible while live DCA is armed. Hidden or stale tabs pause automatically. Use a dedicated API wallet with only the permissions and balance you need.</span></div>
-    <label className={styles.liveAcknowledgement}><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /><span>I authorize two real Hyperliquid mainnet IOC orders per slice. I understand a multi-order action is not atomic: one perp can fill while the other does not.</span></label>
+    <div className={styles.securityNote}><strong>The API wallet key stays in this browser tab and is sent only as a signature to Hyperliquid.</strong><span>Keep this tab visible while live DCA is armed. A spot SELL requires sufficient token inventory or an independently arranged borrow. Use a dedicated API wallet with only the permissions and balance you need.</span></div>
+    <label className={styles.liveAcknowledgement}><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /><span>I authorize two real Hyperliquid mainnet IOC orders per slice. I understand a multi-order action is not atomic: one market can fill while the other does not.</span></label>
     <div className={styles.liveProgress}><div><span style={{ width: `${progress}%` }} /></div><p><strong>{money(filledNotionalA)}</strong> completed of {money(total)} on {coinA} · next targets {money(Math.min(slice, remaining))} {coinA} / {money(Math.min(slice, remaining) * hedgeRatio)} {coinB}</p></div>
     <div className={styles.liveControls}><button className={styles.armButton} disabled={!canArm || running || executing} onClick={arm}>{filledNotionalA > 0 ? "Start a new LIVE DCA" : "Arm & start LIVE DCA"}</button><button disabled={!running || executing} onClick={() => setRunning(false)}>Pause</button><button disabled={executing} onClick={clearCredentials}>Clear key</button><span>{stateText}</span></div>
     {reports.length > 0 && <div className={styles.liveReports}><div className={styles.liveReportHead}><span>HYPERLIQUID FILL REPORT</span><small>{reports.length} slice{reports.length === 1 ? "" : "s"}</small></div>{reports.map((report) => <article key={report.id} className={`${styles.liveReport} ${styles[report.tone]}`}><div><strong>{report.message}</strong><small>{clock(report.time)} HKT · trigger spread {pct(report.spread)}{report.balanceErrorPct === undefined ? "" : ` · balance error ${pct(report.balanceErrorPct, 2)}`}</small>{report.details && <small>{report.details}</small>}</div><div className={styles.liveLegs}>{report.legA && <span><b>{report.legA.side} {report.legA.coin}</b> {px(report.legA.size)} @ {px(report.legA.price)} · {money(report.legA.notional)} · #{report.legA.orderId}</span>}{report.legB && <span><b>{report.legB.side} {report.legB.coin}</b> {px(report.legB.size)} @ {px(report.legB.price)} · {money(report.legB.notional)} · #{report.legB.orderId}</span>}{!report.legA && !report.legB && <span><b>Requested</b> {money(report.requestedA)} {coinA} / {money(report.requestedB)} {coinB}</span>}</div></article>)}</div>}
