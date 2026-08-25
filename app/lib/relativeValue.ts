@@ -106,6 +106,13 @@ export const RELATIONSHIPS: Relationship[] = [
     caveat: "The contracts can use different reference and funding mechanics, so the locked one-for-one formula is validated against history before use.",
   },
   {
+    id: "kodex200-kr200", title: "KODEX200 → KR200", short: "Cross-venue Korea 200 parity", kind: "same-benchmark",
+    asset1: { venue: "binance", symbol: "KODEX200USDT", label: "Binance KODEX200" }, asset2: { venue: "hyperliquid", symbol: "xyz:KR200", label: "Hyperliquid KR200" },
+    referenceBeta: 1, leveraged: false,
+    thesis: "Use the Binance KODEX200 contract's move to estimate the Hyperliquid KR200 contract on a locked one-for-one return basis.",
+    caveat: "Trading hours, FX assumptions, oracle construction and funding can create temporary cross-venue prediction errors.",
+  },
+  {
     id: "spy-qqq", title: "SPY → QQQ", short: "US large caps to Nasdaq growth", kind: "cross-index",
     asset1: { venue: "binance", symbol: "SPYUSDT", label: "Binance SPY" }, asset2: { venue: "binance", symbol: "QQQUSDT", label: "Binance QQQ" },
     referenceBeta: null, leveraged: false,
