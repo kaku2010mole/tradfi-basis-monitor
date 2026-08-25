@@ -17,7 +17,11 @@ if [[ ! -r "$source_token" ]]; then
 fi
 
 /bin/mkdir -p "$runtime_dir"
-/usr/bin/ditto "$source_relay/.venv" "$runtime_dir/.venv"
+# Existing installations already have the Python runtime. Reuse it on symbol
+# updates so a one-click reinstall only replaces the small relay files.
+if [[ ! -x "$runtime_dir/.venv/bin/python" ]] || ! "$runtime_dir/.venv/bin/python" -c 'import futu' >/dev/null 2>&1; then
+  /usr/bin/ditto "$source_relay/.venv" "$runtime_dir/.venv"
+fi
 /bin/cp "$source_relay/push.py" "$runtime_dir/push.py"
 /bin/cp "$source_relay/run-macos.sh" "$runtime_dir/run-macos.sh"
 /bin/cp "$source_token" "$runtime_dir/.futu-push-token"
