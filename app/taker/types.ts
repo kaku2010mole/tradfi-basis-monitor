@@ -1,7 +1,10 @@
 export type TakerDirection = "shortA" | "longA";
+export type HyperliquidMarketType = "perp" | "spot";
 
 export type HyperliquidBbo = {
   coin: string;
+  bookCoin: string;
+  marketType: HyperliquidMarketType;
   bid: number;
   ask: number;
   bidSize: number | null;
@@ -23,5 +26,7 @@ export type SelectedTakerDirection = {
   spread: number | null;
   shortLeg: string;
   longLeg: string;
+  shortMarketType: HyperliquidMarketType;
+  longMarketType: HyperliquidMarketType;
   liquidityUsd: number | null;
 };
