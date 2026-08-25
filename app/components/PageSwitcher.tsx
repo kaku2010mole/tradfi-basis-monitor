@@ -37,8 +37,8 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
           <small>Internal two-perp IOC spread execution</small>
         </Link>
         <Link href="/polymarket" aria-current={active === "polymarket" ? "page" : undefined}>
-          <span>Polymarket Perps</span>
-          <small>Live funding, history and Binance spreads</small>
+          <span>Funding &amp; Basis</span>
+          <small>Poly ↔ HL ↔ Binance funding and price spreads</small>
         </Link>
         <Link href="/hk-auction" aria-current={active === "auction" ? "page" : undefined}>
           <span>HK auction basis</span>
