@@ -120,6 +120,18 @@ test("retries the Futu LaunchAgent registration after replacing the relay", asyn
   assert.match(installer, /exec \"\$runtime_dir\/run-macos\.sh\"/);
 });
 
+test("ships a lightweight Futu symbol updater", async () => {
+  const [installer, updater, pusher] = await Promise.all([
+    readFile(new URL("../services/futu-pusher/Install Futu Relay.command", import.meta.url), "utf8"),
+    readFile(new URL("../services/futu-pusher/Update Futu Symbols.command", import.meta.url), "utf8"),
+    readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
+  ]);
+  assert.match(installer, /Reuse it on symbol/);
+  assert.match(updater, /launchctl kickstart -k/);
+  assert.match(pusher, /HK\.00388/);
+  assert.match(pusher, /HK\.02097/);
+});
+
 test("uses executable best bid or ask for live Oracle Monitor deviations", async () => {
   const [page, quotes, alerts] = await Promise.all([
     readFile(new URL("../app/oracle/page.tsx", import.meta.url), "utf8"),
@@ -153,9 +165,11 @@ test("removes the liquidation map and uses visible-window depth bands", async ()
 });
 
 test("renders an address-verified X Layer Uniswap V3 pool monitor", async () => {
-  const [response, route, registry, page] = await Promise.all([
+  const [response, route, historyRoute, recorder, registry, page] = await Promise.all([
     render("/onchain"),
     readFile(new URL("../app/api/onchain-pools/quote/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/onchain-pools/history/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/start-render.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/onchainPools.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/onchain/page.tsx", import.meta.url), "utf8"),
   ]);
@@ -173,6 +187,12 @@ test("renders an address-verified X Layer Uniswap V3 pool monitor", async () => 
   assert.match(route, /sellPriceBeforeSlippage/);
   assert.match(route, /group === "hk"/);
   assert.match(route, /customPoolFromUrl/);
+  assert.match(historyRoute, /ONCHAIN_BASIS_DATA_DIR/);
+  assert.match(historyRoute, /stockHkd \/ usdHkd/);
+  assert.match(recorder, /ONCHAIN_CAPTURE_MS = 60_000/);
+  assert.match(recorder, /minute >= 10 \* 60 && minute <= 15 \* 60/);
+  assert.match(page, /SERVER HISTORY/);
+  assert.match(page, /retained for 90 days/);
   assert.match(registry, /0xdc7f2f41b48cd4f482d8c900ac2fa1b5ad058417/);
   assert.match(registry, /HK\.02097/);
   assert.match(registry, /HK\.00388/);
