@@ -22,15 +22,16 @@
 .matchToggle input { accent-color:var(--purple); }
 .filters>button { height:39px; padding:0 14px; border:0; border-radius:7px; background:var(--ink); color:#fff; cursor:pointer; font-size:9px; font-weight:850; white-space:nowrap; }
 .filters>p { align-self:center; margin:0; color:var(--muted); font-size:9px; line-height:1.4; text-align:right; }
-.marketGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-top:11px; }
-.marketCard { width:100%; min-width:0; padding:16px; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,.96); color:var(--ink); text-align:left; box-shadow:0 10px 28px rgba(25,37,57,.035); transition:transform .15s,border-color .15s,box-shadow .15s; }
+.marketGrid { display:grid; grid-template-columns:1fr; gap:11px; margin-top:11px; }
+.marketCard { width:100%; min-width:0; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.97); color:var(--ink); text-align:left; box-shadow:0 10px 28px rgba(25,37,57,.035); transition:transform .15s,border-color .15s,box-shadow .15s; }
 .marketCard:hover { transform:translateY(-1px); border-color:#bfc9d8; }
-.expandedCard { grid-column:1/-1; border-color:var(--purple); box-shadow:0 0 0 3px rgba(110,73,216,.1),0 14px 35px rgba(45,30,90,.08); }
-.cardHead { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.expandedCard { border-color:var(--purple); box-shadow:0 0 0 3px rgba(110,73,216,.1),0 14px 35px rgba(45,30,90,.08); }
+.cardHead { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:16px 19px; background:#fff; }
 .cardHead>div { display:grid; gap:5px; min-width:0; }
 .cardHead>div small { color:#8a95a6; font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
-.cardHead>div strong { overflow:hidden; font:900 17px monospace; text-overflow:ellipsis; white-space:nowrap; }
-.cardHead>span { min-width:116px; display:grid; justify-items:end; gap:2px; padding:8px 9px; border-radius:8px; font:900 14px monospace; }
+.cardHead>div strong { overflow:hidden; font:900 21px monospace; text-overflow:ellipsis; white-space:nowrap; }
+.cardHead>div p { margin:0; color:var(--muted); font:8px/1.4 monospace; }
+.cardHead>span { min-width:144px; display:grid; justify-items:end; gap:3px; padding:10px 12px; border-radius:9px; font:900 18px monospace; }
 .cardHead>span small { font:750 7px Arial,sans-serif; letter-spacing:.07em; text-transform:uppercase; }
 .positiveFunding { background:#e8f7f2; color:var(--green); }
 .negativeFunding { background:#fdecee; color:var(--red); }
@@ -42,20 +43,43 @@
 .priceGrid>div:last-child { border-right:0; padding-right:0; }
 .priceGrid span,.comparison span { display:block; color:#8a95a6; font-size:7px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
 .priceGrid b { display:block; margin-top:5px; overflow:hidden; font:850 11px monospace; text-overflow:ellipsis; }
-.venueComparisons { display:grid; gap:7px; margin-top:11px; }
-.expandedCard .venueComparisons { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.venueComparisons { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:var(--line); }
+.spreadLane { min-width:0; padding:15px 17px 16px; background:#fbfcfe; }
+.binanceLane { border-top:3px solid #e0a72f; }
+.hyperLane { border-top:3px solid #22a588; }
+.spreadLane>header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.spreadLane>header>div { min-width:0; }
+.spreadLane>header span { display:block; color:#758197; font-size:8px; font-weight:900; letter-spacing:.1em; }
+.spreadLane>header strong { display:block; margin-top:5px; overflow:hidden; font:850 11px monospace; text-overflow:ellipsis; white-space:nowrap; }
+.spreadLane>header em { padding:5px 7px; border:1px solid #bde2d5; border-radius:999px; background:#ecfaf5; color:#08775e; font:900 7px Arial,sans-serif; letter-spacing:.08em; }
+.spreadHeroes { display:grid; grid-template-columns:1.2fr 1fr; gap:7px; margin-top:12px; }
+.spreadHeroes>div { min-width:0; padding:12px; border:1px solid #e0e5ed; border-radius:9px; background:#fff; }
+.spreadHeroes span,.spreadHeroes small { display:block; color:#8490a2; font-size:7px; font-weight:850; letter-spacing:.07em; text-transform:uppercase; }
+.spreadHeroes strong { display:block; margin:8px 0 5px; font:950 clamp(19px,2.4vw,30px)/1 monospace; letter-spacing:-.06em; }
+.spreadHeroes small { overflow:hidden; font-size:7px; text-overflow:ellipsis; white-space:nowrap; }
+.tradeDirection { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:7px; padding:9px 11px; border-radius:8px; background:#15243a; color:#fff; }
+.tradeDirection span { color:#aeb9c9; font-size:7px; font-weight:850; letter-spacing:.08em; }
+.tradeDirection strong { text-align:right; font:900 11px monospace; }
+.venueNumbers { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); margin:8px 0 0; border:1px solid #e3e8ef; border-radius:8px; background:#fff; overflow:hidden; }
+.venueNumbers>div { min-width:0; padding:9px; border-right:1px solid #e3e8ef; }
+.venueNumbers>div:last-child { border-right:0; }
+.venueNumbers dt { overflow:hidden; color:#8a95a6; font-size:7px; font-weight:800; text-overflow:ellipsis; text-transform:uppercase; white-space:nowrap; }
+.venueNumbers dd { margin:6px 0 0; overflow:hidden; font:850 10px monospace; text-overflow:ellipsis; white-space:nowrap; }
+.venueNumbers small { display:block; margin-top:3px; color:#929cad; font:7px monospace; }
+.unavailableLane { opacity:.55; filter:saturate(.35); }
+.unavailableLane>header em { border-color:#d7dce4; background:#f1f3f6; color:#778296; }
 .comparison { display:grid; grid-template-columns:1fr auto; align-items:end; gap:12px; min-width:0; padding:10px 11px; border:1px solid #ddd7f1; border-radius:8px; background:linear-gradient(110deg,var(--purple-soft),#fff); }
 .comparison>div:last-child { text-align:right; }
 .comparison strong { display:block; margin-top:5px; font:900 15px monospace; }
 .hyperComparison { border-color:#cde5e2; background:linear-gradient(110deg,#eaf8f5,#fff); }
 .noComparison { grid-template-columns:1fr; border-color:#e1e5eb; background:#f7f8fa; }
 .noComparison>div:last-child { display:none; }
-.cardFooter { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:11px; }
+.cardFooter { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 16px; background:#fff; }
 .cardFooter>div { display:flex; flex-wrap:wrap; gap:10px; color:#7d899b; font:8px monospace; }
 .cardFooter>button { min-height:33px; display:flex; align-items:center; gap:8px; padding:0 10px; border:1px solid #d8d0f1; border-radius:7px; background:#f4f0ff; color:#5b3fba; cursor:pointer; font-size:8px; font-weight:850; letter-spacing:.03em; text-transform:uppercase; }
 .cardFooter>button i { display:grid; width:17px; height:17px; place-items:center; border-radius:50%; background:var(--purple); color:#fff; font:normal 13px/1 monospace; }
 .noMarkets { grid-column:1/-1; min-height:180px; display:grid; place-items:center; border:1px dashed #cdd5e1; border-radius:10px; color:var(--muted); font-size:10px; }
-.inlineHistory { margin:16px -16px -16px; overflow:hidden; border-top:3px solid var(--purple); border-radius:0 0 10px 10px; background:#fff; }
+.inlineHistory { overflow:hidden; border-top:3px solid var(--purple); background:#fff; }
 .historyHead { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; padding:17px 18px 7px; }
 .historyHead h2 { margin:0; font-size:26px; letter-spacing:-.04em; }
 .historyHead>div:first-child>span { display:block; margin-top:7px; color:var(--muted); font-size:9px; }
@@ -79,6 +103,6 @@
 .inlineHistory>footer { display:flex; justify-content:space-between; gap:18px; padding:10px 18px 17px; color:#7d899b; font-size:8px; }
 .footer { padding:20px 4px 0; color:#7b8799; font-size:9px; line-height:1.5; text-align:center; }
 
-@media(max-width:1180px){.marketGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.filters{grid-template-columns:1fr 180px auto auto}.filters>p{grid-column:1/-1;text-align:left}.stats{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:760px){.shell{padding:17px 10px 30px}.topbar{display:grid;gap:16px}.topActions{align-items:flex-start;flex-direction:column-reverse}.connections{justify-content:flex-start}.topbar h1{font-size:43px}.stats{grid-template-columns:1fr 1fr}.stats article{min-height:105px;padding:14px}.stats strong{font-size:26px}.filters{grid-template-columns:1fr 1fr}.filters .matchToggle,.filters>button{width:100%}.marketGrid{grid-template-columns:1fr}.expandedCard .venueComparisons{grid-template-columns:1fr}.historyHead{align-items:flex-start;flex-direction:column;padding:17px 14px 8px}.historyWindows{width:100%}.historyWindows button{flex:1}.inlineHistory>footer{padding:9px 14px 15px}.chartWrap{padding:0 3px 6px}}
-@media(max-width:480px){.connections{display:grid;width:100%}.connections span{justify-content:flex-start}.stats{grid-template-columns:1fr 1fr}.filters{grid-template-columns:1fr}.cardHead>span{min-width:105px;font-size:12px}.priceGrid{grid-template-columns:1fr 1fr}.priceGrid>div{border-bottom:1px solid #e6ebf2}.priceGrid>div:nth-child(even){border-right:0}.priceGrid>div:nth-last-child(-n+2){border-bottom:0}.priceGrid>div:nth-child(3){padding-left:0}.comparison{grid-template-columns:1fr auto}.cardFooter{align-items:flex-start;flex-direction:column}.cardFooter>button{width:100%;justify-content:space-between}.historyWindows button{min-width:0}.inlineHistory>footer{flex-direction:column;gap:4px}}
+@media(max-width:1180px){.filters{grid-template-columns:1fr 180px auto auto}.filters>p{grid-column:1/-1;text-align:left}.stats{grid-template-columns:repeat(3,1fr)}.venueNumbers{grid-template-columns:1fr 1fr}.venueNumbers>div:nth-child(2){border-right:0}.venueNumbers>div:nth-child(-n+2){border-bottom:1px solid #e3e8ef}}
+@media(max-width:760px){.shell{padding:17px 10px 30px}.topbar{display:grid;gap:16px}.topActions{align-items:flex-start;flex-direction:column-reverse}.connections{justify-content:flex-start}.topbar h1{font-size:43px}.stats{grid-template-columns:1fr 1fr}.stats article{min-height:105px;padding:14px}.stats strong{font-size:26px}.filters{grid-template-columns:1fr 1fr}.filters .matchToggle,.filters>button{width:100%}.venueComparisons{grid-template-columns:1fr}.historyHead{align-items:flex-start;flex-direction:column;padding:17px 14px 8px}.historyWindows{width:100%}.historyWindows button{flex:1}.inlineHistory>footer{padding:9px 14px 15px}.chartWrap{padding:0 3px 6px}}
+@media(max-width:480px){.connections{display:grid;width:100%}.connections span{justify-content:flex-start}.stats{grid-template-columns:1fr 1fr}.filters{grid-template-columns:1fr}.cardHead{align-items:flex-start}.cardHead>span{min-width:105px;font-size:12px}.spreadLane{padding:13px 11px}.spreadHeroes{grid-template-columns:1fr 1fr}.spreadHeroes>div{padding:10px 8px}.spreadHeroes strong{font-size:18px}.tradeDirection{align-items:flex-start;flex-direction:column}.tradeDirection strong{text-align:left}.cardFooter{align-items:flex-start;flex-direction:column}.cardFooter>button{width:100%;justify-content:space-between}.historyWindows button{min-width:0}.inlineHistory>footer{flex-direction:column;gap:4px}}
