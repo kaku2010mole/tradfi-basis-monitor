@@ -27,9 +27,11 @@ type Ticker = {
 
 type BinanceExchangeInfo = { symbols?: Array<{ symbol?: string; status?: string }> };
 type BinanceBook = { symbol?: string; bidPrice?: string; askPrice?: string; time?: number };
+type BinancePremium = { symbol?: string; lastFundingRate?: string; nextFundingTime?: number; time?: number };
+type BinanceFundingInfo = { symbol?: string; fundingIntervalHours?: number };
 type HyperMetaAndContexts = [
   { universe?: Array<{ name?: string; isDelisted?: boolean }> },
-  Array<{ midPx?: string }>,
+  Array<{ midPx?: string; funding?: string }>,
 ];
 
 const EXPLICIT_BINANCE_MAP: Record<string, { symbol: string; kind: "direct" | "reference" } | null> = {
@@ -96,17 +98,23 @@ export async function GET() {
     const tickerById = new Map(tickers.map((ticker) => [ticker.instrument_id, ticker]));
     let activeBinance = new Set<string>();
     let bookBySymbol = new Map<string, BinanceBook>();
+    let premiumBySymbol = new Map<string, BinancePremium>();
+    let fundingHoursBySymbol = new Map<string, number>();
     let binanceOnline = false;
-    const hyperBySymbol = new Map<string, { mid: number | null; dex: string }>();
+    const hyperBySymbol = new Map<string, { mid: number | null; fundingRate: number | null; dex: string }>();
     const onlineHyperDexes = new Set<string>();
     let hyperliquidOnline = false;
     try {
-      const [exchange, books] = await Promise.all([
+      const [exchange, books, premiums, fundingInfo] = await Promise.all([
         fetchBinance<BinanceExchangeInfo>("/fapi/v1/exchangeInfo"),
         fetchBinance<BinanceBook[]>("/fapi/v1/ticker/bookTicker"),
+        fetchBinance<BinancePremium[]>("/fapi/v1/premiumIndex").catch(() => []),
+        fetchBinance<BinanceFundingInfo[]>("/fapi/v1/fundingInfo").catch(() => []),
       ]);
       activeBinance = new Set((exchange.symbols ?? []).flatMap((item) => item.status === "TRADING" && item.symbol ? [item.symbol] : []));
       bookBySymbol = new Map(books.flatMap((book) => book.symbol ? [[book.symbol, book] as const] : []));
+      premiumBySymbol = new Map(premiums.flatMap((premium) => premium.symbol ? [[premium.symbol, premium] as const] : []));
+      fundingHoursBySymbol = new Map(fundingInfo.flatMap((item) => item.symbol && positive(item.fundingIntervalHours) ? [[item.symbol, Number(item.fundingIntervalHours)] as const] : []));
       binanceOnline = activeBinance.size > 0;
     } catch { /* Polymarket remains usable when Binance is regionally unavailable. */ }
 
@@ -118,7 +126,7 @@ export async function GET() {
         onlineHyperDexes.add(dex);
         (meta.universe ?? []).forEach((asset, index) => {
           if (!asset.name || asset.isDelisted) return;
-          hyperBySymbol.set(asset.name, { mid: positive(contexts[index]?.midPx), dex });
+          hyperBySymbol.set(asset.name, { mid: positive(contexts[index]?.midPx), fundingRate: finite(contexts[index]?.funding), dex });
         });
       });
       hyperliquidOnline = hyperBySymbol.size > 0;
@@ -134,6 +142,9 @@ export async function GET() {
       const binanceBid = positive(book?.bidPrice);
       const binanceAsk = positive(book?.askPrice);
       const binanceMid = binanceBid !== null && binanceAsk !== null ? (binanceBid + binanceAsk) / 2 : null;
+      const premium = mapping ? premiumBySymbol.get(mapping.symbol) : undefined;
+      const binanceFundingRate = finite(premium?.lastFundingRate);
+      const binanceFundingHours = mapping ? fundingHoursBySymbol.get(mapping.symbol) ?? 8 : null;
       const midPrice = positive(ticker.mid_price);
       const explicitHyper = EXPLICIT_HYPER_MAP[instrument.base_asset];
       const defaultHyperSymbol = instrument.base_asset;
@@ -168,6 +179,10 @@ export async function GET() {
         binanceAsk,
         binanceMid,
         binanceUpdatedAt: finite(book?.time),
+        binanceFundingRate,
+        binanceFundingHours,
+        binanceFundingHourly: binanceFundingRate !== null && binanceFundingHours ? binanceFundingRate / binanceFundingHours : null,
+        binanceNextFunding: finite(premium?.nextFundingTime),
         spreadPct: midPrice !== null && binanceMid !== null ? (midPrice / binanceMid - 1) * 100 : null,
         hyperSymbol: hyperMapping?.symbol ?? null,
         hyperDex: hyperMapping?.dex ?? null,
@@ -175,6 +190,8 @@ export async function GET() {
         hyperMappingVerified: Boolean(hyperMapping && hyperSnapshot),
         hyperMid,
         hyperUpdatedAt: hyperSnapshot ? Date.now() : null,
+        hyperFundingRate: hyperSnapshot?.fundingRate ?? null,
+        hyperFundingHourly: hyperSnapshot?.fundingRate ?? null,
         hyperSpreadPct: midPrice !== null && hyperMid !== null ? (midPrice / hyperMid - 1) * 100 : null,
       }];
     });
