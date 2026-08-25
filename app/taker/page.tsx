@@ -14,7 +14,7 @@ export default async function TakerPage() {
     : <TradeLogin
         configured={configured}
         title="Hyperliquid Internal Taker–Taker"
-        description="Protected two-perp Hyperliquid DCA. Enter the separate execution password to view the internal executable spread, stage paper runs, or explicitly arm mainnet IOC orders."
+        description="Protected Hyperliquid perp/spot DCA. Enter the separate execution password to view the internal executable spread, stage paper runs, or explicitly arm mainnet IOC orders."
         returnHref="/"
       />;
 }
