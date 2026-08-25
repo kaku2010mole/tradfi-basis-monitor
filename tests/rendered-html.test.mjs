@@ -29,15 +29,19 @@ test("server-renders the TradFi dashboard shell", async () => {
 });
 
 test("restores the Relative Value Monitor and its global prediction-error broadcast", async () => {
-  const [response, alerts, config] = await Promise.all([
+  const [response, alerts, config, relativeValue] = await Promise.all([
     render("/blog"),
     readFile(new URL("../app/components/GlobalOracleAlerts.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/relativeValueAlerts.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/relativeValue.ts", import.meta.url), "utf8"),
   ]);
 
   assert.equal(response.status, 200);
   assert.match(await response.text(), /Relative Value Monitor/);
   assert.match(config, /RELATIVE_VALUE_ALERT_THRESHOLD = 2/);
+  assert.match(relativeValue, /id: "kodex200-kr200"/);
+  assert.match(relativeValue, /symbol: "KODEX200USDT"/);
+  assert.match(relativeValue, /symbol: "xyz:KR200"/);
   assert.match(alerts, /RELATIVE_VALUE_SIGNAL_EVENT/);
   assert.match(alerts, /window\.setInterval\(\(\) => void pollRelative\(\), 10_000\)/);
   assert.match(alerts, /PREDICTION ERROR/);
@@ -96,19 +100,26 @@ test("does not proxy the Posley stream directory without a Cognito token", async
 });
 
 test("keeps live taker execution explicitly gated", async () => {
-  const [studio, livePanel, auth] = await Promise.all([
+  const [studio, livePanel, quoteRoute, auth] = await Promise.all([
     readFile(new URL("../app/taker/TakerStudio.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/taker/LiveDcaPanel.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/taker/quote/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/taker/page.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(studio, /PAPER \+ LIVE/);
   assert.match(studio, /now - lastQuoteAt < 5_000/);
-  assert.match(livePanel, /Two IOC orders · one signed exchange action/);
+  assert.match(livePanel, /Perp \/ spot ready · two IOC orders · one signed action/);
   assert.match(livePanel, /I authorize two real Hyperliquid mainnet IOC orders per slice/);
   assert.ok(livePanel.includes("UNHEDGED ${filled.coin} FILL"));
   assert.match(livePanel, /tif: "Ioc"/);
   assert.match(livePanel, /orders: \[/);
+  assert.match(livePanel, /10_000 \+ Number\(market\.index\)/);
+  assert.match(livePanel, /formatPrice\(paddedA, assetA\.szDecimals, assetA\.marketType\)/);
+  assert.match(quoteRoute, /type: "spotMeta"/);
+  assert.match(quoteRoute, /only USDC-quoted spot markets/);
+  assert.match(studio, /Leg A market type/);
+  assert.match(studio, /typeA: marketTypeA/);
   assert.doesNotMatch(livePanel, /Binance/);
   assert.match(auth, /verifyTradeToken/);
 });
