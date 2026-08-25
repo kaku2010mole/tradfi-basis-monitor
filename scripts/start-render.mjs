@@ -134,10 +134,25 @@ const hktSession = (timestamp = Date.now()) => {
 
 async function localJson(pathname) {
   const port = Number(process.env.PORT) || 3000;
-  const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
+  const origin = `http://127.0.0.1:${port}`;
+  const request = (cookie = "") => fetch(`${origin}${pathname}`, {
     cache: "no-store",
+    headers: cookie ? { Cookie: cookie } : undefined,
     signal: AbortSignal.timeout(20_000),
   });
+  let response = await request();
+  if (response.status === 401 && process.env.SITE_PASSWORD) {
+    const login = await fetch(`${origin}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ password: process.env.SITE_PASSWORD }),
+      redirect: "manual",
+      signal: AbortSignal.timeout(20_000),
+    });
+    const cookie = login.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+    if (!cookie) throw new Error("Recorder login did not return an access cookie.");
+    response = await request(cookie);
+  }
   if (!response.ok) throw new Error(`${pathname} HTTP ${response.status}`);
   return response.json();
 }
