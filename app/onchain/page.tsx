@@ -32,8 +32,8 @@ const FUTU_PAIRS = [
   ["HK.09992", "POPMARTUSDT"],
 ] as const;
 const POLL_MS = 3_000;
-const HISTORY_MS = 2 * 60 * 60_000;
-const STORAGE_KEY = "onchain-hk-basis-history:v2";
+const HISTORY_REFRESH_MS = 60_000;
+const HISTORY_WINDOW_MS = 30 * 24 * 60 * 60_000;
 const CUSTOM_STORAGE_KEY = "onchain-hk-custom-pools:v1";
 const PERP_BY_STOCK = new Map(FUTU_PAIRS.map(([stock, perp]) => [stock, perp]));
 
@@ -41,6 +41,7 @@ const formatPrice = (value: number | null, digits = 5) => value === null || !Num
 const formatCompact = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format(value);
 const formatPct = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(3)}%`;
 const formatTime = (value: number | null, seconds = true) => value === null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: seconds ? "2-digit" : undefined, hour12: false }).format(value);
+const formatChartTime = (value: number | null) => value === null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(value);
 const shortAddress = (value: string) => `${value.slice(0, 6)}…${value.slice(-4)}`;
 const sourceLabel = (source: Comparison["referenceSource"]) => source === "auction-price" ? "Futu auction / IEP" : source === "book-mid" ? "Futu live midpoint" : source === "close-price" ? "Futu official close" : "Waiting for Futu";
 
@@ -64,11 +65,11 @@ function ComparisonChart({ points, symbol }: { points: ComparisonPoint[]; symbol
       {[0, .25, .5, .75, 1].map((ratio) => { const value = max - (max - min) * ratio; const position = top + (bottom - top) * ratio; return <g key={ratio}><line x1={left} x2={width - right} y1={position} y2={position} className={styles.gridLine} /><text x={left - 10} y={position + 4} textAnchor="end" className={styles.axisText}>{formatPrice(value, 4)}</text></g>; })}
       <path d={path("fair")} className={styles.referenceLine} />
       <path d={path("pool")} className={styles.priceLine} />
-      <text x={left} y={height - 14} className={styles.axisText}>{formatTime(points[0].t, false)}</text>
-      <text x={width - right} y={height - 14} textAnchor="end" className={styles.axisText}>{formatTime(points.at(-1)?.t ?? null, false)}</text>
+      <text x={left} y={height - 14} className={styles.axisText}>{formatChartTime(points[0].t)}</text>
+      <text x={width - right} y={height - 14} textAnchor="end" className={styles.axisText}>{formatChartTime(points.at(-1)?.t ?? null)}</text>
       {selected && hover !== null && <><line x1={x(hover)} x2={x(hover)} y1={top} y2={bottom} className={styles.hoverLine} /><circle cx={x(hover)} cy={y(selected.pool)} r="5" className={styles.hoverDot} /></>}
     </svg>
-    {selected && <div className={styles.tooltip} style={{ left: `${Math.max(7, Math.min(76, (hover ?? 0) / Math.max(1, points.length - 1) * 100))}%` }}><strong>{formatPct((selected.pool / selected.fair - 1) * 100)}</strong><span>Pool {formatPrice(selected.pool, 6)}</span><span>Futu-implied {formatPrice(selected.fair, 6)}</span><span>{formatTime(selected.t)} HKT</span></div>}
+    {selected && <div className={styles.tooltip} style={{ left: `${Math.max(7, Math.min(76, (hover ?? 0) / Math.max(1, points.length - 1) * 100))}%` }}><strong>{formatPct((selected.pool / selected.fair - 1) * 100)}</strong><span>Pool {formatPrice(selected.pool, 6)}</span><span>Futu-implied {formatPrice(selected.fair, 6)}</span><span>{formatChartTime(selected.t)} HKT</span></div>}
   </div>;
 }
 
@@ -76,6 +77,7 @@ export default function OnchainPoolsPage() {
   const [pools, setPools] = useState<PoolQuote[]>([]);
   const [references, setReferences] = useState<FutuReference[]>([]);
   const [history, setHistory] = useState<Record<string, ComparisonPoint[]>>({});
+  const [historyError, setHistoryError] = useState("");
   const [selectedId, setSelectedId] = useState("xiaox-usdc-005-xlayer");
   const [usdHkd, setUsdHkd] = useState("7.83");
   const [errors, setErrors] = useState<string[]>([]);
@@ -85,7 +87,27 @@ export default function OnchainPoolsPage() {
   const [draft, setDraft] = useState({ displayBase: "", name: "", stockSymbol: "", poolAddress: "", feePct: "0.05" });
   const requestInFlight = useRef(false);
 
-  useEffect(() => { try { const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") as Record<string, ComparisonPoint[]>; const cutoff = Date.now() - HISTORY_MS; setHistory(Object.fromEntries(Object.entries(saved).map(([id, points]) => [id, points.filter((point) => point.t >= cutoff)]))); } catch { /* Start clean. */ } try { setCustomPools(JSON.parse(localStorage.getItem(CUSTOM_STORAGE_KEY) || "[]") as CustomPool[]); } catch { /* Start with verified defaults. */ } }, []);
+  useEffect(() => { try { setCustomPools(JSON.parse(localStorage.getItem(CUSTOM_STORAGE_KEY) || "[]") as CustomPool[]); } catch { /* Start with verified defaults. */ } }, []);
+
+  const loadServerHistory = useCallback(async () => {
+    const end = Date.now();
+    const params = new URLSearchParams({ start: String(end - HISTORY_WINDOW_MS), end: String(end), usdhkd: usdHkd });
+    try {
+      const response = await fetch(`/api/onchain-pools/history?${params}`, { cache: "no-store" });
+      const payload = await response.json() as { history?: Record<string, ComparisonPoint[]>; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Saved onchain basis history unavailable.");
+      setHistory(payload.history ?? {});
+      setHistoryError("");
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "Saved onchain basis history unavailable.");
+    }
+  }, [usdHkd]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => void loadServerHistory());
+    const timer = window.setInterval(() => void loadServerHistory(), HISTORY_REFRESH_MS);
+    return () => { window.cancelAnimationFrame(frame); window.clearInterval(timer); };
+  }, [loadServerHistory]);
 
   const saveCustomPools = (next: CustomPool[]) => {
     setCustomPools(next);
@@ -137,21 +159,6 @@ export default function OnchainPoolsPage() {
       setPools(allPoolQuotes);
       setReferences(futuPayload.quotes ?? []);
       setErrors([...(poolPayload.errors ?? []), ...(futuPayload.errors ?? []), ...customPayloads.flatMap((item) => !item.ok && item.payload.error ? [item.payload.error] : []), ...(!futuResponse.ok && futuPayload.error ? [futuPayload.error] : [])]);
-      const futuByStock = new Map((futuPayload.quotes ?? []).map((quote) => [quote.stockSymbol, quote]));
-      const cutoff = Date.now() - HISTORY_MS;
-      setHistory((current) => {
-        const next = { ...current };
-        allPoolQuotes.forEach((pool) => {
-          const reference = futuByStock.get(pool.stockSymbol);
-          const stockHkd = reference?.metrics.stockReferenceHkd ?? null;
-          if (pool.spotPrice === null || stockHkd === null || !Number.isFinite(fx) || fx <= 0) return;
-          const point = { t: Math.max(pool.blockTimestamp, reference?.futu?.marketTimestamp ?? 0), pool: pool.spotPrice, fair: stockHkd / fx };
-          const kept = (current[pool.id] ?? []).filter((item) => item.t >= cutoff && item.t !== point.t);
-          next[pool.id] = [...kept, point].sort((a, b) => a.t - b.t).slice(-2_400);
-        });
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* Keep in memory. */ }
-        return next;
-      });
     } catch (loadError) { setErrors([loadError instanceof Error ? loadError.message : "Feeds reconnecting."]); }
     finally { requestInFlight.current = false; }
   }, [usdHkd, customPools]);
@@ -177,13 +184,13 @@ export default function OnchainPoolsPage() {
 
     <section className={styles.controlBar}><label><span>USD / HKD</span><input type="number" min="1" max="20" step="0.0001" value={usdHkd} onChange={(event) => setUsdHkd(event.target.value)} /></label><div><strong>REFERENCE RULE</strong><span>Futu auction / live midpoint during market hours · official close outside market hours</span></div><div><strong>REFRESH</strong><span>3 seconds · verified addresses plus your saved pools</span></div><button className={styles.addPairButton} onClick={() => setShowAddPair((value) => !value)}>{showAddPair ? "CLOSE" : "+ ADD PAIR"}</button></section>
     {showAddPair && <section className={styles.addPairPanel}><div><p className={styles.eyebrow}>CUSTOM X LAYER POOL</p><h2>Add a Hong Kong pair</h2><p>The contract is read directly. Token symbols, decimals, fee and balances are independently verified before the pair appears.</p></div><form onSubmit={addCustomPool}><label><span>POOL CONTRACT</span><input placeholder="0x…" value={draft.poolAddress} onChange={(event) => setDraft((value) => ({ ...value, poolAddress: event.target.value }))} /></label><label><span>HK STOCK</span><input placeholder="HK.01810" value={draft.stockSymbol} onChange={(event) => setDraft((value) => ({ ...value, stockSymbol: event.target.value }))} /></label><label><span>TOKEN LABEL</span><input placeholder="XIAOx" value={draft.displayBase} onChange={(event) => setDraft((value) => ({ ...value, displayBase: event.target.value }))} /></label><label><span>COMPANY NAME</span><input placeholder="Xiaomi" value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} /></label><label><span>EXPECTED FEE %</span><input type="number" min="0.0001" max="100" step="0.0001" value={draft.feePct} onChange={(event) => setDraft((value) => ({ ...value, feePct: event.target.value }))} /></label><button type="submit">ADD & VERIFY</button>{formError && <p>{formError}</p>}</form>{customPools.length > 0 && <div className={styles.savedPairs}>{customPools.map((pool) => <span key={pool.id}><b>{pool.displayBase}</b>{pool.stockSymbol}<button onClick={() => saveCustomPools(customPools.filter((item) => item.id !== pool.id))} aria-label={`Remove ${pool.displayBase}`}>×</button></span>)}</div>}</section>}
-    {errors.length > 0 && <div className={styles.notice}><strong>Partial data</strong><span>{[...new Set(errors)].slice(0, 2).join(" · ")}</span></div>}
+    {(errors.length > 0 || historyError) && <div className={styles.notice}><strong>Partial data</strong><span>{[...new Set([...errors, historyError].filter(Boolean))].slice(0, 2).join(" · ")}</span></div>}
 
     <section className={styles.poolSection}><div className={styles.sectionHead}><div><p className={styles.eyebrow}>ACTIVE HONG KONG POOLS</p><h2>Premium & discount ranking</h2></div><span>Select a row to inspect its synchronized history</span></div><div className={styles.poolTable}><div className={styles.poolTableHead}><span>PAIR / STOCK</span><span>ONCHAIN</span><span>FUTU · HKD</span><span>FAIR · USD</span><span>PREMIUM / DISCOUNT</span><span>REFERENCE</span></div>{comparisons.map((item) => <button key={item.id} className={`${styles.poolRow} ${selected?.id === item.id ? styles.selectedRow : ""}`} onClick={() => setSelectedId(item.id)}><span><b>{item.displayBase}</b><small>{item.name} · {item.stockSymbol}</small></span><span><b>{formatPrice(item.spotPrice, 5)}</b><small>{item.quoteSymbol} · {item.feePct.toFixed(2)}%</small></span><span><b>{formatPrice(item.stockHkd, 3)}</b><small>{sourceLabel(item.referenceSource)}</small></span><span><b>{formatPrice(item.fairUsd, 5)}</b><small>HKD ÷ {formatPrice(Number(usdHkd), 4)}</small></span><span className={item.basisPct === null ? "" : item.basisPct >= 0 ? styles.premiumCell : styles.discountCell}><b>{formatPct(item.basisPct)}</b><small>{item.basisPct === null ? "WAITING" : item.basisPct >= 0 ? "SELL POOL / BUY STOCK" : "BUY POOL / SELL STOCK"}</small></span><span><b>{formatTime(item.referenceTime)}</b><small>{shortAddress(item.poolAddress)}</small></span></button>)}</div></section>
 
     {selected && <><section className={styles.executionStrip}><div><span>BUY {selected.baseSymbol}</span><strong>{formatPrice(selected.buyPriceBeforeSlippage, 6)}</strong><small>{selected.quoteSymbol} · fee included, before slippage/gas</small></div><div className={styles.spotCell}><span>{selected.basisPct !== null && selected.basisPct < 0 ? "DISCOUNT" : "PREMIUM"} VS FUTU</span><strong className={selected.basisPct !== null && selected.basisPct < 0 ? styles.negative : styles.positive}>{formatPct(selected.basisPct)}</strong><small>{selected.basisPct === null ? "Waiting for both venues" : selected.basisPct >= 0 ? "SELL POOL / BUY FUTU" : "BUY POOL / SELL FUTU"}</small></div><div><span>SELL {selected.baseSymbol}</span><strong>{formatPrice(selected.sellPriceBeforeSlippage, 6)}</strong><small>{selected.quoteSymbol} · fee included, before slippage/gas</small></div></section>
     <section className={styles.metrics}><article><span>POOL TVL · APPROX.</span><strong>${formatCompact(selected.tvlQuote)}</strong><small>Both token balances at pool spot</small></article><article><span>{selected.baseSymbol} IN POOL</span><strong>{formatCompact(selected.baseBalance)}</strong><small>{shortAddress(selected.baseAddress)}</small></article><article><span>FUTU BENCHMARK</span><strong>HK${formatPrice(selected.stockHkd, 3)}</strong><small>{sourceLabel(selected.referenceSource)}</small></article><article><span>BLOCK FRESHNESS</span><strong>{latestBlockAge === null ? "—" : `${Math.round(latestBlockAge / 1000)}s`}</strong><small>Block {Number(selected.blockNumber).toLocaleString()}</small></article></section>
-    <section className={styles.chartPanel}><div className={styles.panelHead}><div><p className={styles.eyebrow}>ROLLING LOCAL HISTORY · {selected.displayBase}</p><h2>Pool versus Futu-implied USD</h2></div><div className={styles.chartLegend}><span><i className={styles.poolLegend} />ONCHAIN</span><span><i className={styles.futuLegend} />FUTU-IMPLIED</span></div><div className={styles.rangeStats}><span>LOW <b>{formatPrice(selectedRange?.low ?? null, 5)}</b></span><span>HIGH <b>{formatPrice(selectedRange?.high ?? null, 5)}</b></span></div></div><ComparisonChart points={selectedHistory} symbol={selected.displayBase} /><footer><span>Captured every 3 seconds while this dashboard is open · retained locally for 2 hours</span><span>HKT · hover for exact values</span></footer></section>
+    <section className={styles.chartPanel}><div className={styles.panelHead}><div><p className={styles.eyebrow}>SERVER HISTORY · {selected.displayBase}</p><h2>Pool versus Futu-implied USD</h2></div><div className={styles.chartLegend}><span><i className={styles.poolLegend} />ONCHAIN</span><span><i className={styles.futuLegend} />FUTU-IMPLIED</span></div><div className={styles.rangeStats}><span>LOW <b>{formatPrice(selectedRange?.low ?? null, 5)}</b></span><span>HIGH <b>{formatPrice(selectedRange?.high ?? null, 5)}</b></span></div></div><ComparisonChart points={selectedHistory} symbol={selected.displayBase} /><footer><span>Render captures every minute on weekdays, 10:00–15:00 HKT · retained for 90 days</span><span>{selectedHistory.length.toLocaleString()} saved points · hover for exact values</span></footer></section>
     <section className={styles.verificationPanel}><div><span>POOL CONTRACT</span><a href={selected.explorerUrl} target="_blank" rel="noreferrer">{selected.poolAddress} ↗</a></div><div><span>ONCHAIN TOKEN</span><strong>{selected.baseSymbol}</strong><small>The contract symbol may be wrapped even when the activity label omits “w”.</small></div><div><span>FEE CHECK</span><strong>{selected.feePct.toFixed(2)}% {selected.feeVerified ? "VERIFIED" : "MISMATCH"}</strong><small>Read from the pool contract, not trusted from the campaign label.</small></div></section></>}
     <footer className={styles.footer}>Premium / discount uses the marginal pool spot. Real executable size requires a Uniswap V3 quote simulation across initialized ticks, plus gas and stock-side execution costs.</footer>
   </div></main>;
