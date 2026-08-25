@@ -12,10 +12,24 @@ let dataDirectory = process.env.PARA_DATA_DIR || "/var/data/para-orderbooks";
 let dataDirectoryReady = false;
 let liquidationDataDirectory = process.env.PARA_LIQUIDATION_DATA_DIR || "/var/data/para-liquidations";
 let liquidationDataDirectoryReady = false;
+let onchainDataDirectory = process.env.ONCHAIN_BASIS_DATA_DIR || "/var/data/onchain-basis";
+let onchainDataDirectoryReady = false;
 const RETENTION_DAYS = Math.max(1, Math.min(90, Number(process.env.PARA_RETENTION_DAYS) || 14));
+const ONCHAIN_RETENTION_DAYS = Math.max(1, Math.min(365, Number(process.env.ONCHAIN_RETENTION_DAYS) || 90));
+const ONCHAIN_CAPTURE_MS = 60_000;
+const ONCHAIN_FUTU_PAIRS = [
+  ["HK.00388", "TENCENTUSDT"],
+  ["HK.00700", "TENCENTUSDT"],
+  ["HK.01024", "KUAISHOUUSDT"],
+  ["HK.01810", "HK1810USDT"],
+  ["HK.02097", "TENCENTUSDT"],
+  ["HK.03690", "MEITUANUSDT"],
+  ["HK.09992", "POPMARTUSDT"],
+];
 let stopped = false;
 let lastCleanup = 0;
 let lastLiquidationCleanup = 0;
+let lastOnchainCleanup = 0;
 
 const positive = (value) => {
   const number = Number(value);
@@ -79,6 +93,100 @@ async function cleanupOldLiquidationFiles() {
     const file = path.join(liquidationDataDirectory, entry.name);
     if ((await stat(file)).mtimeMs < cutoff) await unlink(file);
   }));
+}
+
+async function ensureOnchainDataDirectory() {
+  if (onchainDataDirectoryReady) return;
+  try {
+    await mkdir(onchainDataDirectory, { recursive: true });
+  } catch (error) {
+    if (process.env.ONCHAIN_BASIS_DATA_DIR || !error || typeof error !== "object" || error.code !== "EACCES") throw error;
+    onchainDataDirectory = "/tmp/onchain-basis";
+    await mkdir(onchainDataDirectory, { recursive: true });
+    console.warn("[onchain-recorder] Persistent disk is not mounted; using temporary Render storage.");
+  }
+  onchainDataDirectoryReady = true;
+}
+
+async function cleanupOldOnchainFiles() {
+  if (Date.now() - lastOnchainCleanup < 60 * 60_000) return;
+  lastOnchainCleanup = Date.now();
+  const cutoff = Date.now() - ONCHAIN_RETENTION_DAYS * 24 * 60 * 60_000;
+  const entries = await readdir(onchainDataDirectory, { withFileTypes: true });
+  await Promise.all(entries.filter((entry) => entry.isFile() && entry.name.endsWith(".ndjson")).map(async (entry) => {
+    const file = path.join(onchainDataDirectory, entry.name);
+    if ((await stat(file)).mtimeMs < cutoff) await unlink(file);
+  }));
+}
+
+const hktSession = (timestamp = Date.now()) => {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Hong_Kong",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(timestamp).map((part) => [part.type, part.value]));
+  const weekday = parts.weekday;
+  const minute = Number(parts.hour) * 60 + Number(parts.minute);
+  return weekday !== "Sat" && weekday !== "Sun" && minute >= 10 * 60 && minute <= 15 * 60;
+};
+
+async function localJson(pathname) {
+  const port = Number(process.env.PORT) || 3000;
+  const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new Error(`${pathname} HTTP ${response.status}`);
+  return response.json();
+}
+
+async function captureOnchainBasis() {
+  const referenceParams = new URLSearchParams({ usdhkd: "7.83" });
+  ONCHAIN_FUTU_PAIRS.forEach(([stock, perp]) => referenceParams.append("pair", `${stock}|${perp}|1`));
+  const [poolPayload, futuPayload] = await Promise.all([
+    localJson("/api/onchain-pools/quote?group=hk"),
+    localJson(`/api/hk-auction/quotes?${referenceParams}`),
+  ]);
+  const referenceByStock = new Map((futuPayload.quotes || []).map((quote) => [quote.stockSymbol, quote]));
+  const timestamp = Math.floor(Date.now() / ONCHAIN_CAPTURE_MS) * ONCHAIN_CAPTURE_MS;
+  const records = (poolPayload.quotes || []).flatMap((pool) => {
+    const reference = referenceByStock.get(pool.stockSymbol);
+    const poolPrice = positive(pool.spotPrice);
+    const stockHkd = positive(reference?.metrics?.stockReferenceHkd);
+    if (!poolPrice || !stockHkd) return [];
+    return [{
+      id: `${pool.id}:${timestamp}`,
+      poolId: pool.id,
+      label: pool.label,
+      stockSymbol: pool.stockSymbol,
+      t: timestamp,
+      pool: poolPrice,
+      stockHkd,
+      referenceSource: reference?.metrics?.stockReferenceSource || null,
+    }];
+  });
+  if (!records.length) return;
+  await ensureOnchainDataDirectory();
+  const date = new Date(timestamp).toISOString().slice(0, 10);
+  await appendFile(path.join(onchainDataDirectory, `${date}.ndjson`), `${records.map((record) => JSON.stringify(record)).join("\n")}\n`, "utf8");
+  await cleanupOldOnchainFiles();
+}
+
+async function onchainRecorderLoop() {
+  while (!stopped) {
+    const started = Date.now();
+    if (hktSession(started)) {
+      try {
+        await captureOnchainBasis();
+      } catch (error) {
+        console.warn(`[onchain-recorder] ${error instanceof Error ? error.message : "capture failed"}`);
+      }
+    }
+    const delay = Math.max(1_000, ONCHAIN_CAPTURE_MS - (Date.now() - started));
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
 }
 
 async function capture() {
@@ -206,6 +314,7 @@ const web = spawn(executable, ["start"], {
 });
 
 void recorderLoop();
+void onchainRecorderLoop();
 if (process.env.HYPERTRACKER_API_KEY) void liquidationRecorderLoop(process.env.HYPERTRACKER_API_KEY);
 
 const shutdown = (signal) => {
