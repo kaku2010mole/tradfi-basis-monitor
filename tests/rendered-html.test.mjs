@@ -124,6 +124,29 @@ test("keeps live taker execution explicitly gated", async () => {
   assert.match(auth, /verifyTradeToken/);
 });
 
+test("compares Polymarket, Binance and Hyperliquid funding and price spreads in one view", async () => {
+  const [response, page, markets, switcher] = await Promise.all([
+    render("/polymarket"),
+    readFile(new URL("../app/polymarket/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/polymarket-perps/markets/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Funding &amp; Basis/);
+  assert.match(page, /POLY ↔ \{venue\.toUpperCase\(\)\}/);
+  assert.match(page, /FUNDING SPREAD · 1H/);
+  assert.match(page, /PRICE SPREAD/);
+  assert.match(page, /SHORT POLY \/ LONG \$\{venueShort\}/);
+  assert.match(page, /largestAbsoluteFundingSpread/);
+  assert.match(page, /activeAssetCtx/);
+  assert.match(page, /markPrice@1s/);
+  assert.match(markets, /\/fapi\/v1\/premiumIndex/);
+  assert.match(markets, /\/fapi\/v1\/fundingInfo/);
+  assert.match(markets, /binanceFundingRate \/ binanceFundingHours/);
+  assert.match(markets, /fundingRate: finite\(contexts\[index\]\?\.funding\)/);
+  assert.match(switcher, /Poly ↔ HL ↔ Binance funding and price spreads/);
+});
+
 test("retries the Futu LaunchAgent registration after replacing the relay", async () => {
   const installer = await readFile(new URL("../services/futu-pusher/Install Futu Relay.command", import.meta.url), "utf8");
   assert.match(installer, /for attempt in 1 2 3 4 5/);
