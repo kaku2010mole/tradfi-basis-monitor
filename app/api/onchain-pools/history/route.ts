@@ -69,7 +69,7 @@ const cleanup = async (directory: string) => {
   }));
 };
 
-const capture = async (origin: string) => {
+const capture = async (origin: string, cookie: string) => {
   const now = Date.now();
   if (!inCaptureWindow(now)) return 0;
   const minute = Math.floor(now / 60_000) * 60_000;
@@ -77,9 +77,10 @@ const capture = async (origin: string) => {
   if (globals.__ONCHAIN_LAST_CAPTURE_MINUTE__ === minute) return 0;
   const params = new URLSearchParams({ usdhkd: "7.83" });
   FUTU_PAIRS.forEach(([stock, perp]) => params.append("pair", `${stock}|${perp}|1`));
+  const headers = cookie ? { Cookie: cookie } : undefined;
   const [poolResponse, futuResponse] = await Promise.all([
-    fetch(new URL("/api/onchain-pools/quote?group=hk", origin), { cache: "no-store", signal: AbortSignal.timeout(20_000) }),
-    fetch(new URL(`/api/hk-auction/quotes?${params}`, origin), { cache: "no-store", signal: AbortSignal.timeout(20_000) }),
+    fetch(new URL("/api/onchain-pools/quote?group=hk", origin), { cache: "no-store", headers, signal: AbortSignal.timeout(20_000) }),
+    fetch(new URL(`/api/hk-auction/quotes?${params}`, origin), { cache: "no-store", headers, signal: AbortSignal.timeout(20_000) }),
   ]);
   if (!poolResponse.ok || !futuResponse.ok) throw new Error("Live pool or Futu reference unavailable for capture.");
   const poolPayload = await poolResponse.json() as { quotes?: Array<Record<string, unknown>> };
@@ -119,7 +120,7 @@ export async function GET(request: Request) {
   let captured = 0;
   let captureError = "";
   if (url.searchParams.get("capture") === "1") {
-    try { captured = await capture(url.origin); }
+    try { captured = await capture(url.origin, request.headers.get("cookie") ?? ""); }
     catch (error) { captureError = error instanceof Error ? error.message : "Capture unavailable."; }
   }
 
