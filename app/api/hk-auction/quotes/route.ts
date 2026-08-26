@@ -8,11 +8,15 @@ const DEFAULT_USD_HKD = 7.83;
 const MAX_PAIRS = 24;
 const FETCH_TIMEOUT_MS = 5_000;
 const FUTU_STALE_MS = 20_000;
+const BINANCE_STALE_MS = 30_000;
+const BINANCE_BATCH_CACHE_MS = 5_000;
 const FUTU_LIVE_BOOK_STATES = new Set(["AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"]);
 
 type FutuPushStore = typeof globalThis & {
   __FUTU_PUSH_SNAPSHOT__?: { payload: unknown; receivedAt: number };
   __BINANCE_FUNDING_CACHE__?: Map<string, { value: BinanceFunding; receivedAt: number }>;
+  __BINANCE_BATCH_CACHE__?: { quotes: Map<string, BinanceQuote>; receivedAt: number };
+  __BINANCE_BATCH_PROMISE__?: Promise<Map<string, BinanceQuote>>;
 };
 
 type PairConfig = {
@@ -50,6 +54,7 @@ type BinanceBookTicker = {
 };
 
 type BinancePremiumIndex = {
+  symbol?: string;
   lastFundingRate?: string;
   nextFundingTime?: number;
 };
@@ -57,6 +62,20 @@ type BinancePremiumIndex = {
 type BinanceFunding = {
   fundingRate: number | null;
   nextFundingTime: number | null;
+};
+
+type BinanceQuote = {
+  symbol: string;
+  bid: number;
+  ask: number;
+  mid: number;
+  bidSize: number | null;
+  askSize: number | null;
+  fundingRate: number | null;
+  nextFundingTime: number | null;
+  marketTimestamp: number;
+  receivedAt: number;
+  stale: boolean;
 };
 
 const DEFAULT_PAIRS: PairConfig[] = [
@@ -301,9 +320,26 @@ async function getFutuQuotes(symbols: string[]) {
   return quotes;
 }
 
-async function getBinanceQuote(symbol: string) {
+async function getBinanceQuotes(symbols: string[]) {
+  const store = globalThis as FutuPushStore;
+  const now = Date.now();
+  const cachedBatch = store.__BINANCE_BATCH_CACHE__;
+  if (cachedBatch && now - cachedBatch.receivedAt < BINANCE_BATCH_CACHE_MS) {
+    return new Map(symbols.flatMap((symbol) => {
+      const quote = cachedBatch.quotes.get(symbol);
+      return quote ? [[symbol, quote] as const] : [];
+    }));
+  }
+  if (store.__BINANCE_BATCH_PROMISE__) {
+    const shared = await store.__BINANCE_BATCH_PROMISE__;
+    return new Map(symbols.flatMap((symbol) => {
+      const quote = shared.get(symbol);
+      return quote ? [[symbol, quote] as const] : [];
+    }));
+  }
+
   const requestJson = async <T,>(path: string) => {
-    let lastError = `${symbol}: Binance unavailable.`;
+    let lastError = "Binance batch unavailable.";
     for (const host of BINANCE_FUTURES_APIS) {
       try {
         const response = await fetch(`${host}${path}`, {
@@ -315,54 +351,76 @@ async function getBinanceQuote(symbol: string) {
         if (!body.trim()) throw new Error("empty response");
         return JSON.parse(body) as T;
       } catch (error) {
-        lastError = `${symbol}: ${errorMessage(error)}`;
+        lastError = `Binance batch: ${errorMessage(error)}`;
       }
     }
     throw new Error(lastError);
   };
 
-  const fundingCache = ((globalThis as FutuPushStore).__BINANCE_FUNDING_CACHE__ ??= new Map());
-  const cachedFunding = fundingCache.get(symbol);
-  const fundingPromise = cachedFunding && Date.now() - cachedFunding.receivedAt < 60_000
-    ? Promise.resolve(cachedFunding.value)
-    : requestJson<BinancePremiumIndex>(`/fapi/v1/premiumIndex?symbol=${encodeURIComponent(symbol)}`)
-      .then((premium) => {
-        const rate = Number(premium.lastFundingRate);
-        const value: BinanceFunding = {
-          fundingRate: Number.isFinite(rate) ? rate : null,
-          nextFundingTime: timestamp(premium.nextFundingTime),
-        };
-        fundingCache.set(symbol, { value, receivedAt: Date.now() });
-        return value;
-      });
+  const batchPromise = (async () => {
+    const fundingCache = (store.__BINANCE_FUNDING_CACHE__ ??= new Map());
+    const [bookResult, premiumResult] = await Promise.allSettled([
+      requestJson<BinanceBookTicker[]>("/fapi/v1/ticker/bookTicker"),
+      requestJson<BinancePremiumIndex[]>("/fapi/v1/premiumIndex"),
+    ]);
+    if (bookResult.status === "rejected") {
+      const fallback = store.__BINANCE_BATCH_CACHE__;
+      if (!fallback) throw bookResult.reason;
+      const age = Date.now() - fallback.receivedAt;
+      return new Map([...fallback.quotes].map(([symbol, quote]) => [symbol, {
+        ...quote,
+        stale: age > BINANCE_STALE_MS,
+      }]));
+    }
 
-  const [bookResult, fundingResult] = await Promise.allSettled([
-    requestJson<BinanceBookTicker>(`/fapi/v1/ticker/bookTicker?symbol=${encodeURIComponent(symbol)}`),
-    fundingPromise,
-  ]);
-  if (bookResult.status === "rejected") throw bookResult.reason;
-  const book = bookResult.value;
-  const bid = positive(book.bidPrice);
-  const ask = positive(book.askPrice);
-  if (bid === null || ask === null) throw new Error(`${symbol}: incomplete Binance book ticker.`);
-  const receivedAt = Date.now();
-  const funding = fundingResult.status === "fulfilled"
-    ? fundingResult.value
-    : cachedFunding?.value ?? { fundingRate: null, nextFundingTime: null };
-  return {
-    symbol,
-    bid,
-    ask,
-    mid: (bid + ask) / 2,
-    bidSize: positive(book.bidQty),
-    askSize: positive(book.askQty),
-    ...funding,
-    // A successful REST bookTicker response is a current BBO snapshot even if
-    // its exchange event time is old because neither side has changed.
-    marketTimestamp: receivedAt,
-    receivedAt,
-    stale: false,
-  };
+    const receivedAt = Date.now();
+    if (premiumResult.status === "fulfilled") {
+      premiumResult.value.forEach((premium) => {
+        if (!premium.symbol) return;
+        const rate = Number(premium.lastFundingRate);
+        fundingCache.set(premium.symbol, {
+          value: {
+            fundingRate: Number.isFinite(rate) ? rate : null,
+            nextFundingTime: timestamp(premium.nextFundingTime),
+          },
+          receivedAt,
+        });
+      });
+    }
+
+    const quotes = new Map<string, BinanceQuote>();
+    bookResult.value.forEach((book) => {
+      if (!book.symbol) return;
+      const bid = positive(book.bidPrice);
+      const ask = positive(book.askPrice);
+      if (bid === null || ask === null) return;
+      const funding = fundingCache.get(book.symbol)?.value ?? { fundingRate: null, nextFundingTime: null };
+      quotes.set(book.symbol, {
+        symbol: book.symbol,
+        bid,
+        ask,
+        mid: (bid + ask) / 2,
+        bidSize: positive(book.bidQty),
+        askSize: positive(book.askQty),
+        ...funding,
+        marketTimestamp: receivedAt,
+        receivedAt,
+        stale: false,
+      });
+    });
+    store.__BINANCE_BATCH_CACHE__ = { quotes, receivedAt };
+    return quotes;
+  })();
+  store.__BINANCE_BATCH_PROMISE__ = batchPromise;
+  try {
+    const quotes = await batchPromise;
+    return new Map(symbols.flatMap((symbol) => {
+      const quote = quotes.get(symbol);
+      return quote ? [[symbol, quote] as const] : [];
+    }));
+  } finally {
+    if (store.__BINANCE_BATCH_PROMISE__ === batchPromise) delete store.__BINANCE_BATCH_PROMISE__;
+  }
 }
 
 const midpoint = (bid: number | null, ask: number | null) =>
@@ -404,22 +462,22 @@ export async function GET(request: Request) {
     return Response.json({ error: errorMessage(error) }, { status: 400 });
   }
 
-  const [futuResult, ...binanceResults] = await Promise.allSettled([
+  const [futuResult, binanceResult] = await Promise.allSettled([
     getFutuQuotes(pairConfigs.map((pair) => pair.stockSymbol)),
-    ...pairConfigs.map((pair) => getBinanceQuote(pair.perpSymbol)),
+    getBinanceQuotes(pairConfigs.map((pair) => pair.perpSymbol)),
   ]);
   const futuBySymbol = new Map(
     futuResult.status === "fulfilled" ? futuResult.value.map((quote) => [quote.symbol, quote] as const) : [],
   );
   const errors: string[] = [];
   if (futuResult.status === "rejected") errors.push(errorMessage(futuResult.reason));
+  if (binanceResult.status === "rejected") errors.push(errorMessage(binanceResult.reason));
+  const binanceBySymbol = binanceResult.status === "fulfilled" ? binanceResult.value : new Map<string, BinanceQuote>();
 
   const now = Date.now();
-  const quotes = pairConfigs.map((pair, index) => {
+  const quotes = pairConfigs.map((pair) => {
     const futu = futuBySymbol.get(pair.stockSymbol) ?? null;
-    const binanceResult = binanceResults[index];
-    const binance = binanceResult?.status === "fulfilled" ? binanceResult.value : null;
-    if (binanceResult?.status === "rejected") errors.push(errorMessage(binanceResult.reason));
+    const binance = binanceBySymbol.get(pair.perpSymbol) ?? null;
 
     // A missing exchange timestamp is not proof of freshness. Keep the raw
     // record for link diagnostics, but exclude it from every trading metric.
@@ -503,7 +561,7 @@ export async function GET(request: Request) {
     timestamp: now,
     sources: {
       futu: futuResult.status === "fulfilled",
-      binance: binanceResults.some((result) => result.status === "fulfilled"),
+      binance: binanceResult.status === "fulfilled" && binanceBySymbol.size > 0,
     },
     errors: [...new Set(errors)],
   }, { headers: { "Cache-Control": "no-store, max-age=0" } });
