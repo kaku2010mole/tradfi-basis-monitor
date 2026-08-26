@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { polygon } from "viem/chains";
 import PageSwitcher from "../components/PageSwitcher";
 import styles from "./page.module.css";
 
 const DEFAULT_URL = "https://polymarket.com/event/highest-temperature-in-hong-kong-on-august-26-2026/highest-temperature-in-hong-kong-on-august-26-2026-31c";
 const SDK_URL = "https://esm.sh/@polymarket/clob-client-v2@1.1.0?bundle";
+const POLYGON_RPC_URL = "https://polygon-rpc.com";
 
 type Snapshot = { eventTitle: string; question: string; marketSlug: string; outcome: string; outcomes: string[]; tokenId: string; tickSize: string; negRisk: boolean; active: boolean; closed: boolean; acceptingOrders: boolean; endDate: string | null; bestBid: number | null; bestAsk: number | null; bidSize: number | null; askSize: number | null; minOrderSize: number | null; timestamp: number; error?: string };
 type Status = "connecting" | "live" | "retrying" | "stopped";
@@ -115,7 +117,7 @@ export default function PolySniper() {
     executingRef.current = true; setExecuting(true); setAttempts((value) => value + 1);
     try {
       const account = privateKeyToAccount(privateKey.trim() as `0x${string}`);
-      const signer = createWalletClient({ account, transport: http() });
+      const signer = createWalletClient({ account, chain: polygon, transport: http(POLYGON_RPC_URL) });
       const sdk = await import(/* @vite-ignore */ SDK_URL) as any;
       const client = new sdk.ClobClient({ host: "https://clob.polymarket.com", chain: 137, signer, creds: { key: apiKey.trim(), secret: apiSecret.trim(), passphrase: passphrase.trim() }, signatureType, funderAddress: funder.trim(), throwOnError: true });
       const result = await client.createAndPostMarketOrder({ tokenID: snapshot.tokenId, amount, price: maxPrice, side: sdk.Side.BUY, orderType: sdk.OrderType.FAK }, { tickSize: snapshot.tickSize, negRisk: snapshot.negRisk }, sdk.OrderType.FAK);
