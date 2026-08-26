@@ -82,6 +82,13 @@ test("discovers and normalizes Posley ADR streams for HK auction basis", async (
   assert.match(pusher, /LIVE_BOOK_STATES = \{"AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"\}/);
   assert.match(pusher, /book_required or last is None/);
   assert.match(quotes, /useOfficialLast/);
+  assert.match(quotes, /getBinanceQuotes/);
+  assert.match(quotes, /\/fapi\/v1\/ticker\/bookTicker"/);
+  assert.match(quotes, /\/fapi\/v1\/premiumIndex"/);
+  assert.match(quotes, /__BINANCE_BATCH_PROMISE__/);
+  assert.match(quotes, /BINANCE_BATCH_CACHE_MS/);
+  assert.doesNotMatch(quotes, /bookTicker\?symbol=/);
+  assert.doesNotMatch(quotes, /premiumIndex\?symbol=/);
 });
 
 test("keeps the Posley refresh token on the server", async () => {
