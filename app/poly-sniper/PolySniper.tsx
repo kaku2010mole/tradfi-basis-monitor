@@ -39,6 +39,8 @@ export default function PolySniper() {
   const [signatureType, setSignatureType] = useState(3);
   const [acknowledged, setAcknowledged] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
+  const [sdkReady, setSdkReady] = useState(false);
+  const [sdkError, setSdkError] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
   const executingRef = useRef(false);
   const disarmedRef = useRef(false);
@@ -48,6 +50,11 @@ export default function PolySniper() {
     const saved = localStorage.getItem("poly-sniper-settings");
     if (!saved) return;
     try { const value = JSON.parse(saved) as { marketUrl?: string; outcome?: string; maxPrice?: number; amount?: number; pollMs?: number }; if (value.marketUrl) setMarketUrl(value.marketUrl); if (value.outcome) setOutcome(value.outcome); if (value.maxPrice) setMaxPrice(value.maxPrice); if (value.amount) setAmount(value.amount); if (value.pollMs) setPollMs(value.pollMs); } catch { /* ignore stale local preferences */ }
+  }, []);
+  useEffect(() => {
+    let active = true;
+    void import(/* @vite-ignore */ SDK_URL).then(() => { if (active) { setSdkReady(true); setSdkError(""); } }).catch((loadError) => { if (active) setSdkError(loadError instanceof Error ? loadError.message : "Official CLOB module unavailable."); });
+    return () => { active = false; };
   }, []);
   useEffect(() => { localStorage.setItem("poly-sniper-settings", JSON.stringify({ marketUrl, outcome, maxPrice, amount, pollMs })); }, [amount, marketUrl, maxPrice, outcome, pollMs]);
 
@@ -99,7 +106,7 @@ export default function PolySniper() {
     return () => { stopped = true; window.clearInterval(heartbeat); window.clearTimeout(reconnect); socketRef.current?.close(); };
   }, [snapshot?.tokenId]);
 
-  const credentialsReady = Boolean(apiKey.trim() && apiSecret.trim() && passphrase.trim() && /^0x[0-9a-fA-F]{64}$/.test(privateKey.trim()) && /^0x[0-9a-fA-F]{40}$/.test(funder.trim()));
+  const credentialsReady = Boolean(sdkReady && apiKey.trim() && apiSecret.trim() && passphrase.trim() && /^0x[0-9a-fA-F]{64}$/.test(privateKey.trim()) && /^0x[0-9a-fA-F]{40}$/.test(funder.trim()));
   const triggerReady = Boolean(snapshot?.acceptingOrders && snapshot.bestAsk !== null && snapshot.bestAsk <= maxPrice);
   const canArm = credentialsReady && acknowledged && amount > 0 && maxPrice > 0 && maxPrice < 1 && Boolean(snapshot?.acceptingOrders);
 
@@ -148,7 +155,7 @@ export default function PolySniper() {
         <label>Fallback poll interval<input type="number" min="250" step="50" value={pollMs} onChange={(event) => setPollMs(Math.max(250, Number(event.target.value)))} /><small>ms · WebSocket remains primary</small></label>
         <label>Buy when best ask ≤<input type="number" min="0.001" max="0.999" step={snapshot?.tickSize ?? ".01"} value={maxPrice} onChange={(event) => { stop(); setMaxPrice(Number(event.target.value)); }} /><small>{price(maxPrice)}</small></label>
         <label>Order amount<input type="number" min="1" step="1" value={amount} onChange={(event) => { stop(); setAmount(Number(event.target.value)); }} /><small>USDC · FAK partial fill allowed</small></label>
-      </div><div className={styles.marketMeta}><span>{snapshot?.acceptingOrders ? "ACCEPTING ORDERS" : "NOT ACCEPTING ORDERS"}</span><span>Tick {snapshot?.tickSize ?? "—"}</span><span>{snapshot?.negRisk ? "NEG RISK" : "BINARY"}</span><span>Updated {snapshot ? clock(snapshot.timestamp) : "—"} HKT</span></div></section>
+      </div><div className={styles.marketMeta}><span>{snapshot?.acceptingOrders ? "ACCEPTING ORDERS" : "NOT ACCEPTING ORDERS"}</span><span>{sdkReady ? "CLOB SDK READY" : sdkError ? "CLOB SDK ERROR" : "CLOB SDK LOADING"}</span><span>Tick {snapshot?.tickSize ?? "—"}</span><span>{snapshot?.negRisk ? "NEG RISK" : "BINARY"}</span><span>Updated {snapshot ? clock(snapshot.timestamp) : "—"} HKT</span></div>{sdkError && <p className={styles.security}>Trading module is retrying: {sdkError}</p>}</section>
       <section className={`${styles.panel} ${styles.credentials}`}><header><span>02 · LIVE CREDENTIALS</span><h3>Sign locally, submit directly</h3></header><div className={styles.fields}>
         <label>API key<input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} /></label>
         <label>Passphrase<input type="password" autoComplete="off" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} /></label>
