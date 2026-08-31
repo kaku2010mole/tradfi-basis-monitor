@@ -15,6 +15,6 @@ export const DEFAULT_ORACLE_BINANCE = [
   "KODEX200USDT",
   "ZHONGJIUSDT",
 ];
-export const DEFAULT_ORACLE_PARA = ["para:OTHERS", "para:TOTAL2", "para:BTCD", "para:CIEN", "para:VST", "para:NET"];
+export const DEFAULT_ORACLE_PARA = ["xyz:SHEIN", "para:OTHERS", "para:TOTAL2", "para:BTCD", "para:CIEN", "para:VST", "para:NET"];
 
 export type OracleCustomPair = { venue: "Binance" | "Hyperliquid"; apiSymbol: string };

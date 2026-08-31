@@ -13,7 +13,7 @@ const DEFAULT_BINANCE_SYMBOLS = [
   "KODEX200USDT",
   "ZHONGJIUSDT",
 ];
-const DEFAULT_PARA_SYMBOLS = ["para:OTHERS", "para:TOTAL2", "para:BTCD", "para:CIEN", "para:VST", "para:NET"];
+const DEFAULT_PARA_SYMBOLS = ["xyz:SHEIN", "para:OTHERS", "para:TOTAL2", "para:BTCD", "para:CIEN", "para:VST", "para:NET"];
 const MAX_SYMBOLS_PER_VENUE = 24;
 const FETCH_TIMEOUT_MS = 6_000;
 const RETRY_DELAYS_MS = [0, 180, 520];
@@ -46,11 +46,13 @@ const finite = (value: unknown) => {
 
 const parseSymbols = (value: string | null, venue: "binance" | "para") => {
   if (!value) return venue === "binance" ? DEFAULT_BINANCE_SYMBOLS : DEFAULT_PARA_SYMBOLS;
-  const pattern = venue === "binance" ? /^[A-Z0-9_]{2,32}$/ : /^para:[A-Z0-9._-]{1,28}$/i;
+  const pattern = venue === "binance" ? /^[A-Z0-9_]{2,32}$/ : /^(?:para|xyz):[A-Z0-9._-]{1,28}$/i;
   return Array.from(new Set(value.split(",")
     .map((symbol) => symbol.trim())
     .filter((symbol) => pattern.test(symbol))
-    .map((symbol) => venue === "binance" ? symbol.toUpperCase() : symbol.replace(/^para:/i, "para:").replace(/BTC\.D$/i, "BTCD"))))
+    .map((symbol) => venue === "binance"
+      ? symbol.toUpperCase()
+      : symbol.replace(/^(para|xyz):/i, (_, dex: string) => `${dex.toLowerCase()}:`).replace(/BTC\.D$/i, "BTCD"))))
     .slice(0, MAX_SYMBOLS_PER_VENUE);
 };
 
@@ -172,16 +174,26 @@ async function getParaBook(symbol: string) {
 
 async function getParaQuotes(symbols: string[]) {
   if (!symbols.length) return [];
-  const [contextPayload, bookResults] = await Promise.all([
-    fetchJson<[HyperMeta, HyperContext[]]>(HYPERLIQUID_INFO, {
+  const dexes = Array.from(new Set(symbols.map((symbol) => symbol.split(":", 1)[0])));
+  const [contextResults, bookResults] = await Promise.all([
+    Promise.allSettled(dexes.map((dex) => fetchJson<[HyperMeta, HyperContext[]]>(HYPERLIQUID_INFO, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "metaAndAssetCtxs", dex: "para" }),
-    }),
+      body: JSON.stringify({ type: "metaAndAssetCtxs", dex }),
+    }))),
     Promise.allSettled(symbols.map((symbol) => getParaBook(symbol))),
   ]);
-  const [meta, contexts] = contextPayload;
-  const byName = new Map(meta.universe.map((asset, index) => [asset.name, contexts[index]]));
+  const byName = new Map<string, HyperContext>();
+  contextResults.forEach((result, resultIndex) => {
+    if (result.status !== "fulfilled") return;
+    const [meta, contexts] = result.value;
+    meta.universe.forEach((asset, index) => {
+      const context = contexts[index];
+      if (!context) return;
+      byName.set(asset.name, context);
+      if (!asset.name.includes(":")) byName.set(`${dexes[resultIndex]}:${asset.name}`, context);
+    });
+  });
   const books = new Map(symbols.flatMap((symbol, index) => bookResults[index]?.status === "fulfilled" ? [[symbol, bookResults[index].value] as const] : []));
 
   return symbols.flatMap((apiSymbol) => {

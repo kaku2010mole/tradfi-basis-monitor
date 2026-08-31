@@ -154,6 +154,29 @@ test("compares Polymarket, Binance and Hyperliquid funding and price spreads in 
   assert.match(switcher, /Poly ↔ HL ↔ Binance funding and price spreads/);
 });
 
+test("removes the Polymarket sniper and pins a real-time SHEIN HKD monitor", async () => {
+  const [response, page, quotes, alerts, switcher] = await Promise.all([
+    render("/oracle"),
+    readFile(new URL("../app/oracle/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/oracle-monitor/quotes/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/oracleAlerts.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Oracle Monitor/);
+  assert.doesNotMatch(switcher, /poly-sniper|Polymarket Sniper/);
+  assert.match(alerts, /"xyz:SHEIN"/);
+  assert.match(quotes, /\(\?:para\|xyz\)/);
+  assert.match(quotes, /metaAndAssetCtxs", dex/);
+  assert.match(page, /const SHEIN_SYMBOL = "xyz:SHEIN"/);
+  assert.match(page, /const USD_HKD_RATE = 7\.84/);
+  assert.match(page, /wss:\/\/api\.hyperliquid\.xyz\/ws/);
+  assert.match(page, /type: "l2Book", coin: SHEIN_SYMBOL/);
+  assert.match(page, /type: "activeAssetCtx", coin: SHEIN_SYMBOL/);
+  assert.match(page, /TEMPORARY · PINNED/);
+  assert.match(page, /1 USD = HK\$7\.84/);
+});
+
 test("retries the Futu LaunchAgent registration after replacing the relay", async () => {
   const installer = await readFile(new URL("../services/futu-pusher/Install Futu Relay.command", import.meta.url), "utf8");
   assert.match(installer, /for attempt in 1 2 3 4 5/);

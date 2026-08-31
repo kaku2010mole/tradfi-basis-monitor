@@ -55,6 +55,15 @@ type BinanceStreamEnvelope = {
     T?: number;
   };
 };
+type HyperliquidStreamEnvelope = {
+  channel?: string;
+  data?: {
+    coin?: string;
+    time?: number;
+    levels?: [Array<{ px?: string; sz?: string }>, Array<{ px?: string; sz?: string }>];
+    ctx?: { oraclePx?: string; markPx?: string; midPx?: string; funding?: string };
+  };
+};
 type BinanceBookSnapshot = { symbol?: string; bidPrice?: string; bidQty?: string; askPrice?: string; askQty?: string; time?: number };
 type BinancePremiumSnapshot = { symbol?: string; indexPrice?: string; markPrice?: string; lastFundingRate?: string; nextFundingTime?: number; time?: number };
 
@@ -64,6 +73,8 @@ const HIDE_AFTER_MS = 20_000;
 const CUSTOM_PAIRS_KEY = ORACLE_CUSTOM_PAIRS_KEY;
 const DEFAULT_BINANCE = DEFAULT_ORACLE_BINANCE;
 const DEFAULT_PARA = DEFAULT_ORACLE_PARA;
+const SHEIN_SYMBOL = "xyz:SHEIN";
+const USD_HKD_RATE = 7.84;
 const DEFAULT_PAIR_CATALOG: CustomPair[] = [
   ...DEFAULT_BINANCE.map((apiSymbol) => ({ venue: "Binance" as const, apiSymbol })),
   ...DEFAULT_PARA.map((apiSymbol) => ({ venue: "Hyperliquid" as const, apiSymbol })),
@@ -139,6 +150,39 @@ const rebuildBinanceQuote = (symbol: string, candidate: Partial<OracleQuote>): O
     funding: finiteNumber(candidate.funding),
     fundingHours: 8,
     nextFundingTime: finiteNumber(candidate.nextFundingTime),
+    updatedAt: finiteNumber(candidate.updatedAt) ?? Date.now(),
+    executableSide: executable.executableSide,
+    executablePrice: executable.executablePrice,
+    executableQty: executable.executableQty,
+    executableUsd: executable.executablePrice === null || executable.executableQty === null ? null : executable.executablePrice * executable.executableQty,
+  };
+};
+
+const rebuildHyperliquidQuote = (apiSymbol: string, candidate: Partial<OracleQuote>): OracleQuote | null => {
+  const bid = positiveNumber(candidate.bid);
+  const bidQty = positiveNumber(candidate.bidQty);
+  const ask = positiveNumber(candidate.ask);
+  const askQty = positiveNumber(candidate.askQty);
+  const oracle = positiveNumber(candidate.oracle);
+  const mark = positiveNumber(candidate.mark);
+  if (bid === null || ask === null || oracle === null || mark === null) return null;
+  const executable = resolveExecutableQuote(oracle, bid, bidQty, ask, askQty);
+  return {
+    id: `hyperliquid:${apiSymbol}`,
+    venue: "Hyperliquid",
+    symbol: apiSymbol === "para:BTCD" ? "para:BTC.D" : apiSymbol,
+    apiSymbol,
+    bid,
+    bidQty,
+    ask,
+    askQty,
+    live: executable.executablePrice ?? mark,
+    oracle,
+    mark,
+    deviation: executable.deviation,
+    funding: finiteNumber(candidate.funding),
+    fundingHours: 1,
+    nextFundingTime: null,
     updatedAt: finiteNumber(candidate.updatedAt) ?? Date.now(),
     executableSide: executable.executableSide,
     executablePrice: executable.executablePrice,
@@ -290,8 +334,10 @@ export default function OracleMonitor() {
   const [clock, setClock] = useState(0);
   const [binanceStreams, setBinanceStreams] = useState<BinanceStreamState>({ book: "connecting", oracle: "connecting" });
   const [binanceBrowserRest, setBinanceBrowserRest] = useState(false);
+  const [sheinStream, setSheinStream] = useState<StreamStatus>("connecting");
   const requestInFlight = useRef(false);
   const streamCache = useRef<Record<string, Partial<OracleQuote>>>({});
+  const sheinStreamCache = useRef<Partial<OracleQuote>>({});
   const quotesRef = useRef<OracleQuote[]>([]);
 
   useEffect(() => {
@@ -370,10 +416,78 @@ export default function OracleMonitor() {
     setError("");
   }, [commitQuotes]);
 
+  const applySheinStreamPatch = useCallback((patch: Partial<OracleQuote>) => {
+    sheinStreamCache.current = { ...sheinStreamCache.current, ...patch };
+    commitQuotes((current) => {
+      const existing = current.find((quote) => quote.id === `hyperliquid:${SHEIN_SYMBOL}`);
+      const rebuilt = rebuildHyperliquidQuote(SHEIN_SYMBOL, { ...existing, ...sheinStreamCache.current });
+      if (!rebuilt) return current;
+      const index = current.findIndex((quote) => quote.id === rebuilt.id);
+      return index < 0 ? [rebuilt, ...current] : current.map((quote, quoteIndex) => quoteIndex === index ? rebuilt : quote);
+    });
+    setLastRefresh((current) => Math.max(current ?? 0, Number(patch.updatedAt) || Date.now()));
+  }, [commitQuotes]);
+
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!pairsReady) return;
+    let cancelled = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+
+    const connect = (attempt = 0) => {
+      if (cancelled) return;
+      setSheinStream(attempt ? "reconnecting" : "connecting");
+      socket = new WebSocket("wss://api.hyperliquid.xyz/ws");
+      const openedAt = Date.now();
+      socket.onopen = () => {
+        socket?.send(JSON.stringify({ method: "subscribe", subscription: { type: "l2Book", coin: SHEIN_SYMBOL } }));
+        socket?.send(JSON.stringify({ method: "subscribe", subscription: { type: "activeAssetCtx", coin: SHEIN_SYMBOL } }));
+        setSheinStream("live");
+      };
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(String(event.data)) as HyperliquidStreamEnvelope;
+          const data = payload.data;
+          if (data?.coin !== SHEIN_SYMBOL) return;
+          if (payload.channel === "l2Book") {
+            applySheinStreamPatch({
+              bid: positiveNumber(data.levels?.[0]?.[0]?.px),
+              bidQty: positiveNumber(data.levels?.[0]?.[0]?.sz),
+              ask: positiveNumber(data.levels?.[1]?.[0]?.px),
+              askQty: positiveNumber(data.levels?.[1]?.[0]?.sz),
+              updatedAt: finiteNumber(data.time) ?? Date.now(),
+            });
+          } else if (payload.channel === "activeAssetCtx" && data.ctx) {
+            applySheinStreamPatch({
+              oracle: positiveNumber(data.ctx.oraclePx),
+              mark: positiveNumber(data.ctx.markPx) ?? positiveNumber(data.ctx.midPx),
+              funding: finiteNumber(data.ctx.funding),
+              updatedAt: Date.now(),
+            });
+          }
+        } catch { /* Ignore malformed frames and keep the real-time stream open. */ }
+      };
+      socket.onerror = () => socket?.close();
+      socket.onclose = () => {
+        if (cancelled) return;
+        setSheinStream("reconnecting");
+        const nextAttempt = Date.now() - openedAt > 15_000 ? 0 : attempt + 1;
+        reconnectTimer = window.setTimeout(() => connect(nextAttempt), Math.min(6_000, 500 * 2 ** Math.min(nextAttempt, 4)));
+      };
+    };
+
+    connect();
+    return () => {
+      cancelled = true;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      socket?.close();
+    };
+  }, [applySheinStreamPatch, pairsReady]);
 
   useEffect(() => {
     if (!pairsReady || !binanceSymbols.length) return;
@@ -462,12 +576,14 @@ export default function OracleMonitor() {
         : payload.quotes;
       for (const quote of resolvedQuotes) {
         if (quote.venue === "Binance") streamCache.current[quote.apiSymbol] = { ...streamCache.current[quote.apiSymbol], ...quote };
+        if (quote.apiSymbol === SHEIN_SYMBOL) sheinStreamCache.current = { ...quote, ...sheinStreamCache.current };
       }
       commitQuotes((current) => {
         const byId = new Map(current.filter((quote) => desiredIds.has(quote.id)).map((quote) => [quote.id, quote]));
         for (const quote of resolvedQuotes) {
           const existing = byId.get(quote.id);
-          const websocketLive = quote.venue === "Binance" && binanceStreams.book === "live" && binanceStreams.oracle === "live";
+          const websocketLive = (quote.venue === "Binance" && binanceStreams.book === "live" && binanceStreams.oracle === "live")
+            || (quote.apiSymbol === SHEIN_SYMBOL && sheinStream === "live");
           byId.set(quote.id, websocketLive && existing ? existing : quote);
         }
         return [...byId.values()];
@@ -502,7 +618,7 @@ export default function OracleMonitor() {
       window.clearTimeout(timeout);
       requestInFlight.current = false;
     }
-  }, [binanceStreams.book, binanceStreams.oracle, binanceSymbols, commitQuotes, desiredIds, pairsReady, quoteUrl]);
+  }, [binanceStreams.book, binanceStreams.oracle, binanceSymbols, commitQuotes, desiredIds, pairsReady, quoteUrl, sheinStream]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => void loadQuotes());
@@ -511,6 +627,7 @@ export default function OracleMonitor() {
   }, [loadQuotes]);
 
   const visibleQuotes = useMemo(() => quotes.filter((quote) => clock - quote.updatedAt <= HIDE_AFTER_MS), [clock, quotes]);
+  const sheinQuote = visibleQuotes.find((quote) => quote.apiSymbol === SHEIN_SYMBOL);
   const selected = visibleQuotes.find((quote) => quote.id === selectedId) ?? visibleQuotes[0];
   const selectedVenue = selected?.venue;
   const selectedApiSymbol = selected?.apiSymbol;
@@ -550,25 +667,26 @@ export default function OracleMonitor() {
     return [...history, ...selectedSession.filter((point) => point.t > lastHistoryTime)];
   }, [history, selected, selectedSession]);
   const byAbsoluteDeviation = (a: OracleQuote, b: OracleQuote) => Math.abs(b.deviation) - Math.abs(a.deviation) || a.symbol.localeCompare(b.symbol);
-  const positive = visibleQuotes.filter((quote) => quote.executableSide === "SELL").sort(byAbsoluteDeviation);
-  const negative = visibleQuotes.filter((quote) => quote.executableSide === "BUY").sort(byAbsoluteDeviation);
-  const neutral = visibleQuotes.filter((quote) => quote.executableSide === "NONE").sort((a, b) => a.symbol.localeCompare(b.symbol));
+  const rankedQuotes = visibleQuotes.filter((quote) => quote.apiSymbol !== SHEIN_SYMBOL);
+  const positive = rankedQuotes.filter((quote) => quote.executableSide === "SELL").sort(byAbsoluteDeviation);
+  const negative = rankedQuotes.filter((quote) => quote.executableSide === "BUY").sort(byAbsoluteDeviation);
+  const neutral = rankedQuotes.filter((quote) => quote.executableSide === "NONE").sort((a, b) => a.symbol.localeCompare(b.symbol));
   const triggered = visibleQuotes.filter((quote) => Math.abs(quote.deviation) >= threshold);
   const extreme = visibleQuotes.reduce<OracleQuote | null>((best, quote) => !best || Math.abs(quote.deviation) > Math.abs(best.deviation) ? quote : best, null);
   const binanceCount = visibleQuotes.filter((quote) => quote.venue === "Binance").length;
-  const paraCount = visibleQuotes.length - binanceCount;
+  const hyperliquidCount = visibleQuotes.length - binanceCount;
   const binanceWebSocketLive = binanceStreams.book === "live" && binanceStreams.oracle === "live";
   const binanceOnline = binanceCount > 0 && (binanceWebSocketLive || sources.binance);
-  const paraOnline = paraCount > 0 && sources.hyperliquid;
+  const paraOnline = hyperliquidCount > 0 && (sources.hyperliquid || sheinStream === "live");
   const binanceStatus = binanceWebSocketLive ? "Binance WS live" : binanceBrowserRest ? "Binance browser fallback" : sources.binance ? "Binance REST fallback" : "Binance reconnecting";
 
   const addPair = () => {
     const normalized = newVenue === "Binance"
       ? newSymbol.trim().toUpperCase()
-      : newSymbol.trim().replace(/^para:/i, "para:").replace(/BTC\.D$/i, "BTCD");
-    const valid = newVenue === "Binance" ? /^[A-Z0-9_]{2,32}$/.test(normalized) : /^para:[A-Z0-9._-]{1,28}$/i.test(normalized);
+      : newSymbol.trim().replace(/^(para|xyz):/i, (_, dex) => `${dex.toLowerCase()}:`).replace(/BTC\.D$/i, "BTCD");
+    const valid = newVenue === "Binance" ? /^[A-Z0-9_]{2,32}$/.test(normalized) : /^(?:para|xyz):[A-Z0-9._-]{1,28}$/i.test(normalized);
     if (!valid) {
-      setPairError(newVenue === "Binance" ? "Use a Binance Futures symbol such as AAPLUSDT." : "Use a para symbol such as para:OTHERS.");
+      setPairError(newVenue === "Binance" ? "Use a Binance Futures symbol such as AAPLUSDT." : "Use a Hyperliquid symbol such as para:OTHERS or xyz:SHEIN.");
       return;
     }
     const builtIn = (newVenue === "Binance" ? DEFAULT_BINANCE : DEFAULT_PARA).includes(normalized);
@@ -629,11 +747,11 @@ export default function OracleMonitor() {
           <div className={styles.pairManagerCopy}>
             <p className={styles.eyebrow}>CUSTOM UNIVERSE</p>
             <h2>Add an Oracle pair</h2>
-            <p>Pairs are saved on this device. Binance symbols receive synchronized historical charts; Hyperliquid para symbols collect a live session deviation trail.</p>
+            <p>Pairs are saved on this device. Binance symbols receive synchronized historical charts; Hyperliquid para and xyz symbols collect a live session deviation trail.</p>
           </div>
           <div className={styles.pairForm}>
             <label>Venue<select value={newVenue} onChange={(event) => setNewVenue(event.target.value as CustomPair["venue"])}><option>Binance</option><option>Hyperliquid</option></select></label>
-            <label>Symbol<input value={newSymbol} onChange={(event) => setNewSymbol(event.target.value)} placeholder={newVenue === "Binance" ? "AAPLUSDT" : "para:OTHERS"} /></label>
+            <label>Symbol<input value={newSymbol} onChange={(event) => setNewSymbol(event.target.value)} placeholder={newVenue === "Binance" ? "AAPLUSDT" : "xyz:SHEIN"} /></label>
             <button onClick={addPair}>Add pair</button>
           </div>
           {pairError && <p className={styles.pairError}>{pairError}</p>}
@@ -647,8 +765,33 @@ export default function OracleMonitor() {
           </div>
         </section>}
 
+        <section className={styles.sheinSpotlight} aria-label="Pinned real-time SHEIN price in Hong Kong dollars">
+          <div className={styles.sheinIdentity}>
+            <div><span className={styles.pinnedTag}>TEMPORARY · PINNED</span><span className={`${styles.sheinStatus} ${sheinStream === "live" ? styles.sheinLive : ""}`}><i />{sheinStream === "live" ? sheinQuote ? "REAL-TIME" : "CONNECTED · WAITING PRICE" : "RECONNECTING"}</span></div>
+            <p>HYPERLIQUID · XYZ DEX</p>
+            <h2>xyz:SHEIN</h2>
+            <small>Fixed conversion · 1 USD = HK$7.84</small>
+          </div>
+          <div className={styles.sheinHeroPrice}>
+            <span>MARK PRICE · HKD</span>
+            <strong>{sheinQuote ? `HK$${formatPrice(sheinQuote.mark * USD_HKD_RATE)}` : "—"}</strong>
+            <small>{sheinQuote ? `${formatPrice(sheinQuote.mark)} USD` : "Waiting for a fresh market update"}</small>
+          </div>
+          <div className={styles.sheinPrices}>
+            <div><span>BEST BID</span><strong>{sheinQuote ? `HK$${formatPrice((sheinQuote.bid ?? 0) * USD_HKD_RATE)}` : "—"}</strong><small>{formatPrice(sheinQuote?.bid ?? null)} USD</small></div>
+            <div><span>BEST ASK</span><strong>{sheinQuote ? `HK$${formatPrice((sheinQuote.ask ?? 0) * USD_HKD_RATE)}` : "—"}</strong><small>{formatPrice(sheinQuote?.ask ?? null)} USD</small></div>
+            <div><span>ORACLE</span><strong>{sheinQuote ? `HK$${formatPrice(sheinQuote.oracle * USD_HKD_RATE)}` : "—"}</strong><small>{formatPrice(sheinQuote?.oracle ?? null)} USD</small></div>
+            <div><span>ORACLE EDGE</span><strong className={sheinQuote && sheinQuote.deviation >= 0 ? styles.positive : styles.negative}>{sheinQuote ? formatPct(sheinQuote.deviation) : "—"}</strong><small>{sheinQuote?.executableSide === "SELL" ? "Sell at best bid" : sheinQuote?.executableSide === "BUY" ? "Buy at best ask" : "Inside spread"}</small></div>
+          </div>
+          <div className={styles.sheinFooter}>
+            <span>Funding {sheinQuote?.funding == null ? "—" : `${formatPct(sheinQuote.funding * 100, 4)} / 1h`}</span>
+            <span>{sheinQuote ? `${formatTime(sheinQuote.updatedAt)} HKT` : "No stale value shown"}</span>
+            <button disabled={!sheinQuote} onClick={() => sheinQuote && setSelectedId(sheinQuote.id)}>Open live chart</button>
+          </div>
+        </section>
+
         <section className={styles.stats}>
-          <article><span>Live now</span><strong>{visibleQuotes.length || "—"}</strong><small>{binanceCount} Binance · {paraCount} Hyperliquid para</small></article>
+          <article><span>Live now</span><strong>{visibleQuotes.length || "—"}</strong><small>{binanceCount} Binance · {hyperliquidCount} Hyperliquid</small></article>
           <article><span>Triggered</span><strong className={triggered.length ? styles.warningText : ""}>{triggered.length}</strong><small>Outside ±{threshold.toFixed(3)}%</small></article>
           <article><span>Largest drift</span><strong className={extreme && extreme.deviation >= 0 ? styles.positive : styles.negative}>{extreme ? formatPct(extreme.deviation) : "—"}</strong><small>{extreme?.symbol ?? "Waiting for data"}</small></article>
           <article><span>Selected funding</span><strong>{selected?.funding == null ? "—" : formatPct(selected.funding * 100, 4)}</strong><small>{selected ? `${selected.fundingHours}h rate · ${selected.venue}` : "—"}</small></article>
@@ -684,7 +827,7 @@ export default function OracleMonitor() {
           </div>
           {loadingHistory ? <div className={styles.emptyChart}>Loading market and oracle history…</div>
             : chartPoints.length > 1 && selected ? <DeviationChart points={chartPoints} threshold={threshold} symbol={selected.symbol} />
-              : <div className={styles.emptyChart}>{selected?.venue === "Hyperliquid" ? "Collecting synchronized live para deviation samples…" : "Waiting for synchronized history…"}</div>}
+              : <div className={styles.emptyChart}>{selected?.venue === "Hyperliquid" ? "Collecting synchronized live Hyperliquid deviation samples…" : "Waiting for synchronized history…"}</div>}
           <footer className={styles.chartFooter}>
             <span>{selected?.venue === "Binance" ? `Binance historical candle close and index-price klines · ${historyInterval}` : "Hyperliquid live executable BBO / oracle"}</span>
             <span>{chartPoints.length.toLocaleString()} points</span>
