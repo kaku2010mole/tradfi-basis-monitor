@@ -4,7 +4,7 @@ import Link from "next/link";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
-  active: "basis" | "pairs" | "oracle" | "blog" | "taker" | "polymarket" | "auction" | "onchain";
+  active: "basis" | "pairs" | "oracle" | "blog" | "taker" | "polymarket" | "auction" | "skhx";
 };
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
@@ -44,9 +44,9 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
           <span>HK auction basis</span>
           <small>Futu auction versus Binance perps and Posley ADRs</small>
         </Link>
-        <Link href="/onchain" aria-current={active === "onchain" ? "page" : undefined}>
-          <span>Onchain pools</span>
-          <small>Uniswap V3 spot, fee-adjusted prices and liquidity</small>
+        <Link href="/skhx" aria-current={active === "skhx" ? "page" : undefined}>
+          <span>SKHX close probability</span>
+          <small>Next 14:30 Beijing close · live model</small>
         </Link>
       </nav>
     </details>

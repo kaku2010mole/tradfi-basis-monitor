@@ -228,41 +228,21 @@ test("removes the liquidation map and uses visible-window depth bands", async ()
   assert.match(heatmap, /One base colour · five high-contrast light levels/);
 });
 
-test("renders an address-verified X Layer Uniswap V3 pool monitor", async () => {
-  const [response, route, historyRoute, recorder, registry, page] = await Promise.all([
-    render("/onchain"),
-    readFile(new URL("../app/api/onchain-pools/quote/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/onchain-pools/history/route.ts", import.meta.url), "utf8"),
+test("ships the SKHX next-close probability desk and removes onchain pools", async () => {
+  const [response, page, route, switcher, recorder] = await Promise.all([
+    render("/skhx"),
+    readFile(new URL("../app/skhx/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/skhx/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
     readFile(new URL("../scripts/start-render.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../app/lib/onchainPools.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/onchain/page.tsx", import.meta.url), "utf8"),
   ]);
   assert.equal(response.status, 200);
-  const html = await response.text();
-  assert.match(html, /Onchain Pool Monitor/);
-  assert.match(html, /HONG KONG RWA BASIS/);
-  assert.match(page, /xiaox-usdc-005-xlayer/);
-  assert.match(page, /Premium & discount ranking/);
-  assert.match(page, /Futu official close/);
-  assert.match(page, /Add a Hong Kong pair/);
-  assert.match(page, /CUSTOM_STORAGE_KEY/);
-  assert.match(route, /sqrtPriceX96/);
-  assert.match(route, /buyPriceBeforeSlippage/);
-  assert.match(route, /sellPriceBeforeSlippage/);
-  assert.match(route, /group === "hk"/);
-  assert.match(route, /customPoolFromUrl/);
-  assert.match(historyRoute, /ONCHAIN_BASIS_DATA_DIR/);
-  assert.match(historyRoute, /stockHkd \/ usdHkd/);
-  assert.match(recorder, /ONCHAIN_CAPTURE_MS = 60_000/);
-  assert.match(recorder, /minute >= 10 \* 60 && minute <= 15 \* 60/);
-  assert.match(page, /SERVER HISTORY/);
-  assert.match(page, /retained for 90 days/);
-  assert.match(registry, /0xdc7f2f41b48cd4f482d8c900ac2fa1b5ad058417/);
-  assert.match(registry, /HK\.02097/);
-  assert.match(registry, /HK\.00388/);
-  assert.match(registry, /HK\.00700/);
-  assert.match(registry, /HK\.01024/);
-  assert.match(registry, /HK\.03690/);
-  assert.match(registry, /HK\.09992/);
-  assert.match(registry, /https:\/\/rpc\.xlayer\.tech/);
+  assert.match(await response.text(), /SKHX Probability Desk/);
+  assert.match(page, /NEXT DAILY CLOSE/);
+  assert.match(page, /95% parameter interval/);
+  assert.match(route, /candleSnapshot/);
+  assert.match(route, /metaAndAssetCtxs/);
+  assert.match(switcher, /href="\/skhx"/);
+  assert.doesNotMatch(switcher, /onchain|Onchain pools/i);
+  assert.doesNotMatch(recorder, /onchain/i);
 });

@@ -12,24 +12,10 @@ let dataDirectory = process.env.PARA_DATA_DIR || "/var/data/para-orderbooks";
 let dataDirectoryReady = false;
 let liquidationDataDirectory = process.env.PARA_LIQUIDATION_DATA_DIR || "/var/data/para-liquidations";
 let liquidationDataDirectoryReady = false;
-let onchainDataDirectory = process.env.ONCHAIN_BASIS_DATA_DIR || "/var/data/onchain-basis";
-let onchainDataDirectoryReady = false;
 const RETENTION_DAYS = Math.max(1, Math.min(90, Number(process.env.PARA_RETENTION_DAYS) || 14));
-const ONCHAIN_RETENTION_DAYS = Math.max(1, Math.min(365, Number(process.env.ONCHAIN_RETENTION_DAYS) || 90));
-const ONCHAIN_CAPTURE_MS = 60_000;
-const ONCHAIN_FUTU_PAIRS = [
-  ["HK.00388", "TENCENTUSDT"],
-  ["HK.00700", "TENCENTUSDT"],
-  ["HK.01024", "KUAISHOUUSDT"],
-  ["HK.01810", "HK1810USDT"],
-  ["HK.02097", "TENCENTUSDT"],
-  ["HK.03690", "MEITUANUSDT"],
-  ["HK.09992", "POPMARTUSDT"],
-];
 let stopped = false;
 let lastCleanup = 0;
 let lastLiquidationCleanup = 0;
-let lastOnchainCleanup = 0;
 
 const positive = (value) => {
   const number = Number(value);
@@ -93,87 +79,6 @@ async function cleanupOldLiquidationFiles() {
     const file = path.join(liquidationDataDirectory, entry.name);
     if ((await stat(file)).mtimeMs < cutoff) await unlink(file);
   }));
-}
-
-async function ensureOnchainDataDirectory() {
-  if (onchainDataDirectoryReady) return;
-  try {
-    await mkdir(onchainDataDirectory, { recursive: true });
-  } catch (error) {
-    if (process.env.ONCHAIN_BASIS_DATA_DIR || !error || typeof error !== "object" || error.code !== "EACCES") throw error;
-    onchainDataDirectory = "/tmp/onchain-basis";
-    await mkdir(onchainDataDirectory, { recursive: true });
-    console.warn("[onchain-recorder] Persistent disk is not mounted; using temporary Render storage.");
-  }
-  onchainDataDirectoryReady = true;
-}
-
-async function cleanupOldOnchainFiles() {
-  if (Date.now() - lastOnchainCleanup < 60 * 60_000) return;
-  lastOnchainCleanup = Date.now();
-  const cutoff = Date.now() - ONCHAIN_RETENTION_DAYS * 24 * 60 * 60_000;
-  const entries = await readdir(onchainDataDirectory, { withFileTypes: true });
-  await Promise.all(entries.filter((entry) => entry.isFile() && entry.name.endsWith(".ndjson")).map(async (entry) => {
-    const file = path.join(onchainDataDirectory, entry.name);
-    if ((await stat(file)).mtimeMs < cutoff) await unlink(file);
-  }));
-}
-
-const hktSession = (timestamp = Date.now()) => {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Hong_Kong",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(timestamp).map((part) => [part.type, part.value]));
-  const weekday = parts.weekday;
-  const minute = Number(parts.hour) * 60 + Number(parts.minute);
-  return weekday !== "Sat" && weekday !== "Sun" && minute >= 10 * 60 && minute <= 15 * 60;
-};
-
-async function localJson(pathname) {
-  const port = Number(process.env.PORT) || 3000;
-  const origin = `http://127.0.0.1:${port}`;
-  const request = (cookie = "") => fetch(`${origin}${pathname}`, {
-    cache: "no-store",
-    headers: cookie ? { Cookie: cookie } : undefined,
-    signal: AbortSignal.timeout(20_000),
-  });
-  let response = await request();
-  if (response.status === 401 && process.env.SITE_PASSWORD) {
-    const login = await fetch(`${origin}/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ password: process.env.SITE_PASSWORD }),
-      redirect: "manual",
-      signal: AbortSignal.timeout(20_000),
-    });
-    const cookie = login.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
-    if (!cookie) throw new Error("Recorder login did not return an access cookie.");
-    response = await request(cookie);
-  }
-  if (!response.ok) throw new Error(`${pathname} HTTP ${response.status}`);
-  return response.json();
-}
-
-async function captureOnchainBasis() {
-  await localJson("/api/onchain-pools/history?capture=1");
-}
-
-async function onchainRecorderLoop() {
-  while (!stopped) {
-    const started = Date.now();
-    if (hktSession(started)) {
-      try {
-        await captureOnchainBasis();
-      } catch (error) {
-        console.warn(`[onchain-recorder] ${error instanceof Error ? error.message : "capture failed"}`);
-      }
-    }
-    const delay = Math.max(1_000, ONCHAIN_CAPTURE_MS - (Date.now() - started));
-    await new Promise((resolve) => setTimeout(resolve, delay));
-  }
 }
 
 async function capture() {
@@ -301,7 +206,6 @@ const web = spawn(executable, ["start"], {
 });
 
 void recorderLoop();
-void onchainRecorderLoop();
 if (process.env.HYPERTRACKER_API_KEY) void liquidationRecorderLoop(process.env.HYPERTRACKER_API_KEY);
 
 const shutdown = (signal) => {
