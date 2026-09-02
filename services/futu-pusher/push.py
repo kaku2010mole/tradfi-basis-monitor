@@ -25,7 +25,7 @@ PUSH_URL = os.getenv(
 OPEND_HOST = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
 OPEND_PORT = int(os.getenv("FUTU_OPEND_PORT", "11111"))
 SYMBOLS = [
-    item.strip().upper()
+    item.strip()
     for item in os.getenv(
         "FUTU_SYMBOLS",
         "HK.00388,HK.00700,HK.01024,HK.01810,HK.02097,HK.03690,HK.09992,HK.00100,HK.02513,HK.03308,HK.03986,HK.800000,HK.HSImain",
