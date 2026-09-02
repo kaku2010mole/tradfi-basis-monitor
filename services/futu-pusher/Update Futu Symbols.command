@@ -19,5 +19,5 @@ fi
 /bin/launchctl kickstart -k "$service"
 
 echo
-echo "Futu symbols updated. HK.00388 and HK.02097 are now subscribed."
+echo "Futu symbols updated. Equities, HK.800000 and HK.HSImain are now subscribed."
 echo "You can close this window."
