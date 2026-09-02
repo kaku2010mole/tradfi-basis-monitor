@@ -267,3 +267,27 @@ test("ships the HSI close-probability desk with horizon evidence and a Futu live
   assert.match(pusher, /HK\.800000,HK\.HSImain/);
   assert.match(worker, /HSImain/);
 });
+
+test("ships a multi-pair grid lab with live SK and Binance gold backtests", async () => {
+  const [response, page, route, strategy, switcher] = await Promise.all([
+    render("/sk-grid"),
+    readFile(new URL("../app/sk-grid/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/sk-grid/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/sk-grid/strategy.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Trade the relationship/);
+  assert.match(page, /Apply recommended/);
+  assert.match(page, /Training-ranked alternatives/);
+  assert.match(page, /Include historical hourly funding/);
+  assert.match(route, /"skhx-skhy"/);
+  assert.match(route, /"xau-xaut"/);
+  assert.match(route, /XAUTUSDT/);
+  assert.match(route, /PAXGUSDT/);
+  assert.match(route, /QQQUSDT/);
+  assert.match(strategy, /Rolling log-price OLS residual|computeSignals/);
+  assert.match(strategy, /splitIndex/);
+  assert.match(strategy, /slippageBps/);
+  assert.match(switcher, /Pair Grid Lab/);
+});
