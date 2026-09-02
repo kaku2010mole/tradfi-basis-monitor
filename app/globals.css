@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./skhx/skhx.css";
+@import "./hsi/hsi.css";
 
 :root {
   --ink: #17231e;

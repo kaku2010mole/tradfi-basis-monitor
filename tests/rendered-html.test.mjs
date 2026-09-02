@@ -246,3 +246,24 @@ test("ships the SKHX next-close probability desk and removes onchain pools", asy
   assert.doesNotMatch(switcher, /onchain|Onchain pools/i);
   assert.doesNotMatch(recorder, /onchain/i);
 });
+
+test("ships the HSI close-probability desk with horizon evidence and a Futu live feed", async () => {
+  const [response, page, route, switcher, pusher, worker] = await Promise.all([
+    render("/hsi"),
+    readFile(new URL("../app/hsi/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/hsi/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
+    readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
+  ]);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Hang Seng Probability Desk/);
+  assert.match(page, /Results by time to close/);
+  assert.match(page, /FUTURES\|16:10/);
+  assert.match(page, /INDEX\|15:50/);
+  assert.match(route, /Previous official cash close/);
+  assert.match(route, /findFuturesAnchor/);
+  assert.match(switcher, /href="\/hsi"/);
+  assert.match(pusher, /HK\.800000,HK\.HSImain/);
+  assert.match(worker, /HSImain/);
+});

@@ -155,13 +155,13 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
   if (
     !payload || !Number.isFinite(payload.generatedAt) || Math.abs(now - payload.generatedAt) > 30_000 ||
     !Array.isArray(payload.quotes) || payload.quotes.length < 1 || payload.quotes.length > 24 ||
-    payload.quotes.some((quote) => typeof quote?.symbol !== "string" || !/^HK\.\d{5}$/.test(quote.symbol)) ||
+    payload.quotes.some((quote) => typeof quote?.symbol !== "string" || !/^HK\.(?:\d{5}|800000|HSImain)$/.test(quote.symbol)) ||
     (payload.orderbooks !== undefined && (!Array.isArray(payload.orderbooks) || payload.orderbooks.length > 24)) ||
     (payload.history !== undefined && (
       !payload.history || typeof payload.history !== "object" ||
       Object.keys(payload.history).length > 24 ||
       Object.entries(payload.history).some(([symbol, points]) =>
-        !/^HK\.\d{5}$/.test(symbol) || !Array.isArray(points) || points.length > 1000 ||
+        !/^HK\.(?:\d{5}|800000|HSImain)$/.test(symbol) || !Array.isArray(points) || points.length > 1500 ||
         points.some((point) => !Array.isArray(point) || point.length !== 2 || !Number.isFinite(point[0]) || !Number.isFinite(point[1]))
       )
     ))

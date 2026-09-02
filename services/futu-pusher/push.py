@@ -28,16 +28,18 @@ SYMBOLS = [
     item.strip().upper()
     for item in os.getenv(
         "FUTU_SYMBOLS",
-        "HK.00388,HK.00700,HK.01024,HK.01810,HK.02097,HK.03690,HK.09992,HK.00100,HK.02513,HK.03308,HK.03986",
+        "HK.00388,HK.00700,HK.01024,HK.01810,HK.02097,HK.03690,HK.09992,HK.00100,HK.02513,HK.03308,HK.03986,HK.800000,HK.HSImain",
     ).split(",")
     if item.strip()
 ]
 INTERVAL_SECONDS = max(0.8, float(os.getenv("FUTU_PUSH_INTERVAL", "1")))
 HISTORY_REFRESH_SECONDS = max(60, float(os.getenv("FUTU_HISTORY_REFRESH_INTERVAL", "600")))
 HISTORY_LIMIT = 720
+HSI_HISTORY_LIMIT = 1500
 RUNNING = True
 HKT = timezone(timedelta(hours=8))
 LIVE_BOOK_STATES = {"AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"}
+SNAPSHOT_ONLY_SYMBOLS = {"HK.800000"}
 
 
 def stop(*_: object) -> None:
@@ -98,7 +100,8 @@ def build_history(context: OpenQuoteContext) -> dict[str, list[list[float | int]
             if not page_key:
                 break
         points: list[list[float | int]] = []
-        for row in frames[-HISTORY_LIMIT:]:
+        limit = HSI_HISTORY_LIMIT if symbol in {"HK.800000", "HK.HSImain"} else HISTORY_LIMIT
+        for row in frames[-limit:]:
             timestamp = history_timestamp(row.get("time_key"))
             close = positive(row.get("close"))
             if timestamp is not None and close is not None:
@@ -123,7 +126,7 @@ def build_payload(context: OpenQuoteContext, history: dict[str, list[list[float 
     orderbooks: list[dict[str, object]] = []
     for symbol in SYMBOLS:
         row = snapshot_by_code.get(symbol)
-        book_ret, book = context.get_order_book(symbol, num=10)
+        book_ret, book = (RET_OK, {}) if symbol in SNAPSHOT_ONLY_SYMBOLS else context.get_order_book(symbol, num=10)
         if row is None:
             continue
         bids = levels(book.get("Bid", [])) if book_ret == RET_OK else []
@@ -133,7 +136,7 @@ def build_payload(context: OpenQuoteContext, history: dict[str, list[list[float 
         # states legitimately have no two-sided book, but the official last is
         # still the required overnight / pre-open benchmark. During auction or
         # continuous trading, never hide a missing book behind the last price.
-        if (not bids or not asks) and (book_required or last is None):
+        if symbol not in SNAPSHOT_ONLY_SYMBOLS and (not bids or not asks) and (book_required or last is None):
             continue
         quotes.append({
             "symbol": symbol,
@@ -141,6 +144,7 @@ def build_payload(context: OpenQuoteContext, history: dict[str, list[list[float 
             "marketState": market_state,
             "auctionPrice": None,
             "last": last,
+            "previousClose": positive(row.get("prev_close_price")),
             "bid": bids[0]["price"] if bids else None,
             "ask": asks[0]["price"] if asks else None,
             "bidSize": bids[0]["size"] if bids else None,
@@ -149,6 +153,7 @@ def build_payload(context: OpenQuoteContext, history: dict[str, list[list[float 
             # A successful synchronous OpenD response time is used as freshness,
             # while last_price is never used as the auction reference.
             "marketTimestamp": generated_at,
+            "exchangeTimestamp": history_timestamp(row.get("update_time")),
         })
         if bids and asks:
             orderbooks.append({"symbol": symbol, "bids": bids, "asks": asks, "marketTimestamp": generated_at})
@@ -173,9 +178,13 @@ def relay_session(token: str) -> None:
     """Run one OpenD session; the caller reconnects if startup drops."""
     context = OpenQuoteContext(host=OPEND_HOST, port=OPEND_PORT)
     try:
-        subscribe_ret, message = context.subscribe(SYMBOLS, [SubType.QUOTE, SubType.ORDER_BOOK], subscribe_push=False)
+        subscribe_ret, message = context.subscribe(SYMBOLS, [SubType.QUOTE], subscribe_push=False)
         if subscribe_ret != RET_OK:
             raise RuntimeError(f"Futu subscription failed: {message}")
+        book_symbols = [symbol for symbol in SYMBOLS if symbol not in SNAPSHOT_ONLY_SYMBOLS]
+        subscribe_ret, message = context.subscribe(book_symbols, [SubType.ORDER_BOOK], subscribe_push=False)
+        if subscribe_ret != RET_OK:
+            raise RuntimeError(f"Futu order-book subscription failed: {message}")
         failures = 0
         history: dict[str, list[list[float | int]]] = {}
         history_refreshed_at = 0.0
