@@ -289,6 +289,9 @@ test("ships a multi-pair grid lab with live SK and Binance gold backtests", asyn
   assert.match(route, /conversionRatio: 10/);
   assert.match(page, /Sell \$\{labelY\} \/ buy \$\{labelX\}/);
   assert.match(page, /conversion-adjusted/);
+  assert.match(page, /DYNAMIC PREMIUM BAND/);
+  assert.match(page, /Most-travelled levels/);
+  assert.match(page, /1 ADS = 5 Taiwan shares/);
   assert.match(strategy, /Rolling log-price OLS residual|computeSignals/);
   assert.match(strategy, /splitIndex/);
   assert.match(strategy, /slippageBps/);

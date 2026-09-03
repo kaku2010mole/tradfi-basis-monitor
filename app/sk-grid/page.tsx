@@ -45,10 +45,53 @@ function fmt(value: number, digits = 2) {
 }
 function compact(value: number) { return Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value); }
 function signed(value: number, suffix = "%", digits = 2) { return `${value >= 0 ? "+" : ""}${fmt(value, digits)}${suffix}`; }
+function percentile(values: number[], q: number) {
+  const sorted = [...values].sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  const position = (sorted.length - 1) * q;
+  const low = Math.floor(position), high = Math.ceil(position);
+  return sorted[low] + (sorted[high] - sorted[low]) * (position - low);
+}
 function hkt(time: number, date = false) {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Hong_Kong", ...(date ? { day: "2-digit", month: "short" } : {}), hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(time);
+}
+
+function premiumAnalytics(feed: GridFeed) {
+  const series = feed.points.map((point) => ({ time: point.time, premium: (feed.definition.conversionRatio * point.y / point.x - 1) * 100 }));
+  const current = (feed.definition.conversionRatio * feed.pair.y.mark / feed.pair.x.mark - 1) * 100;
+  const windows = [7, 14, 28, Math.max(29, Math.ceil(feed.coverage.days))].map((days, index, all) => {
+    const sample = series.filter((point) => point.time >= series.at(-1)!.time - days * 86_400_000).map((point) => point.premium);
+    const row = { days, label: index === all.length - 1 ? "ALL" : `${days}D`, p05: percentile(sample, 0.05), p10: percentile(sample, 0.10), p25: percentile(sample, 0.25), median: percentile(sample, 0.50), p75: percentile(sample, 0.75), p90: percentile(sample, 0.90), p95: percentile(sample, 0.95) };
+    return { ...row, currentPercentile: sample.filter((value) => value <= current).length / Math.max(1, sample.length) * 100 };
+  });
+  const recent = windows[1];
+  const rawStep = Math.max(0.01, (recent.p90 - recent.p10) / 8);
+  const steps = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5];
+  const step = feed.definition.id === "skhx-skhy" ? 0.5 : steps.find((candidate) => candidate >= rawStep) ?? 5;
+  const sample14 = series.filter((point) => point.time >= series.at(-1)!.time - 14 * 86_400_000);
+  const crossings = [];
+  const firstLevel = Math.floor(recent.p05 / step) * step;
+  const lastLevel = Math.ceil(recent.p95 / step) * step;
+  for (let level = firstLevel; level <= lastLevel + step / 2; level += step) {
+    let state = 0, flips = 0;
+    const flipTimes: number[] = [];
+    for (const point of sample14) {
+      let next = state;
+      if (point.premium <= level - step * 0.4) next = -1;
+      if (point.premium >= level + step * 0.4) next = 1;
+      if (state && next !== state) { flips += 1; flipTimes.push(point.time); }
+      state = next;
+    }
+    const intervals = flipTimes.slice(1).map((time, index) => (time - flipTimes[index]) / 3_600_000);
+    crossings.push({ level, flips, roundTrips: Math.floor(flips / 2), perWeek: flips / 2, medianHours: intervals.length ? percentile(intervals, 0.5) : null });
+  }
+  crossings.sort((a, b) => b.perWeek - a.perWeek);
+  const bandLow = Math.floor(recent.p25 / step) * step;
+  const bandHigh = Math.ceil(recent.p90 / step) * step;
+  const status = current > recent.p95 ? "ABOVE 14D P95" : current < recent.p05 ? "BELOW 14D P05" : current > recent.p75 ? "UPPER BAND" : current < recent.p25 ? "LOWER BAND" : "CORE BAND";
+  return { current, windows, crossings: crossings.slice(0, 8), step, bandLow, bandHigh, status };
 }
 
 function SpreadChart({ signals, params, labelX, labelY, conversionRatio, premiumLabel }: { signals: SignalPoint[]; params: GridParams; labelX: string; labelY: string; conversionRatio: number; premiumLabel: string }) {
@@ -186,6 +229,8 @@ export default function SkGridPage() {
   const holdoutGross = useMemo(() => runBacktest(signals, { ...params, feeBps: 0, slippageBps: 0 }, split, signals.length), [signals, params, split]);
   const holdoutOneBps = useMemo(() => runBacktest(signals, { ...params, feeBps: 1, slippageBps: 0 }, split, signals.length), [signals, params, split]);
   const diag = useMemo(() => diagnostics(signals), [signals]);
+  const bands = useMemo(() => feed ? premiumAnalytics(feed) : null, [feed]);
+  const bandExtreme = bands?.status.includes("P95") || bands?.status.includes("P05");
   const latest = signals.at(-1);
   const z = latest?.z ?? 0;
   const side = z > 0 ? -1 : 1;
@@ -246,6 +291,26 @@ export default function SkGridPage() {
       <Metric label="Rolling hedge β" value={fmt(beta, 3)} />
       <Metric label="14d return corr." value={fmt(diag.correlation, 3)} />
       <Metric label="Mean-reversion half-life" value={diag.halfLifeHours > 300 ? ">300h" : `${fmt(diag.halfLifeHours, 1)}h`} />
+    </section>
+
+    <section className="grid-band-section">
+      <div className="grid-section-title"><div><p className="grid-eyebrow">DYNAMIC PREMIUM BAND</p><h2>Where the premium actually travels</h2></div><div><span>Signal state</span><strong>{bands?.status ?? "—"}</strong></div></div>
+      <div className="grid-band-cards">
+        <Metric label="Live mark premium" value={bands ? signed(bands.current) : "—"} tone={bandExtreme ? "warning" : ""} />
+        <Metric label="14d paper-trading band" value={bands ? `${fmt(bands.bandLow, 2)}% → ${fmt(bands.bandHigh, 2)}%` : "—"} />
+        <Metric label="Indicative grid spacing" value={bands ? `${fmt(bands.step, bands.step < 0.1 ? 2 : 1)} pp` : "—"} />
+        <Metric label="Band policy" value={bandExtreme ? "PAUSE / SMALLEST FADE" : "TWO-SIDED PAPER GRID"} tone={bandExtreme ? "warning" : ""} />
+      </div>
+      <div className="grid-band-layout">
+        <div className="grid-table-wrap"><table><thead><tr><th>Window</th><th>P05</th><th>P10</th><th>P25</th><th>Median</th><th>P75</th><th>P90</th><th>P95</th><th>Live pctile</th></tr></thead><tbody>
+          {(bands?.windows ?? []).map((row) => <tr key={row.label}><td>{row.label}</td><td>{signed(row.p05)}</td><td>{signed(row.p10)}</td><td>{signed(row.p25)}</td><td><strong>{signed(row.median)}</strong></td><td>{signed(row.p75)}</td><td>{signed(row.p90)}</td><td>{signed(row.p95)}</td><td>{fmt(row.currentPercentile, 1)}%</td></tr>)}
+        </tbody></table></div>
+        <div className="grid-crossing-card"><div className="grid-subhead"><h3>Most-travelled levels · 14D</h3><span>{bands ? `${fmt(bands.step, bands.step < 0.1 ? 2 : 1)} pp ladder · hysteresis applied` : "—"}</span></div><div className="grid-crossing-list">
+          {(bands?.crossings ?? []).map((row) => <div key={row.level}><strong>{signed(row.level)}</strong><span>{fmt(row.perWeek, 1)} crosses / week</span><span>{row.roundTrips} round trips</span><span>{row.medianHours === null ? "—" : `${fmt(row.medianHours, 1)}h median`}</span></div>)}
+        </div></div>
+      </div>
+      {feed?.definition.id === "skhx-skhy" && <div className="grid-benchmark-strip"><div><span>TSMC ADR parity reference</span><strong>1 ADS = 5 Taiwan shares</strong></div><div><span>2Y premium median</span><strong>20.04%</strong></div><div><span>2Y P05–P95</span><strong>11.55%–27.55%</strong></div><div><span>Recent 60 common days median</span><strong>13.75%</strong></div><div><span>Interpretation</span><strong>Positive ADR premium can persist; SK is still cross-sectionally elevated</strong></div></div>}
+      <p className="grid-footnote">Premium bands are descriptive, not a parity target. Crossing counts use a hysteresis buffer to reduce one-tick noise. The TSMC benchmark uses same-calendar-date closes and is non-synchronous across Taiwan and New York.</p>
     </section>
 
     <section className="grid-chart-section">
