@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { usePathname } from "next/navigation";
 import PageSwitcher from "../components/PageSwitcher";
 
 type Quote = {
@@ -67,6 +68,9 @@ type ModelEntry = {
   slopePerPctPoint: number;
   covariance: [[number, number], [number, number]];
   historicalUpRate: number;
+  evidenceWeight?: number;
+  probabilityCap?: number;
+  method?: string;
   oos: OosMetrics;
 };
 
@@ -75,6 +79,9 @@ type ModelPayload = {
   dataStart: string;
   dataEnd: string;
   modelCount: number;
+  dayCoreCoverage?: { start: string; end: string; tradingDays: number };
+  dayFineCoverage?: { start: string; end: string; tradingDays: number };
+  nightProxyCoverage?: { start: string; end: string; targets: number; warning?: string };
   models: Record<string, ModelEntry>;
 };
 
@@ -87,10 +94,11 @@ type Prediction = {
   downUpper: number;
 };
 
-const bridgeUrl = (path: string) =>
+const bridgeUrl = (path: string, desk: "hsi" | "shanghai") =>
   ["localhost", "127.0.0.1"].includes(window.location.hostname)
+    && desk === "hsi"
     ? `${window.location.protocol}//${window.location.hostname}:8793${path}`
-    : path === "/history" ? "/api/hsi?view=history" : "/api/hsi";
+    : path === "/history" ? `/api/${desk}?view=history` : `/api/${desk}`;
 
 const HORIZON_CHECKPOINTS = [
   { horizon: "20–24h", key: "FUTURES|16:10", checkpoint: "16:10 · HSI FUT" },
@@ -102,13 +110,26 @@ const HORIZON_CHECKPOINTS = [
   { horizon: "0–15m", key: "INDEX|15:50", checkpoint: "15:50 · HSI" },
 ] as const;
 
+const SHANGHAI_HORIZON_CHECKPOINTS = [
+  { horizon: "16–24h", key: "FUTURES|22:00", checkpoint: "22:00 · A50 FUT" },
+  { horizon: "5.5h", key: "INDEX|09:30", checkpoint: "09:30 · SSE" },
+  { horizon: "4.5h", key: "INDEX|10:30", checkpoint: "10:30 · SSE" },
+  { horizon: "3.5h", key: "INDEX|11:30", checkpoint: "11:30 · SSE" },
+  { horizon: "2h", key: "INDEX|13:00", checkpoint: "13:00 · SSE" },
+  { horizon: "1h", key: "INDEX|14:00", checkpoint: "14:00 · SSE" },
+  { horizon: "30m", key: "INDEX|14:30", checkpoint: "14:30 · SSE" },
+] as const;
+
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
 const logistic = (value: number) => 1 / (1 + Math.exp(-value));
 
 const predict = (model: ModelEntry, signalPct: number): Prediction => {
-  const eta = model.intercept + model.slopePerPctPoint * signalPct;
+  const rawEta = model.intercept + model.slopePerPctPoint * signalPct;
+  const baseRate = clamp(model.historicalUpRate, 0.01, 0.99);
+  const baseEta = Math.log(baseRate / (1 - baseRate));
+  const eta = baseEta + (model.evidenceWeight ?? 1) * (rawEta - baseEta);
   const variance = Math.max(
     0,
     model.covariance[0][0]
@@ -116,9 +137,11 @@ const predict = (model: ModelEntry, signalPct: number): Prediction => {
       + signalPct * signalPct * model.covariance[1][1],
   );
   const standardError = Math.sqrt(variance);
-  const up = logistic(eta) * 100;
-  const upLower = logistic(eta - 1.96 * standardError) * 100;
-  const upUpper = logistic(eta + 1.96 * standardError) * 100;
+  const cap = (model.probabilityCap ?? 0.995) * 100;
+  const floor = 100 - cap;
+  const up = clamp(logistic(eta) * 100, floor, cap);
+  const upLower = clamp(logistic(eta - 1.96 * standardError) * 100, floor, cap);
+  const upUpper = clamp(logistic(eta + 1.96 * standardError) * 100, floor, cap);
   return {
     up,
     down: 100 - up,
@@ -505,7 +528,7 @@ function LiveSessionChart({ history, models }: { history: HistoryPayload; models
           <canvas
             className="live-chart-canvas"
             ref={canvasRef}
-            aria-label="Today's interactive Hang Seng price and lower-close probability chart"
+            aria-label="Today's interactive price and lower-close probability chart"
             onPointerLeave={() => setHoverIndex(null)}
             onPointerMove={(event) => {
               const bounds = event.currentTarget.getBoundingClientRect();
@@ -542,6 +565,9 @@ function LiveSessionChart({ history, models }: { history: HistoryPayload; models
 }
 
 export default function Home() {
+  const pathname = usePathname();
+  const isShanghai = pathname === "/shanghai";
+  const desk = isShanghai ? "shanghai" as const : "hsi" as const;
   const [quote, setQuote] = useState<Quote | null>(null);
   const [models, setModels] = useState<ModelPayload | null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -552,17 +578,19 @@ export default function Home() {
   const [scenarioTouched, setScenarioTouched] = useState(false);
 
   useEffect(() => {
-    fetch("/hsi-models.json", { cache: "no-store" })
+    setModels(null);
+    setModelError(null);
+    fetch(isShanghai ? "/shanghai-models.json" : "/hsi-models.json", { cache: "no-store" })
       .then((response) => response.json())
       .then(setModels)
       .catch(() => setModelError("Model file is unavailable or invalid."));
-  }, []);
+  }, [isShanghai]);
 
   useEffect(() => {
     let active = true;
     const refresh = async () => {
       try {
-        const response = await fetch(bridgeUrl("/quote"), { cache: "no-store" });
+        const response = await fetch(bridgeUrl("/quote", desk), { cache: "no-store" });
         if (!response.ok) throw new Error("Live quote bridge is unavailable.");
         const next = (await response.json()) as Quote;
         if (!active) return;
@@ -579,13 +607,13 @@ export default function Home() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [scenarioTouched]);
+  }, [desk, scenarioTouched]);
 
   useEffect(() => {
     let active = true;
     const refresh = async () => {
       try {
-        const response = await fetch(bridgeUrl("/history"), { cache: "no-store" });
+        const response = await fetch(bridgeUrl("/history", desk), { cache: "no-store" });
         if (!response.ok) throw new Error("Today's live chart is unavailable.");
         const next = (await response.json()) as HistoryPayload;
         if (!active) return;
@@ -601,7 +629,7 @@ export default function Home() {
       active = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [desk]);
 
   const selectedModel = useMemo(() => {
     if (!quote || !models) return null;
@@ -621,24 +649,24 @@ export default function Home() {
   }, [models, quote, scenarioPrice]);
 
   const isDown = (livePrediction?.down ?? 50) >= 50;
-  const sourceShort = !quote ? "—" : quote.source === "INDEX" ? "HSI" : "HSI FUT";
+  const sourceShort = !quote ? "—" : quote.source === "INDEX" ? (isShanghai ? "SSE" : "HSI") : (isShanghai ? "A50 FUT" : "HSI FUT");
   const sliderMin = quote ? Math.round(quote.referencePrice * 0.97) : 0;
   const sliderMax = quote ? Math.round(quote.referencePrice * 1.03) : 100;
   const scenarioValue = scenarioPrice ?? sliderMin;
   const connectionError = modelError ?? quoteError;
-  const horizonResults = useMemo(() => models ? HORIZON_CHECKPOINTS.flatMap((checkpoint) => {
+  const horizonResults = useMemo(() => models ? (isShanghai ? SHANGHAI_HORIZON_CHECKPOINTS : HORIZON_CHECKPOINTS).flatMap((checkpoint) => {
     const model = models.models[checkpoint.key];
     return model?.oos?.n ? [{ ...checkpoint, ...model.oos }] : [];
-  }) : [], [models]);
+  }) : [], [isShanghai, models]);
 
   return (
     <main className="hsi-page">
       <header className="topbar">
         <a className="brand" href="#top" aria-label="Back to top">
-          <span className="brand-mark">16:08</span>
-          <span>Hang Seng Probability Desk</span>
+          <span className="brand-mark">{isShanghai ? "15:00" : "16:08"}</span>
+          <span>{isShanghai ? "Shanghai Probability Desk" : "Hang Seng Probability Desk"}</span>
         </a>
-        <PageSwitcher active="hsi" />
+        <PageSwitcher active={isShanghai ? "shanghai" : "hsi"} />
         <div className={`market-status ${connectionError ? "offline" : ""}`}>
           <span className="status-dot" aria-hidden="true" />
           {quote ? `${quote.sourceLabel} · ${formatHktTime(quote.asOf)} HKT` : "Connecting to live quotes…"}
@@ -648,14 +676,14 @@ export default function Home() {
       <section className="hero" id="top">
         <div className="hero-copy">
           <div className="source-row">
-            <p className="eyebrow">LIVE HANG SENG · CLOSE DIRECTION</p>
+            <p className="eyebrow">{isShanghai ? "LIVE SHANGHAI COMPOSITE · NEXT CLOSE" : "LIVE HANG SENG · CLOSE DIRECTION"}</p>
             <span className="source-pill">{quote?.sessionLabel ?? "Detecting session"} · {sourceShort ?? "—"}</span>
           </div>
           <h1>
             The close still<br />leans {isDown ? "lower" : "higher"}.
           </h1>
           <p className="hero-lede">
-            HSI in cash hours · HK.HSImain outside cash hours · 3-second refresh
+            {isShanghai ? "Shanghai Composite in cash hours · active A50 futures outside cash hours · next 15:00 close" : "HSI in cash hours · HK.HSImain outside cash hours · 3-second refresh"}
           </p>
 
           {connectionError && <div className="live-error">{connectionError} Retrying automatically every three seconds.</div>}
@@ -735,11 +763,11 @@ export default function Home() {
         <div className="feed-grid">
           <article><span>Active feed</span><strong>{quote?.symbol ?? "—"}</strong><em>{quote?.sourceLabel ?? "Connecting"}</em></article>
           <article><span>Reference</span><strong>{quote ? formatPrice(quote.referencePrice) : "—"}</strong><em>{quote?.referenceTime ?? "—"}</em></article>
-          <article><span>Clock model</span><strong>{selectedModel?.clock ?? "—"}</strong><em>{selectedModel ? `${selectedModel.model.n.toLocaleString("en-US")} days · ±5m ensemble` : "—"}</em></article>
+          <article><span>Clock model</span><strong>{selectedModel?.clock ?? "—"}</strong><em>{selectedModel ? `${selectedModel.model.n.toLocaleString("en-US")} days · ${isShanghai ? (quote?.source === "FUTURES" ? "A50 proxy · capped 60%" : "walk-forward model") : "±5m ensemble"}` : "—"}</em></article>
           <article className={quote?.nightFutures?.ready ? "feed-ready" : "feed-waiting"}>
-            <span>Night futures standby</span>
+            <span>{isShanghai ? "A50 night proxy" : "Night futures standby"}</span>
             <strong>{quote?.nightFutures ? formatPrice(quote.nightFutures.price) : "—"}</strong>
-            <em>{quote?.nightFutures ? `${quote.nightFutures.symbol} · ${quote.nightFutures.live ? "LIVE" : "CONNECTED / STANDBY"} · ${formatHktTime(quote.nightFutures.asOf)} HKT` : "Checking HK.HSImain"}</em>
+            <em>{quote?.nightFutures ? `${quote.nightFutures.symbol} · ${quote.nightFutures.live ? "LIVE" : "CONNECTED / STANDBY"} · ${formatHktTime(quote.nightFutures.asOf)} HKT` : isShanghai ? "Checking active A50 futures" : "Checking HK.HSImain"}</em>
           </article>
         </div>
       </section>
@@ -764,7 +792,7 @@ export default function Home() {
             </div>
 
             <input
-              aria-label="Adjust the live Hang Seng price"
+              aria-label="Adjust the active index price"
               className="price-slider"
               type="range"
               min={sliderMin}
@@ -836,7 +864,7 @@ export default function Home() {
             <p className="eyebrow">OUT-OF-SAMPLE</p>
             <h2>Walk-forward backtest.</h2>
           </div>
-          <p>2022–2026 · prior data only</p>
+          <p>{isShanghai ? "2022–2026 holdout · training starts May 2016" : "2022–2026 · prior data only"}</p>
         </div>
 
         <div className="metric-grid">
@@ -865,9 +893,9 @@ export default function Home() {
         <div className="tier-panel horizon-panel">
           <div className="tier-heading">
             <strong>Results by time to close</strong>
-            <span>Fixed checkpoints · same next-day HSI close target</span>
+            <span>{isShanghai ? "Fixed checkpoints · same next Shanghai 15:00 close target" : "Fixed checkpoints · same next-day HSI close target"}</span>
           </div>
-          <div className="tier-table" role="table" aria-label="Walk-forward performance by time remaining to the HSI close">
+          <div className="tier-table" role="table" aria-label="Walk-forward performance by time remaining to the next close">
             <div className="tier-row horizon-row tier-header" role="row">
               <span>Time to close</span><span>Checkpoint</span><span>Test days</span><span>Accuracy</span><span>AUC</span><span>Brier</span><span>vs base</span>
             </div>
@@ -886,10 +914,10 @@ export default function Home() {
               );
             })}
           </div>
-          <p className="horizon-note">Accuracy rises as more of the trading day is observed. Treat the final minutes as confirmation of an almost-complete outcome—not as an equally early, equally tradable edge.</p>
+          <p className="horizon-note">{isShanghai ? "The A50 row is an intentionally restrained cross-index proxy (AUC near 0.54), not a substitute for the Shanghai index. Day-session accuracy rises as the 15:00 outcome becomes more complete." : "Accuracy rises as more of the trading day is observed. Treat the final minutes as confirmation of an almost-complete outcome—not as an equally early, equally tradable edge."}</p>
         </div>
 
-        <div className="tier-panel">
+        {!isShanghai && <div className="tier-panel">
           <div className="tier-heading">
             <strong>Results by confidence tier</strong>
             <span>Predicted direction · current {selectedModel?.clock ?? "—"} model</span>
@@ -911,7 +939,7 @@ export default function Home() {
             ))}
             {!selectedModel?.model.oos.confidenceTiers?.length && <div className="tier-empty">Loading confidence tiers…</div>}
           </div>
-        </div>
+        </div>}
       </section>
 
       <section className="section chart-section">
@@ -933,8 +961,8 @@ export default function Home() {
 
       <footer>
         <div>
-          <strong>Hang Seng Probability Desk · Live local edition</strong>
-          <span>Historical coverage: Sep 2018–Sep 2026 · 1-minute HSI and active-futures data</span>
+          <strong>{isShanghai ? "Shanghai Probability Desk · live web edition" : "Hang Seng Probability Desk · Live local edition"}</strong>
+          <span>{isShanghai ? `Core history: ${models?.dayCoreCoverage?.start ?? "May 2016"}–${models?.dayCoreCoverage?.end ?? "Sep 2026"} · A50 is a capped night proxy` : "Historical coverage: Sep 2018–Sep 2026 · 1-minute HSI and active-futures data"}</span>
         </div>
         <p>Conditional estimates, not investment advice · quotes refresh every 3s</p>
       </footer>
