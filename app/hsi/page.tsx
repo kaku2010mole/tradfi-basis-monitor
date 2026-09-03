@@ -113,11 +113,8 @@ const HORIZON_CHECKPOINTS = [
 const SHANGHAI_HORIZON_CHECKPOINTS = [
   { horizon: "16–24h", key: "FUTURES|22:00", checkpoint: "22:00 · A50 FUT" },
   { horizon: "5.5h", key: "INDEX|09:30", checkpoint: "09:30 · SSE" },
-  { horizon: "4.5h", key: "INDEX|10:30", checkpoint: "10:30 · SSE" },
   { horizon: "3.5h", key: "INDEX|11:30", checkpoint: "11:30 · SSE" },
   { horizon: "2h", key: "INDEX|13:00", checkpoint: "13:00 · SSE" },
-  { horizon: "1h", key: "INDEX|14:00", checkpoint: "14:00 · SSE" },
-  { horizon: "30m", key: "INDEX|14:30", checkpoint: "14:30 · SSE" },
 ] as const;
 
 const clamp = (value: number, min: number, max: number) =>
@@ -185,8 +182,12 @@ const nearestModelAt = (
   timestamp: string,
 ) => {
   const current = clockMinutes(hktClock(timestamp));
+  const minimumShanghaiHistory = payload.dayCoreCoverage?.tradingDays
+    ? payload.dayCoreCoverage.tradingDays * 0.95
+    : 0;
   const candidates = Object.entries(payload.models)
-    .filter(([, model]) => model.source === source)
+    .filter(([, model]) => model.source === source
+      && (source !== "INDEX" || !minimumShanghaiHistory || model.n >= minimumShanghaiHistory))
     .map(([key, model]) => {
       const clock = key.includes("|") ? key.split("|")[1] : key;
       return { clock, model, minute: clockMinutes(clock) };
@@ -211,8 +212,12 @@ const robustPredictAt = (
   signalPct: number,
 ) => {
   const current = clockMinutes(hktClock(timestamp));
+  const minimumShanghaiHistory = payload.dayCoreCoverage?.tradingDays
+    ? payload.dayCoreCoverage.tradingDays * 0.95
+    : 0;
   const nearby = Object.entries(payload.models)
-    .filter(([, model]) => model.source === source)
+    .filter(([, model]) => model.source === source
+      && (source !== "INDEX" || !minimumShanghaiHistory || model.n >= minimumShanghaiHistory))
     .map(([key, model]) => {
       const clock = key.includes("|") ? key.split("|")[1] : key;
       return { clock, model, distance: Math.abs(clockMinutes(clock) - current) };
@@ -864,7 +869,7 @@ export default function Home() {
             <p className="eyebrow">OUT-OF-SAMPLE</p>
             <h2>Walk-forward backtest.</h2>
           </div>
-          <p>{isShanghai ? "2022–2026 holdout · training starts May 2016" : "2022–2026 · prior data only"}</p>
+          <p>{isShanghai ? "All displayed models: May 2016–Sep 2026 · holdout 2022–2026" : "2022–2026 · prior data only"}</p>
         </div>
 
         <div className="metric-grid">
@@ -893,7 +898,7 @@ export default function Home() {
         <div className="tier-panel horizon-panel">
           <div className="tier-heading">
             <strong>Results by time to close</strong>
-            <span>{isShanghai ? "Fixed checkpoints · same next Shanghai 15:00 close target" : "Fixed checkpoints · same next-day HSI close target"}</span>
+            <span>{isShanghai ? "2016–2026 history at every displayed checkpoint · same 15:00 target" : "Fixed checkpoints · same next-day HSI close target"}</span>
           </div>
           <div className="tier-table" role="table" aria-label="Walk-forward performance by time remaining to the next close">
             <div className="tier-row horizon-row tier-header" role="row">
@@ -914,7 +919,7 @@ export default function Home() {
               );
             })}
           </div>
-          <p className="horizon-note">{isShanghai ? "The A50 row is an intentionally restrained cross-index proxy (AUC near 0.54), not a substitute for the Shanghai index. Day-session accuracy rises as the 15:00 outcome becomes more complete." : "Accuracy rises as more of the trading day is observed. Treat the final minutes as confirmation of an almost-complete outcome—not as an equally early, equally tradable edge."}</p>
+          <p className="horizon-note">{isShanghai ? "Every displayed result uses 2,499 Shanghai trading days beginning in May 2016. The A50 row is an intentionally restrained cross-index proxy (AUC near 0.54), not a substitute for the Shanghai index. Day-session accuracy rises as the 15:00 outcome becomes more complete." : "Accuracy rises as more of the trading day is observed. Treat the final minutes as confirmation of an almost-complete outcome—not as an equally early, equally tradable edge."}</p>
         </div>
 
         {!isShanghai && <div className="tier-panel">
