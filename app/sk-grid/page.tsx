@@ -12,7 +12,7 @@ type MarketLeg = {
 };
 type BookSummary = { time: number; bid: number | null; ask: number | null; spreadBps: number | null; depth10Bps: number; depth25Bps: number };
 type GridFeed = {
-  ok: boolean; serverTime: number; interval: string; definition: { id: string; label: string; shortLabel: string; venue: string };
+  ok: boolean; serverTime: number; interval: string; definition: { id: string; label: string; shortLabel: string; venue: string; conversionRatio: number; premiumLabel: string; conversionNote: string };
   availablePairs: Array<{ id: string; label: string; shortLabel: string; venue: string; interval: string }>;
   pair: { x: MarketLeg; y: MarketLeg }; books: { x: BookSummary; y: BookSummary };
   points: GridPoint[]; coverage: { first: number; last: number; bars: number; days: number; fundingRowsX: number; fundingRowsY: number };
@@ -51,8 +51,9 @@ function hkt(time: number, date = false) {
   }).format(time);
 }
 
-function SpreadChart({ signals, params, labelX, labelY }: { signals: SignalPoint[]; params: GridParams; labelX: string; labelY: string }) {
+function SpreadChart({ signals, params, labelX, labelY, conversionRatio, premiumLabel }: { signals: SignalPoint[]; params: GridParams; labelX: string; labelY: string; conversionRatio: number; premiumLabel: string }) {
   const [range, setRange] = useState<"7D" | "30D" | "ALL">("30D");
+  const [metric, setMetric] = useState<"z" | "premium">("z");
   const [hover, setHover] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const shown = useMemo(() => {
@@ -65,11 +66,17 @@ function SpreadChart({ signals, params, labelX, labelY }: { signals: SignalPoint
   const baseX = shown[0]?.x || 1, baseY = shown[0]?.y || 1;
   const indexedX = shown.map((point) => point.x / baseX * 100);
   const indexedY = shown.map((point) => point.y / baseY * 100);
+  const premiums = shown.map((point) => (conversionRatio * point.y / point.x - 1) * 100);
   const pMin = Math.min(...indexedX, ...indexedY), pMax = Math.max(...indexedX, ...indexedY);
   const zLimit = Math.max(4.5, params.stopZ + 0.3, ...shown.map((point) => Math.abs(point.z ?? 0)));
+  const premiumMin = premiums.length ? Math.min(...premiums) : -1;
+  const premiumMax = premiums.length ? Math.max(...premiums) : 1;
+  const premiumPad = Math.max(0.01, (premiumMax - premiumMin) * 0.12);
   const x = (time: number) => L + (time - t0) / Math.max(1, t1 - t0) * (W - L - R);
   const yPrice = (value: number) => bottomA - (value - pMin) / Math.max(1e-9, pMax - pMin) * (bottomA - topA);
   const yZ = (value: number) => bottomB - (value + zLimit) / (2 * zLimit) * (bottomB - topB);
+  const yPremium = (value: number) => bottomB - (value - (premiumMin - premiumPad)) / Math.max(1e-9, premiumMax - premiumMin + 2 * premiumPad) * (bottomB - topB);
+  const yMetric = metric === "z" ? yZ : yPremium;
   const path = (values: Array<number | null>, y: (value: number) => number) => {
     let started = false;
     return values.map((value, index) => {
@@ -93,27 +100,26 @@ function SpreadChart({ signals, params, labelX, labelY }: { signals: SignalPoint
   return <div className="grid-chart-card">
     <div className="grid-chart-head">
       <div className="grid-legend"><span className="gx" />{labelX} indexed <span className="gy" />{labelY} indexed <span className="gz" />Rolling residual z-score</div>
-      <div className="grid-range">{(["7D", "30D", "ALL"] as const).map((item) => <button key={item} className={range === item ? "active" : ""} onClick={() => setRange(item)}>{item}</button>)}</div>
+      <div className="grid-chart-actions"><div className="grid-range">{(["z", "premium"] as const).map((item) => <button key={item} className={metric === item ? "active" : ""} onClick={() => setMetric(item)}>{item === "z" ? "Z-SCORE" : "PREMIUM"}</button>)}</div><div className="grid-range">{(["7D", "30D", "ALL"] as const).map((item) => <button key={item} className={range === item ? "active" : ""} onClick={() => setRange(item)}>{item}</button>)}</div></div>
     </div>
     <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} onMouseMove={onMove} onMouseLeave={() => setHover(null)} role="img" aria-label={`Interactive ${labelX} and ${labelY} normalized prices and residual spread chart`}>
-      {[topA, bottomA, topB, yZ(0), bottomB].map((value, index) => <line key={index} x1={L} x2={W - R} y1={value} y2={value} className="grid-line" />)}
-      {[params.entryZ, -params.entryZ, params.entryZ + params.gridStepZ, -(params.entryZ + params.gridStepZ), params.stopZ, -params.stopZ].map((value) => <line key={value} x1={L} x2={W - R} y1={yZ(value)} y2={yZ(value)} className={Math.abs(value) === params.stopZ ? "grid-stop" : "grid-level"} />)}
+      {[topA, bottomA, topB, metric === "z" ? yZ(0) : yPremium((premiumMin + premiumMax) / 2), bottomB].map((value, index) => <line key={index} x1={L} x2={W - R} y1={value} y2={value} className="grid-line" />)}
+      {metric === "z" && [params.entryZ, -params.entryZ, params.entryZ + params.gridStepZ, -(params.entryZ + params.gridStepZ), params.stopZ, -params.stopZ].map((value) => <line key={value} x1={L} x2={W - R} y1={yZ(value)} y2={yZ(value)} className={Math.abs(value) === params.stopZ ? "grid-stop" : "grid-level"} />)}
       <text x={L} y={20} className="grid-axis-title">Indexed price · visible range starts at 100</text>
-      <text x={L} y={270} className="grid-axis-title">Log-price residual · rolling z-score</text>
-      <text x={L - 10} y={yZ(params.entryZ) + 4} textAnchor="end" className="grid-axis">+{params.entryZ.toFixed(1)}σ</text>
-      <text x={L - 10} y={yZ(0) + 4} textAnchor="end" className="grid-axis">0</text>
-      <text x={L - 10} y={yZ(-params.entryZ) + 4} textAnchor="end" className="grid-axis">−{params.entryZ.toFixed(1)}σ</text>
+      <text x={L} y={270} className="grid-axis-title">{metric === "z" ? "Log-price residual · rolling z-score" : `${premiumLabel} · conversion-adjusted`}</text>
+      {metric === "z" ? <><text x={L - 10} y={yZ(params.entryZ) + 4} textAnchor="end" className="grid-axis">+{params.entryZ.toFixed(1)}σ</text><text x={L - 10} y={yZ(0) + 4} textAnchor="end" className="grid-axis">0</text><text x={L - 10} y={yZ(-params.entryZ) + 4} textAnchor="end" className="grid-axis">−{params.entryZ.toFixed(1)}σ</text></> : <><text x={L - 10} y={topB + 4} textAnchor="end" className="grid-axis">{fmt(premiumMax + premiumPad, 2)}%</text><text x={L - 10} y={bottomB + 4} textAnchor="end" className="grid-axis">{fmt(premiumMin - premiumPad, 2)}%</text></>}
       <path d={path(indexedX, yPrice)} className="grid-path gx" />
       <path d={path(indexedY, yPrice)} className="grid-path gy" />
-      <path d={path(shown.map((point) => point.z), yZ)} className="grid-path gz" />
+      <path d={path(metric === "z" ? shown.map((point) => point.z) : premiums, yMetric)} className="grid-path gz" />
       {active && <>
         <line x1={x(active.time)} x2={x(active.time)} y1={topA} y2={bottomB} className="grid-crosshair" />
         <g transform={`translate(${Math.max(L, Math.min(W - 245, x(active.time) - 105))},${topA + 10})`}>
-          <rect width="225" height="86" rx="7" className="grid-tooltip-bg" />
+          <rect width="225" height="102" rx="7" className="grid-tooltip-bg" />
           <text x="12" y="20" className="grid-tooltip-muted">{hkt(active.time, true)} HKT</text>
           <text x="12" y="41" className="grid-tooltip">{labelX} {fmt(active.x, 2)} · {labelY} {fmt(active.y, 2)}</text>
           <text x="12" y="62" className="grid-tooltip">Ratio {fmt(active.x / active.y, 4)}</text>
           <text x="12" y="79" className="grid-tooltip">Z-score {active.z === null ? "warming up" : signed(active.z, "σ", 2)}</text>
+          <text x="12" y="96" className="grid-tooltip">Premium {signed((conversionRatio * active.y / active.x - 1) * 100)}</text>
         </g>
       </>}
       {shown.length > 1 && <><text x={L} y={462} className="grid-axis">{hkt(t0, true)}</text><text x={W - R} y={462} textAnchor="end" className="grid-axis">{hkt(t1, true)}</text></>}
@@ -194,7 +200,6 @@ export default function SkGridPage() {
   const qtyX = feed ? grossPerLayer * weightX / feed.pair.x.mark : 0;
   const qtyY = feed ? grossPerLayer * weightY / feed.pair.y.mark : 0;
   const fundingCarryHourly = feed ? side * (-weightX * feed.pair.x.funding + weightY * feed.pair.y.funding) * params.layerGross * 100 : 0;
-  const confidence = (feed?.coverage.days ?? 0) >= 90 && results.test.cycles >= 8 ? "MODERATE" : "LIMITED SAMPLE";
   const breakEvenCostBps = holdoutOneBps.feesPct > 0 ? Math.max(0, holdoutGross.returnPct / holdoutOneBps.feesPct) : 0;
   const deployable = results.train.returnPct > 0 && results.test.returnPct > 0 && results.test.cycles >= 5;
 
@@ -227,24 +232,25 @@ export default function SkGridPage() {
         { id: "xau-xaut", label: "XAU / XAUT", shortLabel: "Gold · primary", venue: "binance", interval: "1h" },
         { id: "xau-paxg", label: "XAU / PAXG", shortLabel: "Gold · alternate", venue: "binance", interval: "1h" },
         { id: "xaut-paxg", label: "XAUT / PAXG", shortLabel: "Tokenized gold", venue: "binance", interval: "1h" },
-        { id: "qqq-spy", label: "QQQ / SPY", shortLabel: "US equity beta", venue: "binance", interval: "1h" },
       ]).map((pair) => <button key={pair.id} className={selectedPair === pair.id ? "active" : ""} onClick={() => setSelectedPair(pair.id)}><strong>{pair.label}</strong><span>{pair.venue} · {pair.interval}</span></button>)}
     </section>
 
-    <section className="grid-live-strip">
+    <section className="grid-premium-strip">
       <Metric label={`${labelX} mark`} value={feed ? fmt(feed.pair.x.mark) : "—"} />
       <Metric label={`${labelY} mark`} value={feed ? fmt(feed.pair.y.mark) : "—"} />
-      <Metric label="Price ratio" value={feed ? fmt(feed.pair.x.mark / feed.pair.y.mark, 4) : "—"} />
+      <Metric label="Conversion" value={feed ? feed.definition.conversionNote : "—"} />
+      <Metric label={feed?.definition.premiumLabel ?? "Mark premium"} value={feed ? signed((feed.definition.conversionRatio * feed.pair.y.mark / feed.pair.x.mark - 1) * 100) : "—"} tone={feed && Math.abs((feed.definition.conversionRatio * feed.pair.y.mark / feed.pair.x.mark - 1) * 100) > 1 ? "attention" : ""} />
+      <Metric label={`Sell ${labelY} / buy ${labelX}`} value={feed?.books.y.bid && feed?.books.x.ask ? signed((feed.definition.conversionRatio * feed.books.y.bid / feed.books.x.ask - 1) * 100) : "—"} />
+      <Metric label={`Buy ${labelY} / sell ${labelX}`} value={feed?.books.y.ask && feed?.books.x.bid ? signed((feed.definition.conversionRatio * feed.books.y.ask / feed.books.x.bid - 1) * 100) : "—"} />
       <Metric label="Residual z-score" value={latest?.z === null || !latest ? "—" : signed(z, "σ")} tone={Math.abs(z) >= params.entryZ ? "attention" : ""} />
       <Metric label="Rolling hedge β" value={fmt(beta, 3)} />
       <Metric label="14d return corr." value={fmt(diag.correlation, 3)} />
       <Metric label="Mean-reversion half-life" value={diag.halfLifeHours > 300 ? ">300h" : `${fmt(diag.halfLifeHours, 1)}h`} />
-      <Metric label="Evidence" value={confidence} tone={confidence === "LIMITED SAMPLE" ? "warning" : ""} />
     </section>
 
     <section className="grid-chart-section">
       <div className="grid-section-title"><div><p className="grid-eyebrow">LIVE RELATIONSHIP</p><h2>Price and residual spread</h2></div><div><span>Common history</span><strong>{feed ? `${fmt(feed.coverage.days, 0)} days · ${feed.coverage.bars.toLocaleString()} bars` : "—"}</strong></div></div>
-      <SpreadChart signals={signals} params={params} labelX={labelX} labelY={labelY} />
+      <SpreadChart signals={signals} params={params} labelX={labelX} labelY={labelY} conversionRatio={feed?.definition.conversionRatio ?? 1} premiumLabel={feed?.definition.premiumLabel ?? "Pair premium"} />
       <div className="grid-market-tape">
         <div><span>{labelX} book</span><strong>{feed?.books.x.spreadBps == null ? "—" : `${fmt(feed.books.x.spreadBps, 2)} bps`}</strong><small>${feed ? compact(feed.books.x.depth10Bps) : "—"} within 10 bps</small></div>
         <div><span>{labelY} book</span><strong>{feed?.books.y.spreadBps == null ? "—" : `${fmt(feed.books.y.spreadBps, 2)} bps`}</strong><small>${feed ? compact(feed.books.y.depth10Bps) : "—"} within 10 bps</small></div>

@@ -5,15 +5,15 @@ export const metadata: Metadata = {
   description: "Interactive SK and gold relative-value grid research with live spreads, configurable costs, funding, and holdout backtests.",
   openGraph: {
     title: "Pair Grid Lab",
-    description: "SK, gold and equity spreads with live research and holdout backtests.",
+    description: "SK and tokenized-gold spreads with live premiums and holdout backtests.",
     type: "website",
-    images: [{ url: "/og-grid.png", width: 1731, height: 909, alt: "Pair Grid Lab" }],
+    images: [{ url: "/og-grid-v2.png", width: 1731, height: 909, alt: "Pair Grid Lab" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Pair Grid Lab",
-    description: "SK, gold and equity spreads with live research and holdout backtests.",
-    images: ["/og-grid.png"],
+    description: "SK and tokenized-gold spreads with live premiums and holdout backtests.",
+    images: ["/og-grid-v2.png"],
   },
 };
 

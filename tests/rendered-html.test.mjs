@@ -285,7 +285,10 @@ test("ships a multi-pair grid lab with live SK and Binance gold backtests", asyn
   assert.match(route, /"xau-xaut"/);
   assert.match(route, /XAUTUSDT/);
   assert.match(route, /PAXGUSDT/);
-  assert.match(route, /QQQUSDT/);
+  assert.doesNotMatch(route, /QQQUSDT|SPYUSDT/);
+  assert.match(route, /conversionRatio: 10/);
+  assert.match(page, /Sell \$\{labelY\} \/ buy \$\{labelX\}/);
+  assert.match(page, /conversion-adjusted/);
   assert.match(strategy, /Rolling log-price OLS residual|computeSignals/);
   assert.match(strategy, /splitIndex/);
   assert.match(strategy, /slippageBps/);

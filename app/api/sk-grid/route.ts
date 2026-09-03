@@ -18,14 +18,16 @@ type PairDefinition = {
   historyDays: number;
   makerFeeBps: number;
   takerFeeBps: number;
+  conversionRatio: number;
+  premiumLabel: string;
+  conversionNote: string;
 };
 
 const PAIRS: Record<string, PairDefinition> = {
-  "skhx-skhy": { id: "skhx-skhy", label: "SKHX / SKHY", shortLabel: "SK semis", venue: "hyperliquid", x: "xyz:SKHX", y: "xyz:SKHY", interval: "15m", intervalMs: 900_000, historyDays: 90, makerFeeBps: 0.3, takerFeeBps: 0.9 },
-  "xau-xaut": { id: "xau-xaut", label: "XAU / XAUT", shortLabel: "Gold · primary", venue: "binance", x: "XAUUSDT", y: "XAUTUSDT", interval: "1h", intervalMs: 3_600_000, historyDays: 360, makerFeeBps: 2, takerFeeBps: 5 },
-  "xau-paxg": { id: "xau-paxg", label: "XAU / PAXG", shortLabel: "Gold · alternate", venue: "binance", x: "XAUUSDT", y: "PAXGUSDT", interval: "1h", intervalMs: 3_600_000, historyDays: 360, makerFeeBps: 2, takerFeeBps: 5 },
-  "xaut-paxg": { id: "xaut-paxg", label: "XAUT / PAXG", shortLabel: "Tokenized gold", venue: "binance", x: "XAUTUSDT", y: "PAXGUSDT", interval: "1h", intervalMs: 3_600_000, historyDays: 360, makerFeeBps: 2, takerFeeBps: 5 },
-  "qqq-spy": { id: "qqq-spy", label: "QQQ / SPY", shortLabel: "US equity beta", venue: "binance", x: "QQQUSDT", y: "SPYUSDT", interval: "1h", intervalMs: 3_600_000, historyDays: 360, makerFeeBps: 2, takerFeeBps: 5 },
+  "skhx-skhy": { id: "skhx-skhy", label: "SKHX / SKHY", shortLabel: "Korea / ADR", venue: "hyperliquid", x: "xyz:SKHX", y: "xyz:SKHY", interval: "15m", intervalMs: 900_000, historyDays: 90, makerFeeBps: 0.3, takerFeeBps: 0.9, conversionRatio: 10, premiumLabel: "SKHY ADR premium", conversionNote: "10 SKHY ADR = 1 SKHX Korean share" },
+  "xau-xaut": { id: "xau-xaut", label: "XAU / XAUT", shortLabel: "Gold · primary", venue: "binance", x: "XAUUSDT", y: "XAUTUSDT", interval: "1h", intervalMs: 3_600_000, historyDays: 360, makerFeeBps: 2, takerFeeBps: 5, conversionRatio: 1, premiumLabel: "XAUT premium to XAU", conversionNote: "1 XAUT = 1 troy ounce reference" },
+  "xau-paxg": { id: "xau-paxg", label: "XAU / PAXG", shortLabel: "Gold · alternate", venue: "binance", x: "XAUUSDT", y: "PAXGUSDT", interval: "1h", intervalMs: 3_600_000, historyDays: 360, makerFeeBps: 2, takerFeeBps: 5, conversionRatio: 1, premiumLabel: "PAXG premium to XAU", conversionNote: "1 PAXG = 1 troy ounce reference" },
+  "xaut-paxg": { id: "xaut-paxg", label: "XAUT / PAXG", shortLabel: "Tokenized gold", venue: "binance", x: "XAUTUSDT", y: "PAXGUSDT", interval: "1h", intervalMs: 3_600_000, historyDays: 360, makerFeeBps: 2, takerFeeBps: 5, conversionRatio: 1, premiumLabel: "PAXG premium to XAUT", conversionNote: "1 PAXG versus 1 XAUT" },
 };
 
 type Point = { time: number; x: number; y: number; fundingX: number; fundingY: number; volumeX: number; volumeY: number };
@@ -140,7 +142,7 @@ async function buildBinancePair(definition: PairDefinition) {
 async function buildPayload(definition: PairDefinition) {
   const loaded = definition.venue === "hyperliquid" ? await buildHyperliquidPair(definition) : await buildBinancePair(definition);
   if (loaded.points.length < 500) throw new Error("Not enough aligned history for this pair");
-  return { ok: true, serverTime: loaded.now, definition: { id: definition.id, label: definition.label, shortLabel: definition.shortLabel, venue: definition.venue }, availablePairs: Object.values(PAIRS).map(({ id, label, shortLabel, venue, interval }) => ({ id, label, shortLabel, venue, interval })), interval: definition.interval, pair: loaded.pair, books: loaded.books, points: loaded.points, coverage: { first: loaded.points[0].time, last: loaded.points.at(-1)!.time, bars: loaded.points.length, days: (loaded.points.at(-1)!.time - loaded.points[0].time) / 86_400_000, fundingRowsX: loaded.fundingRowsX, fundingRowsY: loaded.fundingRowsY }, assumptions: { makerFeeBps: definition.makerFeeBps, takerFeeBps: definition.takerFeeBps, feeNote: definition.venue === "hyperliquid" ? "Tier-0 HIP-3 growth-mode estimate before account-specific discounts or rebates" : "Binance USDⓈ-M VIP-0 assumption; replace with your account rate" } };
+  return { ok: true, serverTime: loaded.now, definition: { id: definition.id, label: definition.label, shortLabel: definition.shortLabel, venue: definition.venue, conversionRatio: definition.conversionRatio, premiumLabel: definition.premiumLabel, conversionNote: definition.conversionNote }, availablePairs: Object.values(PAIRS).map(({ id, label, shortLabel, venue, interval }) => ({ id, label, shortLabel, venue, interval })), interval: definition.interval, pair: loaded.pair, books: loaded.books, points: loaded.points, coverage: { first: loaded.points[0].time, last: loaded.points.at(-1)!.time, bars: loaded.points.length, days: (loaded.points.at(-1)!.time - loaded.points[0].time) / 86_400_000, fundingRowsX: loaded.fundingRowsX, fundingRowsY: loaded.fundingRowsY }, assumptions: { makerFeeBps: definition.makerFeeBps, takerFeeBps: definition.takerFeeBps, feeNote: definition.venue === "hyperliquid" ? "Tier-0 HIP-3 growth-mode estimate before account-specific discounts or rebates" : "Binance USDⓈ-M VIP-0 assumption; replace with your account rate" } };
 }
 
 export async function GET(request: NextRequest) {

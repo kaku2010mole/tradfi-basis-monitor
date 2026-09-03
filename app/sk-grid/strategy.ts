@@ -177,10 +177,12 @@ export function runBacktest(signals: SignalPoint[], params: GridParams, startInd
     }
 
     const z = current.z;
+    let closedThisBar = false;
     if (z !== null && layers.length) {
       const ageHours = (current.time - cycleOpenedAt) / 3_600_000;
       if (Math.abs(z) <= params.exitZ || Math.abs(z) >= params.stopZ || ageHours >= params.maxHoldHours) {
         closeAll(current.time);
+        closedThisBar = true;
       } else {
         const side = z > 0 ? -1 : 1;
         const originalSide = layers[0].direction;
@@ -192,7 +194,7 @@ export function runBacktest(signals: SignalPoint[], params: GridParams, startInd
       }
     }
 
-    if (z !== null && !layers.length && Math.abs(z) >= params.entryZ && Math.abs(z) < params.stopZ) {
+    if (z !== null && !layers.length && !closedThisBar && Math.abs(z) >= params.entryZ && Math.abs(z) < params.stopZ) {
       const direction = (z > 0 ? -1 : 1) as 1 | -1;
       cycleStartEquity = equity;
       cycleOpenedAt = current.time;
@@ -206,7 +208,12 @@ export function runBacktest(signals: SignalPoint[], params: GridParams, startInd
     maxDrawdown = Math.max(maxDrawdown, 1 - equity / peak);
     if ((index - firstValid) % 16 === 0 || index === endIndex - 1) equityCurve.push({ time: current.time, value: equity });
   }
-  if (layers.length) closeAll(signals[endIndex - 1].time);
+  if (layers.length) {
+    closeAll(signals[endIndex - 1].time);
+    peak = Math.max(peak, equity);
+    maxDrawdown = Math.max(maxDrawdown, 1 - equity / peak);
+    equityCurve.push({ time: signals[endIndex - 1].time, value: equity });
+  }
 
   const days = Math.max(1 / barsPerDay, result.days);
   const totalReturn = equity - 1;
