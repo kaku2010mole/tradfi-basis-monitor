@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 const HL_INFO_URL = "https://api.hyperliquid.xyz/info";
 const BINANCE_URL = "https://fapi.binance.com";
 const CACHE_MS = 60_000;
+const LIVE_CACHE_MS = 4_000;
 
 type PairDefinition = {
   id: string;
@@ -145,17 +146,56 @@ async function buildPayload(definition: PairDefinition) {
   return { ok: true, serverTime: loaded.now, definition: { id: definition.id, label: definition.label, shortLabel: definition.shortLabel, venue: definition.venue, conversionRatio: definition.conversionRatio, premiumLabel: definition.premiumLabel, conversionNote: definition.conversionNote }, availablePairs: Object.values(PAIRS).map(({ id, label, shortLabel, venue, interval }) => ({ id, label, shortLabel, venue, interval })), interval: definition.interval, pair: loaded.pair, books: loaded.books, points: loaded.points, coverage: { first: loaded.points[0].time, last: loaded.points.at(-1)!.time, bars: loaded.points.length, days: (loaded.points.at(-1)!.time - loaded.points[0].time) / 86_400_000, fundingRowsX: loaded.fundingRowsX, fundingRowsY: loaded.fundingRowsY }, assumptions: { makerFeeBps: definition.makerFeeBps, takerFeeBps: definition.takerFeeBps, feeNote: definition.venue === "hyperliquid" ? "Tier-0 HIP-3 growth-mode estimate before account-specific discounts or rebates" : "Binance USDⓈ-M VIP-0 assumption; replace with your account rate" } };
 }
 
+async function buildLivePayload(definition: PairDefinition) {
+  const fullKey = definition.id;
+  const now = Date.now();
+  const existing = runtime.__PAIR_GRID_CACHE__!.get(fullKey);
+  if (!existing || existing.expiresAt <= now) runtime.__PAIR_GRID_CACHE__!.set(fullKey, { expiresAt: now + CACHE_MS, promise: buildPayload(definition) });
+  const baseline = await runtime.__PAIR_GRID_CACHE__!.get(fullKey)!.promise as Awaited<ReturnType<typeof buildPayload>>;
+
+  if (definition.venue === "hyperliquid") {
+    type Meta = { name: string };
+    type Context = { markPx: string; oraclePx: string; midPx: string | null; funding: string; openInterest: string; dayNtlVlm: string; premium: string; impactPxs?: string[] };
+    type Book = { time: number; levels: Array<Array<{ px: string; sz: string }>> };
+    const [market, bookX, bookY] = await Promise.all([
+      hyperliquid({ type: "metaAndAssetCtxs", dex: "xyz" }) as Promise<[{ universe: Meta[] }, Context[]]>,
+      hyperliquid({ type: "l2Book", coin: definition.x }) as Promise<Book>,
+      hyperliquid({ type: "l2Book", coin: definition.y }) as Promise<Book>,
+    ]);
+    const [meta, contexts] = market;
+    const indexX = meta.universe.findIndex((asset) => asset.name === definition.x);
+    const indexY = meta.universe.findIndex((asset) => asset.name === definition.y);
+    if (indexX < 0 || indexY < 0) throw new Error("Selected Hyperliquid pair is unavailable");
+    const updateLeg = (base: typeof baseline.pair.x, context: Context) => ({ ...base, mark: Number(context.markPx), oracle: Number(context.oraclePx), mid: context.midPx ? Number(context.midPx) : null, funding: Number(context.funding), openInterest: Number(context.openInterest), dayVolume: Number(context.dayNtlVlm), premium: Number(context.premium), impactBid: Number(context.impactPxs?.[0]) || null, impactAsk: Number(context.impactPxs?.[1]) || null });
+    const book = (value: Book) => summarizeBook(value.levels.map((side) => side.map((row) => [row.px, row.sz] as [string, string])) as [[string, string][], [string, string][]], value.time);
+    return { ok: true, serverTime: now, pair: { x: updateLeg(baseline.pair.x, contexts[indexX]), y: updateLeg(baseline.pair.y, contexts[indexY]) }, books: { x: book(bookX), y: book(bookY) } };
+  }
+
+  type Premium = { markPrice: string; indexPrice: string; lastFundingRate: string };
+  type Depth = { E?: number; T?: number; bids: [string, string][]; asks: [string, string][] };
+  const [premiumX, premiumY, depthX, depthY] = await Promise.all([
+    binance("/fapi/v1/premiumIndex", { symbol: definition.x }) as Promise<Premium>,
+    binance("/fapi/v1/premiumIndex", { symbol: definition.y }) as Promise<Premium>,
+    binance("/fapi/v1/depth", { symbol: definition.x, limit: 20 }) as Promise<Depth>,
+    binance("/fapi/v1/depth", { symbol: definition.y, limit: 20 }) as Promise<Depth>,
+  ]);
+  const updateLeg = (base: typeof baseline.pair.x, premium: Premium) => ({ ...base, mark: Number(premium.markPrice), oracle: Number(premium.indexPrice), funding: Number(premium.lastFundingRate) / Math.max(1, base.fundingIntervalHours), premium: Number(premium.markPrice) / Number(premium.indexPrice) - 1 });
+  return { ok: true, serverTime: now, pair: { x: updateLeg(baseline.pair.x, premiumX), y: updateLeg(baseline.pair.y, premiumY) }, books: { x: summarizeBook([depthX.bids, depthX.asks], depthX.E ?? depthX.T ?? now), y: summarizeBook([depthY.bids, depthY.asks], depthY.E ?? depthY.T ?? now) } };
+}
+
 export async function GET(request: NextRequest) {
   const pairId = request.nextUrl.searchParams.get("pair") ?? "skhx-skhy";
+  const live = request.nextUrl.searchParams.get("live") === "1";
   const definition = PAIRS[pairId];
   if (!definition) return NextResponse.json({ ok: false, error: "Unsupported pair" }, { status: 400 });
   try {
     const now = Date.now();
-    const cached = runtime.__PAIR_GRID_CACHE__!.get(pairId);
-    if (!cached || cached.expiresAt <= now) runtime.__PAIR_GRID_CACHE__!.set(pairId, { expiresAt: now + CACHE_MS, promise: buildPayload(definition) });
-    return NextResponse.json(await runtime.__PAIR_GRID_CACHE__!.get(pairId)!.promise, { headers: { "cache-control": "no-store" } });
+    const cacheKey = live ? `live:${pairId}` : pairId;
+    const cached = runtime.__PAIR_GRID_CACHE__!.get(cacheKey);
+    if (!cached || cached.expiresAt <= now) runtime.__PAIR_GRID_CACHE__!.set(cacheKey, { expiresAt: now + (live ? LIVE_CACHE_MS : CACHE_MS), promise: live ? buildLivePayload(definition) : buildPayload(definition) });
+    return NextResponse.json(await runtime.__PAIR_GRID_CACHE__!.get(cacheKey)!.promise, { headers: { "cache-control": "no-store" } });
   } catch (error) {
-    runtime.__PAIR_GRID_CACHE__!.delete(pairId);
+    runtime.__PAIR_GRID_CACHE__!.delete(live ? `live:${pairId}` : pairId);
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Unknown upstream error" }, { status: 502, headers: { "cache-control": "no-store" } });
   }
 }
