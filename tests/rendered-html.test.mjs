@@ -161,6 +161,11 @@ test("compares Polymarket, Binance and Hyperliquid funding and price spreads in 
   assert.match(page, /TODAY · HKT/);
   assert.match(page, /THIS WEEK · HKT/);
   assert.match(page, /startOfHktWeek/);
+  assert.match(page, /NEXT 1H ESTIMATE/);
+  assert.match(page, /allDexsClearinghouseState/);
+  assert.match(page, /-size \* oracle \* fundingRate/);
+  assert.match(page, /PERIOD NET · REBASED TO \$0/);
+  assert.match(page, /baselineTime/);
   assert.match(accountFunding, /type: "userFunding"/);
   assert.match(accountFunding, /PAGE_SIZE = 500/);
   assert.match(accountFunding, /cursor = lastTime > previousLast \? lastTime : lastTime \+ 1/);
