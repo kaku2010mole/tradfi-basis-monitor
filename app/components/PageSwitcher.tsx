@@ -4,7 +4,7 @@ import Link from "next/link";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
-  active: "basis" | "pairs" | "oracle" | "blog" | "taker" | "polymarket" | "auction" | "hsi" | "shanghai" | "sk-grid";
+  active: "basis" | "pairs" | "oracle" | "blog" | "taker" | "polymarket" | "auction" | "hsi" | "shanghai" | "skhx" | "sk-grid";
 };
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
@@ -44,6 +44,10 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
           <span>HK auction basis</span>
           <small>Futu auction versus Binance perps and Posley ADRs</small>
         </Link>
+        <Link href="/skhx" aria-current={active === "skhx" ? "page" : undefined}>
+          <span>SKHX close probability</span>
+          <small>Next 14:30 Beijing close · live model</small>
+        </Link>
         <Link href="/hsi" aria-current={active === "hsi" ? "page" : undefined}>
           <span>HSI close probability</span>
           <small>Next cash close · index and active futures</small>
@@ -54,7 +58,7 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         </Link>
         <Link href="/sk-grid" aria-current={active === "sk-grid" ? "page" : undefined}>
           <span>Pair Grid Lab</span>
-          <small>SK and gold spreads · parameters and holdout backtests</small>
+          <small>Automatic live paper grid and holdout backtests</small>
         </Link>
       </nav>
     </details>
