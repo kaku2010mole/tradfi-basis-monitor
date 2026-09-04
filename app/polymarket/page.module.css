@@ -31,6 +31,27 @@
 .accountSummary strong { display:block; margin:15px 0 10px; overflow:hidden; font:950 clamp(25px,3vw,38px)/1 monospace; letter-spacing:-.06em; text-overflow:ellipsis; white-space:nowrap; }
 .accountSummary .accountNet strong { font-size:clamp(32px,4vw,52px); }
 .accountSummary small { font-size:7px; font-weight:700; letter-spacing:.03em; text-transform:none; }
+.periodPanel { border-top:1px solid #dfdbea; background:#fff; }
+.periodHead { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:18px 20px 14px; }
+.periodHead h3 { margin:0; font-size:22px; letter-spacing:-.035em; }
+.periodHead>div:first-child>span { display:block; margin-top:6px; color:var(--muted); font-size:8px; }
+.periodToggle { display:flex; gap:4px; padding:3px; border:1px solid #ddd8ea; border-radius:8px; background:#f7f5fa; }
+.periodToggle button { min-width:78px; height:34px; border:0; border-radius:6px; background:transparent; color:#788397; cursor:pointer; font:850 8px monospace; }
+.periodToggle .activePeriod { background:#1e1b33; color:#fff; }
+.periodTable { border-top:1px solid #e5e1eb; }
+.periodTableHead,.periodRow { display:grid; grid-template-columns:150px minmax(220px,1.5fr) repeat(3,minmax(95px,.65fr)); align-items:center; gap:14px; padding:0 20px; }
+.periodTableHead { min-height:36px; background:#f6f4f8; color:#7e899a; font-size:7px; font-weight:850; letter-spacing:.08em; text-transform:uppercase; }
+.periodTableHead span:not(:first-child) { text-align:right; }
+.periodRow { min-height:50px; border-top:1px solid #eeebf1; font:850 10px monospace; }
+.periodRow>span:not(:first-child) { text-align:right; }
+.periodRow>span:first-child { display:grid; gap:3px; }
+.periodRow>span:first-child b { color:var(--ink); font:850 9px Arial,sans-serif; }
+.periodRow>span:first-child small { color:#8a94a4; font:7px monospace; }
+.periodNet { position:relative; min-width:0; height:28px; display:flex; align-items:center; justify-content:flex-end; overflow:hidden; border-radius:5px; background:#f6f5f8; }
+.periodNet i { position:absolute; top:0; bottom:0; left:0; min-width:2px; opacity:.19; }
+.periodPositiveBar { background:var(--green); }
+.periodNegativeBar { background:var(--red); }
+.periodNet strong { position:relative; z-index:1; padding:0 8px; font-size:11px; }
 .accountControls { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:13px 18px; border-top:1px solid #e8e4f0; border-bottom:1px solid #e8e4f0; background:#faf9fc; }
 .accountControls>div:first-child { display:grid; gap:4px; }
 .accountControls strong { font-size:11px; }
@@ -162,6 +183,6 @@
 .inlineHistory>footer { display:flex; justify-content:space-between; gap:18px; padding:10px 18px 17px; color:#7d899b; font-size:8px; }
 .footer { padding:20px 4px 0; color:#7b8799; font-size:9px; line-height:1.5; text-align:center; }
 
-@media(max-width:1180px){.filters{grid-template-columns:1fr 180px auto auto}.filters>p{grid-column:1/-1;text-align:left}.stats{grid-template-columns:repeat(3,1fr)}.accountSummary{grid-template-columns:1.4fr 1fr 1fr}.accountSummary article:last-child{grid-column:1/-1;min-height:100px}.accountBody{grid-template-columns:1fr}.venueNumbers{grid-template-columns:1fr 1fr}.venueNumbers>div:nth-child(2){border-right:0}.venueNumbers>div:nth-child(-n+2){border-bottom:1px solid #e3e8ef}}
-@media(max-width:760px){.shell{padding:17px 10px 30px}.topbar{display:grid;gap:16px}.topActions{align-items:flex-start;flex-direction:column-reverse}.connections{justify-content:flex-start}.topbar h1{font-size:43px}.stats{grid-template-columns:1fr 1fr}.stats article{min-height:105px;padding:14px}.stats strong{font-size:26px}.accountHeader{align-items:flex-start;flex-direction:column;padding:18px 15px}.accountHeaderActions{width:100%;justify-content:space-between}.accountSummary{grid-template-columns:1fr 1fr}.accountSummary article:last-child{grid-column:auto}.accountSummary article{min-height:112px;padding:15px 13px}.accountSummary .accountNet{grid-column:1/-1}.accountControls{align-items:flex-start;flex-direction:column}.accountWindows{width:100%}.accountWindows button{flex:1}.accountChartPanel,.coinBreakdown{padding:15px 12px 9px}.filters{grid-template-columns:1fr 1fr}.filters .matchToggle,.filters>button{width:100%}.venueComparisons{grid-template-columns:1fr}.historyHead{align-items:flex-start;flex-direction:column;padding:17px 14px 8px}.historyWindows{width:100%}.historyWindows button{flex:1}.inlineHistory>footer{padding:9px 14px 15px}.chartWrap{padding:0 3px 6px}}
+@media(max-width:1180px){.filters{grid-template-columns:1fr 180px auto auto}.filters>p{grid-column:1/-1;text-align:left}.stats{grid-template-columns:repeat(3,1fr)}.accountSummary{grid-template-columns:1fr 1fr}.accountBody{grid-template-columns:1fr}.periodTableHead,.periodRow{grid-template-columns:120px minmax(190px,1.4fr) repeat(3,minmax(84px,.65fr))}.venueNumbers{grid-template-columns:1fr 1fr}.venueNumbers>div:nth-child(2){border-right:0}.venueNumbers>div:nth-child(-n+2){border-bottom:1px solid #e3e8ef}}
+@media(max-width:760px){.shell{padding:17px 10px 30px}.topbar{display:grid;gap:16px}.topActions{align-items:flex-start;flex-direction:column-reverse}.connections{justify-content:flex-start}.topbar h1{font-size:43px}.stats{grid-template-columns:1fr 1fr}.stats article{min-height:105px;padding:14px}.stats strong{font-size:26px}.accountHeader{align-items:flex-start;flex-direction:column;padding:18px 15px}.accountHeaderActions{width:100%;justify-content:space-between}.accountSummary{grid-template-columns:1fr 1fr}.accountSummary article{min-height:112px;padding:15px 13px}.accountSummary .accountNet{grid-column:1/-1}.periodHead{align-items:flex-start;flex-direction:column;padding:16px 13px 12px}.periodToggle{width:100%}.periodToggle button{flex:1}.periodTable{overflow-x:auto}.periodTableHead,.periodRow{width:720px;padding:0 13px}.accountControls{align-items:flex-start;flex-direction:column}.accountWindows{width:100%}.accountWindows button{flex:1}.accountChartPanel,.coinBreakdown{padding:15px 12px 9px}.filters{grid-template-columns:1fr 1fr}.filters .matchToggle,.filters>button{width:100%}.venueComparisons{grid-template-columns:1fr}.historyHead{align-items:flex-start;flex-direction:column;padding:17px 14px 8px}.historyWindows{width:100%}.historyWindows button{flex:1}.inlineHistory>footer{padding:9px 14px 15px}.chartWrap{padding:0 3px 6px}}
 @media(max-width:480px){.connections{display:grid;width:100%}.connections span{justify-content:flex-start}.stats{grid-template-columns:1fr 1fr}.accountSummary strong{font-size:22px}.accountSummary .accountNet strong{font-size:34px}.accountSectionTitle small{display:none}.accountLedger>summary{align-items:flex-start;flex-direction:column}.accountFoot{flex-direction:column;gap:4px}.filters{grid-template-columns:1fr}.cardHead{align-items:flex-start}.cardHead>span{min-width:105px;font-size:12px}.spreadLane{padding:13px 11px}.spreadHeroes{grid-template-columns:1fr 1fr}.spreadHeroes>div{padding:10px 8px}.spreadHeroes strong{font-size:18px}.tradeDirection{align-items:flex-start;flex-direction:column}.tradeDirection strong{text-align:left}.cardFooter{align-items:flex-start;flex-direction:column}.cardFooter>button{width:100%;justify-content:space-between}.historyWindows button{min-width:0}.inlineHistory>footer{flex-direction:column;gap:4px}}

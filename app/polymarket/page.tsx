@@ -71,6 +71,10 @@ const ACCOUNT_HISTORY_WINDOWS = [
   { label: "ALL", ms: 0 },
 ] as const;
 
+const DAY_MS = 24 * 60 * 60_000;
+const HKT_OFFSET_MS = 8 * 60 * 60_000;
+type FundingInterval = { start: number; end: number; net: number; received: number; paid: number; settlements: number };
+
 const positive = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
@@ -85,6 +89,16 @@ const formatPrice = (value: number | null) => value === null || !Number.isFinite
 const formatCompact = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format(value);
 const formatUsdc = (value: number | null, digits = 2) => value === null || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : "−"}$${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 const formatTime = (value: number | null, date = false) => value === null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: date ? "short" : undefined, day: date ? "2-digit" : undefined, hour: "2-digit", minute: "2-digit", hour12: false }).format(value);
+const startOfHktDay = (value: number) => Math.floor((value + HKT_OFFSET_MS) / DAY_MS) * DAY_MS - HKT_OFFSET_MS;
+const startOfHktWeek = (value: number) => {
+  const dayStart = startOfHktDay(value);
+  const weekday = new Date(dayStart + HKT_OFFSET_MS).getUTCDay();
+  return dayStart - ((weekday + 6) % 7) * DAY_MS;
+};
+const periodLabel = (interval: FundingInterval, mode: "daily" | "weekly") => {
+  const format = (value: number) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", day: "2-digit", month: "short" }).format(value);
+  return mode === "daily" ? format(interval.start) : `${format(interval.start)} – ${format(interval.end - 1)}`;
+};
 const fundingHours = (interval: string) => {
   const match = interval.trim().toLowerCase().match(/([\d.]+)\s*h/);
   const hours = Number(match?.[1]);
@@ -202,6 +216,7 @@ function AccountFundingChart({ points }: { points: AccountFundingPayload["chart"
 function AccountFundingPanel() {
   const [payload, setPayload] = useState<AccountFundingPayload | null>(null);
   const [windowMs, setWindowMs] = useState(ACCOUNT_HISTORY_WINDOWS[3].ms);
+  const [periodMode, setPeriodMode] = useState<"daily" | "weekly">("daily");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const inFlight = useRef(false);
@@ -238,17 +253,64 @@ function AccountFundingPanel() {
   const cutoff = windowMs && payload ? payload.updatedAt - windowMs : 0;
   const chart = useMemo(() => payload?.chart.filter((point) => point.t >= cutoff) ?? [], [cutoff, payload?.chart]);
   const records = useMemo(() => (payload?.records ?? []).filter((record) => record.time >= cutoff).slice().reverse(), [cutoff, payload?.records]);
+  const periodMetrics = useMemo(() => {
+    const all = payload?.records ?? [];
+    const now = payload?.updatedAt ?? 0;
+    const summarize = (start: number) => all.reduce((result, record) => {
+      if (record.time < start) return result;
+      result.net += record.usdc;
+      result.received += Math.max(0, record.usdc);
+      result.paid += Math.max(0, -record.usdc);
+      result.settlements += 1;
+      return result;
+    }, { net: 0, received: 0, paid: 0, settlements: 0 });
+    const todayStart = startOfHktDay(now);
+    const weekStart = startOfHktWeek(now);
+    return {
+      today: summarize(todayStart),
+      week: summarize(weekStart),
+      rolling7d: summarize(now - 7 * DAY_MS),
+    };
+  }, [payload?.records, payload?.updatedAt]);
+  const intervals = useMemo(() => {
+    if (!payload) return [];
+    const weekly = periodMode === "weekly";
+    const step = weekly ? 7 * DAY_MS : DAY_MS;
+    const count = weekly ? 12 : 14;
+    const currentStart = weekly ? startOfHktWeek(payload.updatedAt) : startOfHktDay(payload.updatedAt);
+    const buckets = Array.from({ length: count }, (_, index): FundingInterval => {
+      const start = currentStart - (count - 1 - index) * step;
+      return { start, end: start + step, net: 0, received: 0, paid: 0, settlements: 0 };
+    });
+    const firstStart = buckets[0]?.start ?? 0;
+    for (const record of payload.records) {
+      if (record.time < firstStart || record.time >= currentStart + step) continue;
+      const bucketStart = weekly ? startOfHktWeek(record.time) : startOfHktDay(record.time);
+      const bucket = buckets[Math.round((bucketStart - firstStart) / step)];
+      if (!bucket) continue;
+      bucket.net += record.usdc;
+      bucket.received += Math.max(0, record.usdc);
+      bucket.paid += Math.max(0, -record.usdc);
+      bucket.settlements += 1;
+    }
+    return buckets.reverse();
+  }, [payload, periodMode]);
+  const maxIntervalNet = Math.max(1, ...intervals.map((interval) => Math.abs(interval.net)));
   const address = payload?.user ?? "0xa590a393CC3e1776a47f32fD99ef5fc7c464a243";
 
   return <section className={styles.accountPanel}>
     <header className={styles.accountHeader}><div><p className={styles.eyebrow}>HYPERLIQUID ACCOUNT FUNDING</p><h2>Cumulative funding income</h2><code>{address}</code></div><div className={styles.accountHeaderActions}><span className={!error && payload ? styles.accountLive : styles.accountWaiting}><i />{error ? "RECONNECTING" : payload ? "LIVE · 30S" : "CONNECTING"}</span><button type="button" onClick={() => void load()}>Refresh</button></div></header>
     {error && !payload ? <div className={styles.accountEmpty}>{error}</div> : <>
       <div className={styles.accountSummary}>
-        <article className={styles.accountNet}><span>NET CUMULATIVE FUNDING</span><strong className={(payload?.summary.netUsdc ?? 0) >= 0 ? styles.positive : styles.negative}>{loading && !payload ? "Loading…" : formatUsdc(payload?.summary.netUsdc ?? null)}</strong><small>Exact Hyperliquid ledger cash flow · USDC</small></article>
-        <article><span>RECEIVED</span><strong className={styles.positive}>{formatUsdc(payload?.summary.receivedUsdc ?? null)}</strong><small>Positive funding settlements</small></article>
-        <article><span>PAID</span><strong className={styles.negative}>{payload ? `−$${payload.summary.paidUsdc.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</strong><small>Absolute funding paid</small></article>
-        <article><span>LAST 24H NET</span><strong className={(payload?.summary.last24hUsdc ?? 0) >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload?.summary.last24hUsdc ?? null)}</strong><small>{payload?.summary.settlements.toLocaleString() ?? "—"} lifetime settlements</small></article>
+        <article className={styles.accountNet}><span>LIFETIME NET</span><strong className={(payload?.summary.netUsdc ?? 0) >= 0 ? styles.positive : styles.negative}>{loading && !payload ? "Loading…" : formatUsdc(payload?.summary.netUsdc ?? null)}</strong><small>Received {formatUsdc(payload?.summary.receivedUsdc ?? null)} · paid {payload ? `−$${payload.summary.paidUsdc.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "—"}</small></article>
+        <article><span>TODAY · HKT</span><strong className={periodMetrics.today.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload ? periodMetrics.today.net : null)}</strong><small>Since 00:00 HKT · {periodMetrics.today.settlements} settlements</small></article>
+        <article><span>THIS WEEK · HKT</span><strong className={periodMetrics.week.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload ? periodMetrics.week.net : null)}</strong><small>Since Monday 00:00 HKT · {periodMetrics.week.settlements} settlements</small></article>
+        <article><span>ROLLING 7 DAYS</span><strong className={periodMetrics.rolling7d.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload ? periodMetrics.rolling7d.net : null)}</strong><small>{periodMetrics.rolling7d.settlements} settlements</small></article>
       </div>
+      <section className={styles.periodPanel}>
+        <header className={styles.periodHead}><div><p className={styles.eyebrow}>PERIOD-BY-PERIOD INCOME</p><h3>{periodMode === "daily" ? "Daily funding income" : "Weekly funding income"}</h3><span>{periodMode === "daily" ? "Natural days · 00:00–24:00 HKT" : "Natural weeks · Monday–Sunday HKT"}</span></div><div className={styles.periodToggle}><button className={periodMode === "daily" ? styles.activePeriod : ""} onClick={() => setPeriodMode("daily")}>DAILY</button><button className={periodMode === "weekly" ? styles.activePeriod : ""} onClick={() => setPeriodMode("weekly")}>WEEKLY</button></div></header>
+        <div className={styles.periodTable}><div className={styles.periodTableHead}><span>Period</span><span>Net income</span><span>Received</span><span>Paid</span><span>Settlements</span></div>{intervals.map((interval, index) => <div className={styles.periodRow} key={interval.start}><span><b>{index === 0 ? (periodMode === "daily" ? "TODAY" : "THIS WEEK") : periodLabel(interval, periodMode)}</b><small>{periodLabel(interval, periodMode)}</small></span><span className={styles.periodNet}><i className={interval.net >= 0 ? styles.periodPositiveBar : styles.periodNegativeBar} style={{ width: `${Math.max(2, Math.abs(interval.net) / maxIntervalNet * 100)}%` }} /><strong className={interval.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(interval.net)}</strong></span><span className={styles.positive}>{formatUsdc(interval.received)}</span><span className={styles.negative}>{interval.paid ? `−$${interval.paid.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "$0.00"}</span><span>{interval.settlements}</span></div>)}</div>
+      </section>
       <div className={styles.accountControls}><div><strong>Income history</strong><span>{payload?.summary.firstTime ? `${formatTime(payload.summary.firstTime, true)} → ${formatTime(payload.summary.lastTime, true)} HKT` : "Waiting for the first funding settlement"}</span></div><div className={styles.accountWindows}>{ACCOUNT_HISTORY_WINDOWS.map((window) => <button key={window.label} className={windowMs === window.ms ? styles.activeAccountWindow : ""} onClick={() => setWindowMs(window.ms)}>{window.label}</button>)}</div></div>
       <div className={styles.accountBody}>
         <section className={styles.accountChartPanel}><div className={styles.accountSectionTitle}><div><span>CUMULATIVE NET · USDC</span><strong>{ACCOUNT_HISTORY_WINDOWS.find((window) => window.ms === windowMs)?.label}</strong></div><small>Hover for exact settlement value</small></div>{chart.length > 1 ? <AccountFundingChart points={chart} /> : <div className={styles.accountEmpty}>No funding settlements in this window.</div>}</section>
