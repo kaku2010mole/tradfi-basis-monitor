@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
+import PaperGrid from "./PaperGrid";
 import {
   BacktestResult, GridParams, GridPoint, SignalPoint, computeSignals, diagnostics, recommend, runBacktest, splitIndex,
 } from "./strategy";
@@ -188,6 +189,7 @@ export default function SkGridPage() {
   const [params, setParams] = useState<GridParams>(DEFAULT_PARAMS);
   const [execution, setExecution] = useState<"taker" | "maker">("taker");
   const appliedRecommendation = useRef(false);
+  const feedAvailable = feed !== null;
 
   useEffect(() => {
     let stopped = false;
@@ -202,9 +204,30 @@ export default function SkGridPage() {
       }
     };
     refresh();
-    const timer = window.setInterval(refresh, 20_000);
+    const timer = window.setInterval(refresh, 60_000);
     return () => { stopped = true; window.clearInterval(timer); };
   }, [selectedPair]);
+
+  useEffect(() => {
+    if (!feedAvailable) return;
+    let stopped = false;
+    const refreshLive = async () => {
+      try {
+        const response = await fetch(`/api/sk-grid?pair=${encodeURIComponent(selectedPair)}&live=1`, { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || "Live BBO unavailable");
+        if (!stopped) {
+          setFeed((current) => current?.definition.id === selectedPair ? { ...current, serverTime: data.serverTime, pair: data.pair, books: data.books } : current);
+          setError(null);
+        }
+      } catch (reason) {
+        if (!stopped) setError(reason instanceof Error ? reason.message : "Live BBO unavailable");
+      }
+    };
+    const initial = window.setTimeout(refreshLive, 1_000);
+    const timer = window.setInterval(refreshLive, 5_000);
+    return () => { stopped = true; window.clearTimeout(initial); window.clearInterval(timer); };
+  }, [feedAvailable, selectedPair]);
 
   const candidates = useMemo(() => feed ? recommend(feed.points, {
     ...DEFAULT_PARAMS,
@@ -218,8 +241,12 @@ export default function SkGridPage() {
       setParams((current) => ({ ...candidates[0].params, capital: current.capital }));
     }
   }, [candidates]);
-  useEffect(() => { appliedRecommendation.current = false; setFeed(null); }, [selectedPair]);
-  const signals = useMemo(() => feed ? computeSignals(feed.points, params.lookbackDays) : [], [feed, params.lookbackDays]);
+  const modelPoints = useMemo(() => {
+    if (!feed) return [];
+    const current: GridPoint = { time: Math.max(feed.serverTime, (feed.points.at(-1)?.time ?? 0) + 1), x: feed.pair.x.mark, y: feed.pair.y.mark, fundingX: feed.pair.x.funding, fundingY: feed.pair.y.funding };
+    return [...feed.points.filter((point) => point.time < current.time), current];
+  }, [feed]);
+  const signals = useMemo(() => computeSignals(modelPoints, params.lookbackDays), [modelPoints, params.lookbackDays]);
   const split = useMemo(() => splitIndex(signals), [signals]);
   const results = useMemo(() => ({
     full: runBacktest(signals, params),
@@ -253,6 +280,11 @@ export default function SkGridPage() {
     setExecution(mode);
     if (feed) updateNumber("feeBps", mode === "taker" ? feed.assumptions.takerFeeBps : feed.assumptions.makerFeeBps);
   };
+  const selectPair = (pairId: string) => {
+    appliedRecommendation.current = false;
+    setFeed(null);
+    setSelectedPair(pairId);
+  };
 
   return <main className="grid-page">
     <header className="grid-topbar">
@@ -277,7 +309,7 @@ export default function SkGridPage() {
         { id: "xau-xaut", label: "XAU / XAUT", shortLabel: "Gold · primary", venue: "binance", interval: "1h" },
         { id: "xau-paxg", label: "XAU / PAXG", shortLabel: "Gold · alternate", venue: "binance", interval: "1h" },
         { id: "xaut-paxg", label: "XAUT / PAXG", shortLabel: "Tokenized gold", venue: "binance", interval: "1h" },
-      ]).map((pair) => <button key={pair.id} className={selectedPair === pair.id ? "active" : ""} onClick={() => setSelectedPair(pair.id)}><strong>{pair.label}</strong><span>{pair.venue} · {pair.interval}</span></button>)}
+      ]).map((pair) => <button key={pair.id} className={selectedPair === pair.id ? "active" : ""} onClick={() => selectPair(pair.id)}><strong>{pair.label}</strong><span>{pair.venue} · {pair.interval}</span></button>)}
     </section>
 
     <section className="grid-premium-strip">
@@ -292,6 +324,15 @@ export default function SkGridPage() {
       <Metric label="14d return corr." value={fmt(diag.correlation, 3)} />
       <Metric label="Mean-reversion half-life" value={diag.halfLifeHours > 300 ? ">300h" : `${fmt(diag.halfLifeHours, 1)}h`} />
     </section>
+
+    <PaperGrid
+      pairId={selectedPair}
+      labelX={labelX}
+      labelY={labelY}
+      latest={latest}
+      quote={feed ? { bidX: feed.books.x.bid ?? feed.pair.x.mark, askX: feed.books.x.ask ?? feed.pair.x.mark, bidY: feed.books.y.bid ?? feed.pair.y.mark, askY: feed.books.y.ask ?? feed.pair.y.mark } : null}
+      params={params}
+    />
 
     <section className="grid-band-section">
       <div className="grid-section-title"><div><p className="grid-eyebrow">DYNAMIC PREMIUM BAND</p><h2>Where the premium actually travels</h2></div><div><span>Signal state</span><strong>{bands?.status ?? "—"}</strong></div></div>
