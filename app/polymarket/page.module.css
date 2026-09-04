@@ -15,6 +15,65 @@
 .stats strong { display:block; margin:13px 0 10px; overflow:hidden; font:900 clamp(25px,3vw,39px)/1 monospace; letter-spacing:-.055em; text-overflow:ellipsis; white-space:nowrap; }
 .positive { color:var(--green)!important; }
 .negative { color:var(--red)!important; }
+.accountPanel { margin-top:12px; overflow:hidden; border:1px solid #d9d3ef; border-radius:14px; background:rgba(255,255,255,.98); box-shadow:0 20px 55px rgba(42,30,82,.08); }
+.accountHeader { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:20px 22px; border-bottom:1px solid #e2def0; background:linear-gradient(110deg,#18182a 0%,#292044 58%,#172b31 100%); color:#fff; }
+.accountHeader h2 { margin:0 0 9px; font-size:clamp(24px,3vw,36px); letter-spacing:-.045em; }
+.accountHeader code { display:block; color:#b8b3ce; font:9px/1.4 monospace; overflow-wrap:anywhere; }
+.accountHeaderActions { display:flex; align-items:center; gap:8px; }
+.accountHeaderActions>span { display:flex; align-items:center; gap:7px; padding:9px 11px; border:1px solid rgba(255,255,255,.17); border-radius:999px; color:#d7d4e2; font-size:8px; font-weight:850; letter-spacing:.06em; white-space:nowrap; }
+.accountHeaderActions i { width:7px; height:7px; border-radius:50%; background:#d5a044; }
+.accountHeaderActions .accountLive i { background:#35d4a7; box-shadow:0 0 0 4px rgba(53,212,167,.13); }
+.accountHeaderActions>button { min-height:34px; padding:0 12px; border:1px solid rgba(255,255,255,.25); border-radius:7px; background:rgba(255,255,255,.08); color:#fff; cursor:pointer; font-size:8px; font-weight:850; }
+.accountSummary { display:grid; grid-template-columns:1.6fr repeat(3,1fr); gap:1px; background:#e4e0ee; }
+.accountSummary article { min-width:0; min-height:128px; padding:18px 20px; background:#fff; }
+.accountSummary .accountNet { background:linear-gradient(145deg,#f5f1ff,#fff); }
+.accountSummary span,.accountSummary small { display:block; color:#7d8799; font-size:8px; font-weight:850; letter-spacing:.07em; text-transform:uppercase; }
+.accountSummary strong { display:block; margin:15px 0 10px; overflow:hidden; font:950 clamp(25px,3vw,38px)/1 monospace; letter-spacing:-.06em; text-overflow:ellipsis; white-space:nowrap; }
+.accountSummary .accountNet strong { font-size:clamp(32px,4vw,52px); }
+.accountSummary small { font-size:7px; font-weight:700; letter-spacing:.03em; text-transform:none; }
+.accountControls { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:13px 18px; border-top:1px solid #e8e4f0; border-bottom:1px solid #e8e4f0; background:#faf9fc; }
+.accountControls>div:first-child { display:grid; gap:4px; }
+.accountControls strong { font-size:11px; }
+.accountControls span { color:var(--muted); font:8px monospace; }
+.accountWindows { display:flex; gap:4px; padding:3px; border:1px solid #ddd8ea; border-radius:8px; background:#fff; }
+.accountWindows button { min-width:48px; height:32px; border:0; border-radius:6px; background:transparent; color:#788397; cursor:pointer; font:850 8px monospace; }
+.accountWindows .activeAccountWindow { background:var(--purple); color:#fff; }
+.accountBody { display:grid; grid-template-columns:minmax(0,2.3fr) minmax(260px,.8fr); gap:1px; background:#e3dfea; }
+.accountChartPanel,.coinBreakdown { min-width:0; padding:17px 18px 11px; background:#fff; }
+.accountSectionTitle { display:flex; align-items:flex-start; justify-content:space-between; gap:15px; }
+.accountSectionTitle>div { display:grid; gap:5px; }
+.accountSectionTitle span,.accountSectionTitle small { color:#8791a2; font-size:7px; font-weight:850; letter-spacing:.08em; text-transform:uppercase; }
+.accountSectionTitle strong { font-size:15px; }
+.accountChartWrap { position:relative; overflow-x:auto; margin-top:8px; }
+.accountChartWrap svg { display:block; width:100%; min-width:650px; height:auto; }
+.accountGridLine { stroke:#e7e4ee; stroke-width:1; }
+.accountAxisText { fill:#7e899b; font:9px monospace; }
+.accountArea { fill:url(#accountFundingArea); }
+.accountLine { fill:none; stroke:var(--purple); stroke-width:3.4; stroke-linecap:round; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
+.accountDot { fill:var(--purple); stroke:#fff; stroke-width:2; }
+.accountTooltip { position:absolute; z-index:4; top:42px; min-width:190px; display:grid; gap:4px; padding:10px 12px; border:1px solid #d7d1e9; border-radius:8px; background:rgba(255,255,255,.98); box-shadow:0 14px 38px rgba(29,22,55,.16); color:#5d687a; pointer-events:none; font:9px/1.45 monospace; }
+.accountTooltip strong { color:var(--ink); font-family:Arial,sans-serif; }
+.coinRows { margin-top:12px; border-top:1px solid #e8e5ee; }
+.coinRows>div { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 2px; border-bottom:1px solid #eeeaf2; }
+.coinRows span { min-width:0; display:grid; gap:3px; }
+.coinRows b { overflow:hidden; font:850 10px monospace; text-overflow:ellipsis; white-space:nowrap; }
+.coinRows small { color:#8a94a4; font-size:7px; }
+.coinRows strong { font:850 11px monospace; white-space:nowrap; }
+.accountLedger { border-top:1px solid #dfdbea; background:#fff; }
+.accountLedger>summary { display:flex; align-items:center; justify-content:space-between; gap:15px; padding:14px 18px; cursor:pointer; list-style:none; }
+.accountLedger>summary::-webkit-details-marker { display:none; }
+.accountLedger>summary span { font-size:11px; font-weight:850; }
+.accountLedger>summary span::before { content:"+"; display:inline-grid; width:20px; height:20px; margin-right:8px; place-items:center; border-radius:50%; background:#eee9fb; color:var(--purple); font:850 13px monospace; }
+.accountLedger[open]>summary span::before { content:"−"; }
+.accountLedger>summary small { color:#7e899a; font:8px monospace; }
+.ledgerScroll { max-height:430px; overflow:auto; border-top:1px solid #e6e2eb; }
+.ledgerScroll table { width:100%; border-collapse:collapse; font:9px monospace; }
+.ledgerScroll th { position:sticky; z-index:1; top:0; padding:9px 12px; background:#f5f3f8; color:#788396; font-size:7px; letter-spacing:.06em; text-align:right; text-transform:uppercase; }
+.ledgerScroll th:first-child,.ledgerScroll th:nth-child(2),.ledgerScroll td:first-child,.ledgerScroll td:nth-child(2) { text-align:left; }
+.ledgerScroll td { padding:9px 12px; border-top:1px solid #eeebf1; text-align:right; white-space:nowrap; }
+.accountLedger>footer { padding:9px 18px; color:#7e899a; font-size:8px; text-align:right; }
+.accountFoot { display:flex; justify-content:space-between; gap:15px; padding:10px 18px; border-top:1px solid #e9e5ee; background:#faf9fc; color:#798597; font-size:8px; }
+.accountEmpty { min-height:220px; display:grid; place-items:center; padding:20px; color:var(--muted); font-size:10px; text-align:center; }
 .filters { display:grid; grid-template-columns:minmax(180px,.8fr) 180px auto auto minmax(200px,1fr); align-items:end; gap:9px; margin-top:11px; padding:13px; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,.94); }
 .filters label { display:grid; gap:5px; color:#8490a2; font-size:8px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
 .filters input[type="text"],.filters input:not([type]),.filters select { width:100%; height:39px; padding:0 10px; border:1px solid #ccd6e3; border-radius:7px; background:#fff; color:var(--ink); outline:0; font:10px monospace; }
@@ -103,6 +162,6 @@
 .inlineHistory>footer { display:flex; justify-content:space-between; gap:18px; padding:10px 18px 17px; color:#7d899b; font-size:8px; }
 .footer { padding:20px 4px 0; color:#7b8799; font-size:9px; line-height:1.5; text-align:center; }
 
-@media(max-width:1180px){.filters{grid-template-columns:1fr 180px auto auto}.filters>p{grid-column:1/-1;text-align:left}.stats{grid-template-columns:repeat(3,1fr)}.venueNumbers{grid-template-columns:1fr 1fr}.venueNumbers>div:nth-child(2){border-right:0}.venueNumbers>div:nth-child(-n+2){border-bottom:1px solid #e3e8ef}}
-@media(max-width:760px){.shell{padding:17px 10px 30px}.topbar{display:grid;gap:16px}.topActions{align-items:flex-start;flex-direction:column-reverse}.connections{justify-content:flex-start}.topbar h1{font-size:43px}.stats{grid-template-columns:1fr 1fr}.stats article{min-height:105px;padding:14px}.stats strong{font-size:26px}.filters{grid-template-columns:1fr 1fr}.filters .matchToggle,.filters>button{width:100%}.venueComparisons{grid-template-columns:1fr}.historyHead{align-items:flex-start;flex-direction:column;padding:17px 14px 8px}.historyWindows{width:100%}.historyWindows button{flex:1}.inlineHistory>footer{padding:9px 14px 15px}.chartWrap{padding:0 3px 6px}}
-@media(max-width:480px){.connections{display:grid;width:100%}.connections span{justify-content:flex-start}.stats{grid-template-columns:1fr 1fr}.filters{grid-template-columns:1fr}.cardHead{align-items:flex-start}.cardHead>span{min-width:105px;font-size:12px}.spreadLane{padding:13px 11px}.spreadHeroes{grid-template-columns:1fr 1fr}.spreadHeroes>div{padding:10px 8px}.spreadHeroes strong{font-size:18px}.tradeDirection{align-items:flex-start;flex-direction:column}.tradeDirection strong{text-align:left}.cardFooter{align-items:flex-start;flex-direction:column}.cardFooter>button{width:100%;justify-content:space-between}.historyWindows button{min-width:0}.inlineHistory>footer{flex-direction:column;gap:4px}}
+@media(max-width:1180px){.filters{grid-template-columns:1fr 180px auto auto}.filters>p{grid-column:1/-1;text-align:left}.stats{grid-template-columns:repeat(3,1fr)}.accountSummary{grid-template-columns:1.4fr 1fr 1fr}.accountSummary article:last-child{grid-column:1/-1;min-height:100px}.accountBody{grid-template-columns:1fr}.venueNumbers{grid-template-columns:1fr 1fr}.venueNumbers>div:nth-child(2){border-right:0}.venueNumbers>div:nth-child(-n+2){border-bottom:1px solid #e3e8ef}}
+@media(max-width:760px){.shell{padding:17px 10px 30px}.topbar{display:grid;gap:16px}.topActions{align-items:flex-start;flex-direction:column-reverse}.connections{justify-content:flex-start}.topbar h1{font-size:43px}.stats{grid-template-columns:1fr 1fr}.stats article{min-height:105px;padding:14px}.stats strong{font-size:26px}.accountHeader{align-items:flex-start;flex-direction:column;padding:18px 15px}.accountHeaderActions{width:100%;justify-content:space-between}.accountSummary{grid-template-columns:1fr 1fr}.accountSummary article:last-child{grid-column:auto}.accountSummary article{min-height:112px;padding:15px 13px}.accountSummary .accountNet{grid-column:1/-1}.accountControls{align-items:flex-start;flex-direction:column}.accountWindows{width:100%}.accountWindows button{flex:1}.accountChartPanel,.coinBreakdown{padding:15px 12px 9px}.filters{grid-template-columns:1fr 1fr}.filters .matchToggle,.filters>button{width:100%}.venueComparisons{grid-template-columns:1fr}.historyHead{align-items:flex-start;flex-direction:column;padding:17px 14px 8px}.historyWindows{width:100%}.historyWindows button{flex:1}.inlineHistory>footer{padding:9px 14px 15px}.chartWrap{padding:0 3px 6px}}
+@media(max-width:480px){.connections{display:grid;width:100%}.connections span{justify-content:flex-start}.stats{grid-template-columns:1fr 1fr}.accountSummary strong{font-size:22px}.accountSummary .accountNet strong{font-size:34px}.accountSectionTitle small{display:none}.accountLedger>summary{align-items:flex-start;flex-direction:column}.accountFoot{flex-direction:column;gap:4px}.filters{grid-template-columns:1fr}.cardHead{align-items:flex-start}.cardHead>span{min-width:105px;font-size:12px}.spreadLane{padding:13px 11px}.spreadHeroes{grid-template-columns:1fr 1fr}.spreadHeroes>div{padding:10px 8px}.spreadHeroes strong{font-size:18px}.tradeDirection{align-items:flex-start;flex-direction:column}.tradeDirection strong{text-align:left}.cardFooter{align-items:flex-start;flex-direction:column}.cardFooter>button{width:100%;justify-content:space-between}.historyWindows button{min-width:0}.inlineHistory>footer{flex-direction:column;gap:4px}}

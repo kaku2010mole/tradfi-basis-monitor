@@ -44,6 +44,15 @@ type Market = {
 };
 
 type FundingPoint = { t: number; rate: number };
+type AccountFundingRecord = { id: string; time: number; coin: string; usdc: number; cumulativeUsdc: number; fundingRate: number | null };
+type AccountFundingPayload = {
+  user: string;
+  updatedAt: number;
+  summary: { netUsdc: number; receivedUsdc: number; paidUsdc: number; last24hUsdc: number; settlements: number; activeCoins: number; firstTime: number | null; lastTime: number | null };
+  chart: Array<{ t: number; deltaUsdc: number; cumulativeUsdc: number }>;
+  byCoin: Array<{ coin: string; netUsdc: number; receivedUsdc: number; paidUsdc: number; settlements: number }>;
+  records: AccountFundingRecord[];
+};
 type StreamStatus = "connecting" | "live" | "reconnecting";
 type BinanceBook = { symbol?: string; bidPrice?: string; askPrice?: string; time?: number };
 type BinanceStreamFrame = { e?: string; s?: string; b?: string; a?: string; E?: number; r?: string; T?: number };
@@ -53,6 +62,13 @@ const HISTORY_WINDOWS = [
   { label: "3D", ms: 3 * 24 * 60 * 60_000 },
   { label: "7D", ms: 7 * 24 * 60 * 60_000 },
   { label: "30D", ms: 30 * 24 * 60 * 60_000 },
+] as const;
+
+const ACCOUNT_HISTORY_WINDOWS = [
+  { label: "24H", ms: 24 * 60 * 60_000 },
+  { label: "7D", ms: 7 * 24 * 60 * 60_000 },
+  { label: "30D", ms: 30 * 24 * 60 * 60_000 },
+  { label: "ALL", ms: 0 },
 ] as const;
 
 const positive = (value: unknown) => {
@@ -67,6 +83,7 @@ const formatPct = (value: number | null, digits = 4) => value === null || !Numbe
 const formatFunding = (value: number | null) => value === null ? "—" : formatPct(value * 100, 5);
 const formatPrice = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: value >= 100 ? 3 : 7 });
 const formatCompact = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format(value);
+const formatUsdc = (value: number | null, digits = 2) => value === null || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : "−"}$${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 const formatTime = (value: number | null, date = false) => value === null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: date ? "short" : undefined, day: date ? "2-digit" : undefined, hour: "2-digit", minute: "2-digit", hour12: false }).format(value);
 const fundingHours = (interval: string) => {
   const match = interval.trim().toLowerCase().match(/([\d.]+)\s*h/);
@@ -140,6 +157,101 @@ function FundingChart({ points, symbol }: { points: FundingPoint[]; symbol: stri
     </svg>
     {selected && hoverIndex !== null && <div className={styles.tooltip} style={{ left: `${Math.min(78, Math.max(4, hoverIndex / Math.max(1, points.length - 1) * 100))}%` }}><strong>{formatTime(selected.t, true)} HKT</strong><span>1h funding {formatFunding(selected.rate)}</span><span>Approx. APR {formatPct(selected.rate * 24 * 365 * 100, 2)}</span></div>}
   </div>;
+}
+
+function AccountFundingChart({ points }: { points: AccountFundingPayload["chart"] }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const width = 980;
+  const height = 330;
+  const left = 78;
+  const right = 24;
+  const top = 25;
+  const bottom = 278;
+  const values = points.map((point) => point.cumulativeUsdc);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const padding = Math.max(1, (max - min) * .12);
+  const floor = min - padding;
+  const ceiling = max + padding;
+  const x = (index: number) => left + (index / Math.max(1, points.length - 1)) * (width - left - right);
+  const y = (value: number) => top + ((ceiling - value) / Math.max(1, ceiling - floor)) * (bottom - top);
+  const path = values.map((value, index) => `${index ? "L" : "M"}${x(index).toFixed(2)},${y(value).toFixed(2)}`).join(" ");
+  const area = `${path} L${x(points.length - 1)},${bottom} L${x(0)},${bottom} Z`;
+  const ticks = Array.from({ length: 5 }, (_, index) => floor + (ceiling - floor) * index / 4);
+  const timeTicks = Array.from(new Set([0, Math.floor((points.length - 1) / 3), Math.floor((points.length - 1) * 2 / 3), points.length - 1]));
+  const selected = hoverIndex === null ? null : points[hoverIndex];
+
+  return <div className={styles.accountChartWrap} onMouseLeave={() => setHoverIndex(null)} onMouseMove={(event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const chartX = ((event.clientX - rect.left + event.currentTarget.scrollLeft) / event.currentTarget.scrollWidth) * width;
+    const index = Math.round(((chartX - left) / (width - left - right)) * (points.length - 1));
+    setHoverIndex(Math.max(0, Math.min(points.length - 1, index)));
+  }}>
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Cumulative Hyperliquid funding income history">
+      <defs><linearGradient id="accountFundingArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#6e49d8" stopOpacity=".25" /><stop offset="1" stopColor="#6e49d8" stopOpacity=".02" /></linearGradient></defs>
+      {ticks.map((tick) => <g key={tick}><line x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} className={styles.accountGridLine} /><text x={left - 10} y={y(tick) + 4} textAnchor="end" className={styles.accountAxisText}>{formatUsdc(tick, 0)}</text></g>)}
+      {timeTicks.map((index) => <text key={index} x={x(index)} y={height - 15} textAnchor={index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"} className={styles.accountAxisText}>{formatTime(points[index].t, true)}</text>)}
+      <path d={area} className={styles.accountArea} />
+      <path d={path} className={styles.accountLine} />
+      {selected && hoverIndex !== null && <><line x1={x(hoverIndex)} x2={x(hoverIndex)} y1={top} y2={bottom} className={styles.hoverLine} /><circle cx={x(hoverIndex)} cy={y(selected.cumulativeUsdc)} r="5" className={styles.accountDot} /></>}
+    </svg>
+    {selected && hoverIndex !== null && <div className={styles.accountTooltip} style={{ left: `${Math.min(75, Math.max(4, hoverIndex / Math.max(1, points.length - 1) * 100))}%` }}><strong>{formatTime(selected.t, true)} HKT</strong><span>Cumulative {formatUsdc(selected.cumulativeUsdc)}</span><span>Settlement {formatUsdc(selected.deltaUsdc, 4)}</span></div>}
+  </div>;
+}
+
+function AccountFundingPanel() {
+  const [payload, setPayload] = useState<AccountFundingPayload | null>(null);
+  const [windowMs, setWindowMs] = useState(ACCOUNT_HISTORY_WINDOWS[3].ms);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const inFlight = useRef(false);
+
+  const load = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    try {
+      const response = await fetch("/api/hyperliquid/user-funding", { cache: "no-store" });
+      const next = await response.json() as AccountFundingPayload & { error?: string };
+      if (!response.ok) throw new Error(next.error || "Account funding history unavailable.");
+      setPayload(next);
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Account funding history unavailable.");
+    } finally {
+      setLoading(false);
+      inFlight.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => void load());
+    const timer = window.setInterval(load, 30_000);
+    return () => { window.cancelAnimationFrame(frame); window.clearInterval(timer); };
+  }, [load]);
+
+  const cutoff = windowMs && payload ? payload.updatedAt - windowMs : 0;
+  const chart = useMemo(() => payload?.chart.filter((point) => point.t >= cutoff) ?? [], [cutoff, payload?.chart]);
+  const records = useMemo(() => (payload?.records ?? []).filter((record) => record.time >= cutoff).slice().reverse(), [cutoff, payload?.records]);
+  const address = payload?.user ?? "0xa590a393CC3e1776a47f32fD99ef5fc7c464a243";
+
+  return <section className={styles.accountPanel}>
+    <header className={styles.accountHeader}><div><p className={styles.eyebrow}>HYPERLIQUID ACCOUNT FUNDING</p><h2>Cumulative funding income</h2><code>{address}</code></div><div className={styles.accountHeaderActions}><span className={!error && payload ? styles.accountLive : styles.accountWaiting}><i />{error ? "RECONNECTING" : payload ? "LIVE · 30S" : "CONNECTING"}</span><button type="button" onClick={() => void load()}>Refresh</button></div></header>
+    {error && !payload ? <div className={styles.accountEmpty}>{error}</div> : <>
+      <div className={styles.accountSummary}>
+        <article className={styles.accountNet}><span>NET CUMULATIVE FUNDING</span><strong className={(payload?.summary.netUsdc ?? 0) >= 0 ? styles.positive : styles.negative}>{loading && !payload ? "Loading…" : formatUsdc(payload?.summary.netUsdc ?? null)}</strong><small>Exact Hyperliquid ledger cash flow · USDC</small></article>
+        <article><span>RECEIVED</span><strong className={styles.positive}>{formatUsdc(payload?.summary.receivedUsdc ?? null)}</strong><small>Positive funding settlements</small></article>
+        <article><span>PAID</span><strong className={styles.negative}>{payload ? `−$${payload.summary.paidUsdc.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</strong><small>Absolute funding paid</small></article>
+        <article><span>LAST 24H NET</span><strong className={(payload?.summary.last24hUsdc ?? 0) >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload?.summary.last24hUsdc ?? null)}</strong><small>{payload?.summary.settlements.toLocaleString() ?? "—"} lifetime settlements</small></article>
+      </div>
+      <div className={styles.accountControls}><div><strong>Income history</strong><span>{payload?.summary.firstTime ? `${formatTime(payload.summary.firstTime, true)} → ${formatTime(payload.summary.lastTime, true)} HKT` : "Waiting for the first funding settlement"}</span></div><div className={styles.accountWindows}>{ACCOUNT_HISTORY_WINDOWS.map((window) => <button key={window.label} className={windowMs === window.ms ? styles.activeAccountWindow : ""} onClick={() => setWindowMs(window.ms)}>{window.label}</button>)}</div></div>
+      <div className={styles.accountBody}>
+        <section className={styles.accountChartPanel}><div className={styles.accountSectionTitle}><div><span>CUMULATIVE NET · USDC</span><strong>{ACCOUNT_HISTORY_WINDOWS.find((window) => window.ms === windowMs)?.label}</strong></div><small>Hover for exact settlement value</small></div>{chart.length > 1 ? <AccountFundingChart points={chart} /> : <div className={styles.accountEmpty}>No funding settlements in this window.</div>}</section>
+        <aside className={styles.coinBreakdown}><div className={styles.accountSectionTitle}><div><span>CONTRIBUTION BY MARKET</span><strong>Top net drivers</strong></div><small>{payload?.summary.activeCoins ?? 0} markets</small></div><div className={styles.coinRows}>{(payload?.byCoin ?? []).slice(0, 10).map((coin) => <div key={coin.coin}><span><b>{coin.coin}</b><small>{coin.settlements} settlements</small></span><strong className={coin.netUsdc >= 0 ? styles.positive : styles.negative}>{formatUsdc(coin.netUsdc)}</strong></div>)}</div></aside>
+      </div>
+      <details className={styles.accountLedger}><summary><span>Settlement history</span><small>{records.length.toLocaleString()} records in selected window</small></summary><div className={styles.ledgerScroll}><table><thead><tr><th>Time · HKT</th><th>Market</th><th>Funding rate</th><th>Income · USDC</th><th>Cumulative</th></tr></thead><tbody>{records.slice(0, 250).map((record) => <tr key={record.id}><td>{formatTime(record.time, true)}</td><td>{record.coin}</td><td>{formatFunding(record.fundingRate)}</td><td className={record.usdc >= 0 ? styles.positive : styles.negative}>{formatUsdc(record.usdc, 4)}</td><td>{formatUsdc(record.cumulativeUsdc)}</td></tr>)}</tbody></table></div>{records.length > 250 && <footer>Showing the latest 250 of {records.length.toLocaleString()} records in this window.</footer>}</details>
+      <footer className={styles.accountFoot}><span>Positive = funding received · negative = funding paid</span><span>{payload?.updatedAt ? `Updated ${formatTime(payload.updatedAt)} HKT` : "Connecting…"}</span></footer>
+    </>}
+  </section>;
 }
 
 export default function PolymarketPerpsPage() {
@@ -411,6 +523,8 @@ export default function PolymarketPerpsPage() {
     <header className={styles.topbar}><div><p className={styles.eyebrow}>THREE-VENUE CARRY &amp; BASIS</p><h1>Funding &amp; Basis</h1><p>One screen for Polymarket, Hyperliquid and Binance. Every matched route shows normalized hourly funding spread, live price spread and the carry direction.</p></div><div className={styles.topActions}><div className={styles.connections}><span className={polyStream === "live" || sources.polymarket ? styles.online : ""}><i />Poly {polyStream === "live" ? "WS live" : "REST fallback"}</span><span className={binanceStream === "live" || sources.binance ? styles.online : ""}><i />BN {binanceStream === "live" ? "WS live" : sources.binance ? "REST fallback" : "reconnecting"}</span><span className={hyperStream === "live" || sources.hyperliquid ? styles.online : ""}><i />HL {hyperStream === "live" ? "WS live" : sources.hyperliquid ? "REST fallback" : "reconnecting"}</span></div><PageSwitcher active="polymarket" /></div></header>
 
     <section className={styles.stats}><article><span>Active Poly Perps</span><strong>{markets.length || "—"}</strong><small>{categories.length} market categories</small></article><article><span>Funding-ready routes</span><strong>{fundingReadyRoutes}</strong><small>Hourly-normalized Poly ↔ BN / HL</small></article><article><span>Price-ready routes</span><strong>{priceReadyRoutes}</strong><small>{matched} Binance · {hyperMatched} Hyperliquid</small></article><article><span>Largest funding spread</span><strong className={(largestFundingSpread?.value ?? 0) >= 0 ? styles.positive : styles.negative}>{formatFunding(largestFundingSpread?.value ?? null)}</strong><small>{largestFundingSpread ? `${largestFundingSpread.market.symbol} · Poly ↔ ${largestFundingSpread.venue}` : "Waiting for synchronized funding"}</small></article><article><span>Largest price spread</span><strong className={(largestSpread?.value ?? 0) >= 0 ? styles.positive : styles.negative}>{formatPct(largestSpread?.value ?? null, 3)}</strong><small>{largestSpread ? `${largestSpread.market.symbol} · Poly ↔ ${largestSpread.venue}` : "Waiting for synchronized midpoint"}</small></article></section>
+
+    <AccountFundingPanel />
 
     <section className={styles.filters}><label>Search markets<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="BTC, AAPL, GOLD…" /></label><label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">All categories</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label className={styles.matchToggle}><input type="checkbox" checked={matchedOnly} onChange={(event) => setMatchedOnly(event.target.checked)} /><span>Cross-venue midpoint available</span></label><button onClick={() => void loadMarkets()}>Refresh now</button><p>{error || (lastUpdate ? `Last market update ${formatTime(lastUpdate)} HKT` : "Connecting public market data…")}</p></section>
 
