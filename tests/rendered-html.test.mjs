@@ -132,10 +132,11 @@ test("keeps live taker execution explicitly gated", async () => {
 });
 
 test("compares Polymarket, Binance and Hyperliquid funding and price spreads in one view", async () => {
-  const [response, page, markets, switcher] = await Promise.all([
+  const [response, page, markets, accountFunding, switcher] = await Promise.all([
     render("/polymarket"),
     readFile(new URL("../app/polymarket/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/polymarket-perps/markets/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/hyperliquid/user-funding/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
   ]);
   assert.equal(response.status, 200);
@@ -151,10 +152,24 @@ test("compares Polymarket, Binance and Hyperliquid funding and price spreads in 
   assert.match(markets, /\/fapi\/v1\/fundingInfo/);
   assert.match(markets, /binanceFundingRate \/ binanceFundingHours/);
   assert.match(markets, /fundingRate: finite\(contexts\[index\]\?\.funding\)/);
+  assert.match(page, /Cumulative funding income/);
+  assert.match(page, /0xa590a393CC3e1776a47f32fD99ef5fc7c464a243/i);
+  assert.match(page, /Settlement history/);
+  assert.match(page, /window\.setInterval\(load, 30_000\)/);
+  assert.match(page, /Daily funding income/);
+  assert.match(page, /Weekly funding income/);
+  assert.match(page, /TODAY · HKT/);
+  assert.match(page, /THIS WEEK · HKT/);
+  assert.match(page, /startOfHktWeek/);
+  assert.match(accountFunding, /type: "userFunding"/);
+  assert.match(accountFunding, /PAGE_SIZE = 500/);
+  assert.match(accountFunding, /cursor = lastTime > previousLast \? lastTime : lastTime \+ 1/);
+  assert.match(accountFunding, /process\.env\.SITE_PASSWORD/);
+  assert.match(accountFunding, /cumulativeUsdc/);
   assert.match(switcher, /Poly ↔ HL ↔ Binance funding and price spreads/);
 });
 
-test("removes the Polymarket sniper and pins a real-time SHEIN HKD monitor", async () => {
+test("removes the Polymarket sniper and monitors SHEIN as a normal Oracle pair", async () => {
   const [response, page, quotes, alerts, switcher] = await Promise.all([
     render("/oracle"),
     readFile(new URL("../app/oracle/page.tsx", import.meta.url), "utf8"),
@@ -173,8 +188,10 @@ test("removes the Polymarket sniper and pins a real-time SHEIN HKD monitor", asy
   assert.match(page, /wss:\/\/api\.hyperliquid\.xyz\/ws/);
   assert.match(page, /type: "l2Book", coin: SHEIN_SYMBOL/);
   assert.match(page, /type: "activeAssetCtx", coin: SHEIN_SYMBOL/);
-  assert.match(page, /TEMPORARY · PINNED/);
-  assert.match(page, /1 USD = HK\$7\.84/);
+  assert.doesNotMatch(page, /TEMPORARY · PINNED|sheinSpotlight/);
+  assert.match(page, /quote\.apiSymbol === SHEIN_SYMBOL/);
+  assert.match(page, /SHEIN MARK · HKD/);
+  assert.match(page, /fixed 1 USD = HK\$7\.84/);
 });
 
 test("retries the Futu LaunchAgent registration after replacing the relay", async () => {
@@ -247,53 +264,28 @@ test("ships the SKHX next-close probability desk and removes onchain pools", asy
   assert.doesNotMatch(recorder, /onchain/i);
 });
 
-test("ships the HSI close-probability desk with horizon evidence and a Futu live feed", async () => {
-  const [response, page, route, switcher, pusher, worker] = await Promise.all([
-    render("/hsi"),
-    readFile(new URL("../app/hsi/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/hsi/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
-    readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
-  ]);
-  assert.equal(response.status, 200);
-  assert.match(await response.text(), /Hang Seng Probability Desk/);
-  assert.match(page, /Results by time to close/);
-  assert.match(page, /FUTURES\|16:10/);
-  assert.match(page, /INDEX\|15:50/);
-  assert.match(route, /Previous official cash close/);
-  assert.match(route, /findFuturesAnchor/);
-  assert.match(switcher, /href="\/hsi"/);
-  assert.match(pusher, /HK\.800000,HK\.HSImain/);
-  assert.match(worker, /HSImain/);
-});
-
-test("ships a multi-pair grid lab with live SK and Binance gold backtests", async () => {
-  const [response, page, route, strategy, switcher] = await Promise.all([
+test("runs the Pair Grid automatic paper engine against live executable quotes", async () => {
+  const [response, page, panel, engine, route, switcher] = await Promise.all([
     render("/sk-grid"),
     readFile(new URL("../app/sk-grid/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/sk-grid/PaperGrid.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/sk-grid/paper.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/sk-grid/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/sk-grid/strategy.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
   ]);
   assert.equal(response.status, 200);
-  assert.match(await response.text(), /Trade the relationship/);
-  assert.match(page, /Apply recommended/);
-  assert.match(page, /Training-ranked alternatives/);
-  assert.match(page, /Include historical hourly funding/);
-  assert.match(route, /"skhx-skhy"/);
-  assert.match(route, /"xau-xaut"/);
-  assert.match(route, /XAUTUSDT/);
-  assert.match(route, /PAXGUSDT/);
-  assert.doesNotMatch(route, /QQQUSDT|SPYUSDT/);
-  assert.match(route, /conversionRatio: 10/);
-  assert.match(page, /Sell \$\{labelY\} \/ buy \$\{labelX\}/);
-  assert.match(page, /conversion-adjusted/);
-  assert.match(page, /DYNAMIC PREMIUM BAND/);
-  assert.match(page, /Most-travelled levels/);
-  assert.match(page, /1 ADS = 5 Taiwan shares/);
-  assert.match(strategy, /Rolling log-price OLS residual|computeSignals/);
-  assert.match(strategy, /splitIndex/);
-  assert.match(strategy, /slippageBps/);
-  assert.match(switcher, /Pair Grid Lab/);
+  assert.match(await response.text(), /PAIR\/GRID/);
+  assert.match(page, /live=1/);
+  assert.match(page, /window\.setInterval\(refreshLive, 5_000\)/);
+  assert.match(page, /<PaperGrid/);
+  assert.match(panel, /AUTOMATIC PAPER EXECUTION/);
+  assert.match(panel, /Live grid simulation/);
+  assert.match(panel, /pair_grid_paper_v1_/);
+  assert.match(engine, /advancePaper/);
+  assert.match(engine, /TAKE PROFIT/);
+  assert.match(engine, /MAX HOLD/);
+  assert.match(engine, /paperMarkPnl/);
+  assert.match(route, /LIVE_CACHE_MS = 4_000/);
+  assert.match(route, /buildLivePayload/);
+  assert.match(switcher, /href="\/sk-grid"/);
 });
