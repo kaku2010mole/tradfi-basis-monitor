@@ -211,7 +211,13 @@ function AccountFundingPanel() {
     inFlight.current = true;
     try {
       const response = await fetch("/api/hyperliquid/user-funding", { cache: "no-store" });
-      const next = await response.json() as AccountFundingPayload & { error?: string };
+      const raw = await response.text();
+      let next: AccountFundingPayload & { error?: string };
+      try {
+        next = JSON.parse(raw) as AccountFundingPayload & { error?: string };
+      } catch {
+        throw new Error(response.ok ? "Account funding response is temporarily unavailable." : `Account funding endpoint unavailable · HTTP ${response.status}`);
+      }
       if (!response.ok) throw new Error(next.error || "Account funding history unavailable.");
       setPayload(next);
       setError("");
