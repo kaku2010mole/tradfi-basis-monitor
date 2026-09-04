@@ -13,7 +13,7 @@ const DEFAULT_BINANCE_SYMBOLS = [
   "KODEX200USDT",
   "ZHONGJIUSDT",
 ];
-const DEFAULT_PARA_SYMBOLS = ["xyz:SHEIN", "para:OTHERS", "para:TOTAL2", "para:BTCD", "para:CIEN", "para:VST", "para:NET"];
+const DEFAULT_PARA_SYMBOLS = ["para:OTHERS", "para:TOTAL2", "para:BTCD", "para:CIEN", "para:VST", "para:NET", "xyz:SHEIN"];
 const MAX_SYMBOLS_PER_VENUE = 24;
 const FETCH_TIMEOUT_MS = 6_000;
 const RETRY_DELAYS_MS = [0, 180, 520];
@@ -46,13 +46,13 @@ const finite = (value: unknown) => {
 
 const parseSymbols = (value: string | null, venue: "binance" | "para") => {
   if (!value) return venue === "binance" ? DEFAULT_BINANCE_SYMBOLS : DEFAULT_PARA_SYMBOLS;
-  const pattern = venue === "binance" ? /^[A-Z0-9_]{2,32}$/ : /^(?:para|xyz):[A-Z0-9._-]{1,28}$/i;
+  const pattern = venue === "binance" ? /^[A-Z0-9_]{2,32}$/ : /^[A-Z][A-Z0-9_-]{1,15}:[A-Z0-9._-]{1,28}$/i;
   return Array.from(new Set(value.split(",")
     .map((symbol) => symbol.trim())
     .filter((symbol) => pattern.test(symbol))
     .map((symbol) => venue === "binance"
       ? symbol.toUpperCase()
-      : symbol.replace(/^(para|xyz):/i, (_, dex: string) => `${dex.toLowerCase()}:`).replace(/BTC\.D$/i, "BTCD"))))
+      : symbol.replace(/^([A-Z][A-Z0-9_-]{1,15}):/i, (_, dex: string) => `${dex.toLowerCase()}:`).replace(/^para:BTC\.D$/i, "para:BTCD"))))
     .slice(0, MAX_SYMBOLS_PER_VENUE);
 };
 
