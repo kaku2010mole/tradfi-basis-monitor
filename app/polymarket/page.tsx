@@ -53,6 +53,20 @@ type AccountFundingPayload = {
   byCoin: Array<{ coin: string; netUsdc: number; receivedUsdc: number; paidUsdc: number; settlements: number }>;
   records: AccountFundingRecord[];
 };
+type AccountPositionEstimate = {
+  coin: string;
+  size: number;
+  oracle: number | null;
+  fundingRate: number | null;
+  notionalUsdc: number | null;
+  estimatedUsdc: number | null;
+};
+type AccountPositionForecast = {
+  status: "connecting" | "live" | "reconnecting";
+  ready: boolean;
+  updatedAt: number | null;
+  positions: AccountPositionEstimate[];
+};
 type StreamStatus = "connecting" | "live" | "reconnecting";
 type BinanceBook = { symbol?: string; bidPrice?: string; askPrice?: string; time?: number };
 type BinanceStreamFrame = { e?: string; s?: string; b?: string; a?: string; E?: number; r?: string; T?: number };
@@ -219,6 +233,7 @@ function AccountFundingPanel() {
   const [periodMode, setPeriodMode] = useState<"daily" | "weekly">("daily");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [positionForecast, setPositionForecast] = useState<AccountPositionForecast>({ status: "connecting", ready: false, updatedAt: null, positions: [] });
   const inFlight = useRef(false);
 
   const load = useCallback(async () => {
@@ -250,8 +265,115 @@ function AccountFundingPanel() {
     return () => { window.cancelAnimationFrame(frame); window.clearInterval(timer); };
   }, [load]);
 
+  useEffect(() => {
+    let disposed = false;
+    let reconnectTimer: number | null = null;
+    let socket: WebSocket | null = null;
+    let reconnectAttempt = 0;
+    let hasPositionSnapshot = false;
+    const subscribedCoins = new Set<string>();
+    const positions = new Map<string, number>();
+    const contexts = new Map<string, { oracle: number | null; fundingRate: number | null }>();
+
+    const publish = (status: AccountPositionForecast["status"]) => {
+      const nextPositions = [...positions.entries()].map(([coin, size]): AccountPositionEstimate => {
+        const context = contexts.get(coin);
+        const oracle = context?.oracle ?? null;
+        const fundingRate = context?.fundingRate ?? null;
+        const notionalUsdc = oracle === null ? null : Math.abs(size * oracle);
+        // Positive funding is paid by longs to shorts, so a positive estimate means account income.
+        const estimatedUsdc = oracle === null || fundingRate === null ? null : -size * oracle * fundingRate;
+        return { coin, size, oracle, fundingRate, notionalUsdc, estimatedUsdc };
+      }).sort((a, b) => Math.abs(b.estimatedUsdc ?? 0) - Math.abs(a.estimatedUsdc ?? 0));
+      setPositionForecast({ status, ready: hasPositionSnapshot, updatedAt: Date.now(), positions: nextPositions });
+    };
+
+    const subscribeCoin = (coin: string) => {
+      if (!socket || socket.readyState !== WebSocket.OPEN || subscribedCoins.has(coin)) return;
+      subscribedCoins.add(coin);
+      socket.send(JSON.stringify({ method: "subscribe", subscription: { type: "activeAssetCtx", coin } }));
+    };
+
+    const readClearinghouseStates = (value: unknown) => {
+      if (!value || typeof value !== "object") return [] as unknown[];
+      if (Array.isArray(value)) return value.map((entry) => Array.isArray(entry) ? entry[1] : entry);
+      return Object.values(value as Record<string, unknown>);
+    };
+
+    const connect = () => {
+      if (disposed) return;
+      socket = new WebSocket("wss://api.hyperliquid.xyz/ws");
+      socket.onopen = () => {
+        reconnectAttempt = 0;
+        subscribedCoins.clear();
+        socket?.send(JSON.stringify({ method: "subscribe", subscription: { type: "allDexsClearinghouseState", user: "0xa590a393CC3e1776a47f32fD99ef5fc7c464a243" } }));
+        for (const coin of positions.keys()) subscribeCoin(coin);
+        publish("live");
+      };
+      socket.onmessage = (event) => {
+        try {
+          const frame = JSON.parse(String(event.data)) as { channel?: string; data?: unknown };
+          if (frame.channel === "allDexsClearinghouseState") {
+            const data = frame.data as { clearinghouseStates?: unknown } | undefined;
+            const nextPositions = new Map<string, number>();
+            for (const stateValue of readClearinghouseStates(data?.clearinghouseStates)) {
+              const state = stateValue as { assetPositions?: Array<{ position?: { coin?: string; szi?: string | number } }> };
+              for (const item of state.assetPositions ?? []) {
+                const coin = item.position?.coin?.trim();
+                const size = finite(item.position?.szi);
+                if (coin && size !== null && size !== 0) nextPositions.set(coin, (nextPositions.get(coin) ?? 0) + size);
+              }
+            }
+            positions.clear();
+            for (const [coin, size] of nextPositions) {
+              positions.set(coin, size);
+              subscribeCoin(coin);
+            }
+            hasPositionSnapshot = true;
+            publish("live");
+          }
+          if (frame.channel === "activeAssetCtx") {
+            const data = frame.data as { coin?: string; ctx?: { oraclePx?: string | number; funding?: string | number } } | undefined;
+            const coin = data?.coin?.trim();
+            if (!coin) return;
+            contexts.set(coin, { oracle: finite(data?.ctx?.oraclePx), fundingRate: finite(data?.ctx?.funding) });
+            publish("live");
+          }
+        } catch {
+          // Ignore malformed frames and keep the last complete forecast visible.
+        }
+      };
+      socket.onerror = () => socket?.close();
+      socket.onclose = () => {
+        if (disposed) return;
+        publish("reconnecting");
+        reconnectAttempt += 1;
+        reconnectTimer = window.setTimeout(connect, Math.min(10_000, 750 * 2 ** Math.min(4, reconnectAttempt)));
+      };
+    };
+
+    connect();
+    return () => {
+      disposed = true;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      socket?.close();
+    };
+  }, []);
+
   const cutoff = windowMs && payload ? payload.updatedAt - windowMs : 0;
-  const chart = useMemo(() => payload?.chart.filter((point) => point.t >= cutoff) ?? [], [cutoff, payload?.chart]);
+  const chart = useMemo(() => {
+    const visible = payload?.chart.filter((point) => point.t >= cutoff) ?? [];
+    if (!visible.length) return [];
+    let periodRunning = 0;
+    const baselineTime = windowMs ? cutoff : Math.max(0, visible[0].t - 60_000);
+    return [
+      { t: baselineTime, deltaUsdc: 0, cumulativeUsdc: 0 },
+      ...visible.map((point) => {
+        periodRunning += point.deltaUsdc;
+        return { ...point, cumulativeUsdc: periodRunning };
+      }),
+    ];
+  }, [cutoff, payload?.chart, windowMs]);
   const records = useMemo(() => (payload?.records ?? []).filter((record) => record.time >= cutoff).slice().reverse(), [cutoff, payload?.records]);
   const periodMetrics = useMemo(() => {
     const all = payload?.records ?? [];
@@ -297,25 +419,30 @@ function AccountFundingPanel() {
   }, [payload, periodMode]);
   const maxIntervalNet = Math.max(1, ...intervals.map((interval) => Math.abs(interval.net)));
   const address = payload?.user ?? "0xa590a393CC3e1776a47f32fD99ef5fc7c464a243";
+  const forecastReady = positionForecast.positions.filter((position) => position.estimatedUsdc !== null);
+  const nextHourEstimate = forecastReady.length || (positionForecast.ready && positionForecast.positions.length === 0)
+    ? forecastReady.reduce((sum, position) => sum + (position.estimatedUsdc ?? 0), 0)
+    : null;
 
   return <section className={styles.accountPanel}>
     <header className={styles.accountHeader}><div><p className={styles.eyebrow}>HYPERLIQUID ACCOUNT FUNDING</p><h2>Cumulative funding income</h2><code>{address}</code></div><div className={styles.accountHeaderActions}><span className={!error && payload ? styles.accountLive : styles.accountWaiting}><i />{error ? "RECONNECTING" : payload ? "LIVE · 30S" : "CONNECTING"}</span><button type="button" onClick={() => void load()}>Refresh</button></div></header>
     {error && !payload ? <div className={styles.accountEmpty}>{error}</div> : <>
       <div className={styles.accountSummary}>
         <article className={styles.accountNet}><span>LIFETIME NET</span><strong className={(payload?.summary.netUsdc ?? 0) >= 0 ? styles.positive : styles.negative}>{loading && !payload ? "Loading…" : formatUsdc(payload?.summary.netUsdc ?? null)}</strong><small>Received {formatUsdc(payload?.summary.receivedUsdc ?? null)} · paid {payload ? `−$${payload.summary.paidUsdc.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "—"}</small></article>
+        <article className={styles.nextFundingEstimate}><span>NEXT 1H ESTIMATE</span><strong className={(nextHourEstimate ?? 0) >= 0 ? styles.positive : styles.negative}>{formatUsdc(nextHourEstimate)}</strong><small>{positionForecast.status !== "live" ? "Position feed reconnecting" : positionForecast.ready ? `${forecastReady.length}/${positionForecast.positions.length} positions priced · current rates` : "Waiting for position snapshot"}</small></article>
         <article><span>TODAY · HKT</span><strong className={periodMetrics.today.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload ? periodMetrics.today.net : null)}</strong><small>Since 00:00 HKT · {periodMetrics.today.settlements} settlements</small></article>
         <article><span>THIS WEEK · HKT</span><strong className={periodMetrics.week.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload ? periodMetrics.week.net : null)}</strong><small>Since Monday 00:00 HKT · {periodMetrics.week.settlements} settlements</small></article>
         <article><span>ROLLING 7 DAYS</span><strong className={periodMetrics.rolling7d.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload ? periodMetrics.rolling7d.net : null)}</strong><small>{periodMetrics.rolling7d.settlements} settlements</small></article>
+      </div>
+      <div className={styles.accountControls}><div><strong>Income history</strong><span>Every selected window is rebased to $0 at its starting time</span></div><div className={styles.accountWindows}>{ACCOUNT_HISTORY_WINDOWS.map((window) => <button key={window.label} className={windowMs === window.ms ? styles.activeAccountWindow : ""} onClick={() => setWindowMs(window.ms)}>{window.label}</button>)}</div></div>
+      <div className={styles.accountBody}>
+        <section className={styles.accountChartPanel}><div className={styles.accountSectionTitle}><div><span>PERIOD NET · REBASED TO $0</span><strong>{ACCOUNT_HISTORY_WINDOWS.find((window) => window.ms === windowMs)?.label}</strong></div><small>Hover for exact settlement value</small></div>{chart.length > 1 ? <AccountFundingChart points={chart} /> : <div className={styles.accountEmpty}>No funding settlements in this window.</div>}</section>
+        <aside className={styles.coinBreakdown}><div className={styles.accountSectionTitle}><div><span>NEXT HOUR BY POSITION</span><strong>Current-rate estimate</strong></div><small>{positionForecast.status === "live" && positionForecast.ready ? "LIVE" : positionForecast.status === "reconnecting" ? "RECONNECTING" : "CONNECTING"}</small></div><div className={styles.coinRows}>{positionForecast.positions.length ? positionForecast.positions.slice(0, 12).map((position) => <div key={position.coin}><span><b>{position.coin}</b><small>{position.size > 0 ? "LONG" : "SHORT"} {Math.abs(position.size).toLocaleString("en-US", { maximumFractionDigits: 6 })} · {formatCompact(position.notionalUsdc)}</small></span><strong className={(position.estimatedUsdc ?? 0) >= 0 ? styles.positive : styles.negative}>{formatUsdc(position.estimatedUsdc, 4)}</strong></div>) : <div className={styles.positionEmpty}>{positionForecast.ready ? "No open perpetual positions." : "Connecting to live positions…"}</div>}</div><p className={styles.forecastNote}>Estimate = −position size × Oracle × current 1h funding rate. The final hourly rate can change before settlement.</p></aside>
       </div>
       <section className={styles.periodPanel}>
         <header className={styles.periodHead}><div><p className={styles.eyebrow}>PERIOD-BY-PERIOD INCOME</p><h3>{periodMode === "daily" ? "Daily funding income" : "Weekly funding income"}</h3><span>{periodMode === "daily" ? "Natural days · 00:00–24:00 HKT" : "Natural weeks · Monday–Sunday HKT"}</span></div><div className={styles.periodToggle}><button className={periodMode === "daily" ? styles.activePeriod : ""} onClick={() => setPeriodMode("daily")}>DAILY</button><button className={periodMode === "weekly" ? styles.activePeriod : ""} onClick={() => setPeriodMode("weekly")}>WEEKLY</button></div></header>
         <div className={styles.periodTable}><div className={styles.periodTableHead}><span>Period</span><span>Net income</span><span>Received</span><span>Paid</span><span>Settlements</span></div>{intervals.map((interval, index) => <div className={styles.periodRow} key={interval.start}><span><b>{index === 0 ? (periodMode === "daily" ? "TODAY" : "THIS WEEK") : periodLabel(interval, periodMode)}</b><small>{periodLabel(interval, periodMode)}</small></span><span className={styles.periodNet}><i className={interval.net >= 0 ? styles.periodPositiveBar : styles.periodNegativeBar} style={{ width: `${Math.max(2, Math.abs(interval.net) / maxIntervalNet * 100)}%` }} /><strong className={interval.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(interval.net)}</strong></span><span className={styles.positive}>{formatUsdc(interval.received)}</span><span className={styles.negative}>{interval.paid ? `−$${interval.paid.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "$0.00"}</span><span>{interval.settlements}</span></div>)}</div>
       </section>
-      <div className={styles.accountControls}><div><strong>Income history</strong><span>{payload?.summary.firstTime ? `${formatTime(payload.summary.firstTime, true)} → ${formatTime(payload.summary.lastTime, true)} HKT` : "Waiting for the first funding settlement"}</span></div><div className={styles.accountWindows}>{ACCOUNT_HISTORY_WINDOWS.map((window) => <button key={window.label} className={windowMs === window.ms ? styles.activeAccountWindow : ""} onClick={() => setWindowMs(window.ms)}>{window.label}</button>)}</div></div>
-      <div className={styles.accountBody}>
-        <section className={styles.accountChartPanel}><div className={styles.accountSectionTitle}><div><span>CUMULATIVE NET · USDC</span><strong>{ACCOUNT_HISTORY_WINDOWS.find((window) => window.ms === windowMs)?.label}</strong></div><small>Hover for exact settlement value</small></div>{chart.length > 1 ? <AccountFundingChart points={chart} /> : <div className={styles.accountEmpty}>No funding settlements in this window.</div>}</section>
-        <aside className={styles.coinBreakdown}><div className={styles.accountSectionTitle}><div><span>CONTRIBUTION BY MARKET</span><strong>Top net drivers</strong></div><small>{payload?.summary.activeCoins ?? 0} markets</small></div><div className={styles.coinRows}>{(payload?.byCoin ?? []).slice(0, 10).map((coin) => <div key={coin.coin}><span><b>{coin.coin}</b><small>{coin.settlements} settlements</small></span><strong className={coin.netUsdc >= 0 ? styles.positive : styles.negative}>{formatUsdc(coin.netUsdc)}</strong></div>)}</div></aside>
-      </div>
       <details className={styles.accountLedger}><summary><span>Settlement history</span><small>{records.length.toLocaleString()} records in selected window</small></summary><div className={styles.ledgerScroll}><table><thead><tr><th>Time · HKT</th><th>Market</th><th>Funding rate</th><th>Income · USDC</th><th>Cumulative</th></tr></thead><tbody>{records.slice(0, 250).map((record) => <tr key={record.id}><td>{formatTime(record.time, true)}</td><td>{record.coin}</td><td>{formatFunding(record.fundingRate)}</td><td className={record.usdc >= 0 ? styles.positive : styles.negative}>{formatUsdc(record.usdc, 4)}</td><td>{formatUsdc(record.cumulativeUsdc)}</td></tr>)}</tbody></table></div>{records.length > 250 && <footer>Showing the latest 250 of {records.length.toLocaleString()} records in this window.</footer>}</details>
       <footer className={styles.accountFoot}><span>Positive = funding received · negative = funding paid</span><span>{payload?.updatedAt ? `Updated ${formatTime(payload.updatedAt)} HKT` : "Connecting…"}</span></footer>
     </>}
