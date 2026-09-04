@@ -169,7 +169,7 @@ test("compares Polymarket, Binance and Hyperliquid funding and price spreads in 
   assert.match(switcher, /Poly ↔ HL ↔ Binance funding and price spreads/);
 });
 
-test("removes the Polymarket sniper and monitors SHEIN as a normal Oracle pair", async () => {
+test("accepts every Hyperliquid DEX namespace and keeps SHEIN in the normal Oracle ranking", async () => {
   const [response, page, quotes, alerts, switcher] = await Promise.all([
     render("/oracle"),
     readFile(new URL("../app/oracle/page.tsx", import.meta.url), "utf8"),
@@ -180,15 +180,19 @@ test("removes the Polymarket sniper and monitors SHEIN as a normal Oracle pair",
   assert.equal(response.status, 200);
   assert.match(await response.text(), /Oracle Monitor/);
   assert.doesNotMatch(switcher, /poly-sniper|Polymarket Sniper/);
-  assert.match(alerts, /"xyz:SHEIN"/);
-  assert.match(quotes, /\(\?:para\|xyz\)/);
+  assert.match(alerts, /\["para:OTHERS"[\s\S]*"xyz:SHEIN"\]/);
+  assert.match(quotes, /\[A-Z\]\[A-Z0-9_-\]\{1,15\}:/);
   assert.match(quotes, /metaAndAssetCtxs", dex/);
   assert.match(page, /const SHEIN_SYMBOL = "xyz:SHEIN"/);
   assert.match(page, /const USD_HKD_RATE = 7\.84/);
+  assert.match(page, /normalizeHyperliquidSymbol/);
+  assert.match(page, /isHyperliquidSymbol/);
+  assert.match(page, /mkts:TLT, para:OTHERS or xyz:SHEIN/);
   assert.match(page, /wss:\/\/api\.hyperliquid\.xyz\/ws/);
-  assert.match(page, /type: "l2Book", coin: SHEIN_SYMBOL/);
-  assert.match(page, /type: "activeAssetCtx", coin: SHEIN_SYMBOL/);
-  assert.doesNotMatch(page, /TEMPORARY · PINNED|sheinSpotlight/);
+  assert.match(page, /for \(const symbol of hyperliquidSymbols\)/);
+  assert.match(page, /type: "l2Book", coin: symbol/);
+  assert.match(page, /type: "activeAssetCtx", coin: symbol/);
+  assert.doesNotMatch(page, /TEMPORARY · PINNED|sheinSpotlight|applySheinStreamPatch/);
   assert.match(page, /quote\.apiSymbol === SHEIN_SYMBOL/);
   assert.match(page, /SHEIN MARK · HKD/);
   assert.match(page, /fixed 1 USD = HK\$7\.84/);
