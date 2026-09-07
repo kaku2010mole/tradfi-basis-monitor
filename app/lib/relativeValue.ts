@@ -1,5 +1,5 @@
-export type Venue = "binance" | "hyperliquid";
-export type MarketLeg = { venue: Venue; symbol: string; label: string };
+export type Venue = "binance" | "hyperliquid" | "futu";
+export type MarketLeg = { venue: Venue; symbol: string; label: string; usdHkd?: number; sharesPerAdr?: number };
 export type RelationshipKind = "same-benchmark" | "leveraged-inverse" | "leveraged-long" | "risk-regime" | "cross-index" | "same-company" | "sector-proxy" | "commodity-proxy" | "custom";
 
 export type Relationship = {
@@ -111,6 +111,14 @@ export const RELATIONSHIPS: Relationship[] = [
     referenceBeta: 1, leveraged: false,
     thesis: "Use the Binance KODEX200 contract's move to estimate the Hyperliquid KR200 contract on a locked one-for-one return basis.",
     caveat: "Trading hours, FX assumptions, oracle construction and funding can create temporary cross-venue prediction errors.",
+  },
+  {
+    id: "baba-hk09988", title: "BABAUSDT ↔ HK.09988", short: "Alibaba ADR to Hong Kong ordinary shares", kind: "same-company",
+    asset1: { venue: "binance", symbol: "BABAUSDT", label: "Binance BABA ADR perpetual" },
+    asset2: { venue: "futu", symbol: "HK.09988", label: "Futu Alibaba 09988 · USD/share", usdHkd: 7.84, sharesPerAdr: 8 },
+    referenceBeta: 1, leveraged: false,
+    thesis: "Use BABAUSDT's move to estimate Alibaba 09988.HK on a locked one-for-one return basis; the Futu share price is converted at 7.84 HKD per USD.",
+    caveat: "One BABA ADR represents eight Hong Kong shares. The return beta remains 1, while neutral share sizing uses the 1 ADR = 8 HK shares conversion and the fixed 7.84 FX assumption.",
   },
   {
     id: "spy-qqq", title: "SPY → QQQ", short: "US large caps to Nasdaq growth", kind: "cross-index",
