@@ -10,6 +10,7 @@ import {
   trainRelationshipModel,
   TrainedModel,
 } from "../../../lib/relativeValue";
+import { futuPriceSeries } from "../../../lib/futuMarket";
 
 const BINANCE_HOSTS = [
   "https://fapi.binance.com",
@@ -63,6 +64,7 @@ async function getSeries(leg: Relationship["asset1"], start: number, end: number
       return Number.isFinite(value) && value > 0 ? [{ t: row[0], value }] : [];
     });
   }
+  if (leg.venue === "futu") return futuPriceSeries(leg, start, end, interval);
   const response = await fetch(HYPERLIQUID_INFO, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -115,7 +117,7 @@ async function scanUniverse(relationships: Relationship[]) {
     typeCounts,
     candidates: relationships.map((relationship) => ({
       id: relationship.id,
-      available: [relationship.asset1, relationship.asset2].every((leg) => leg.venue === "hyperliquid" || active.has(leg.symbol)),
+      available: [relationship.asset1, relationship.asset2].every((leg) => leg.venue !== "binance" || active.has(leg.symbol)),
     })),
   };
 }
@@ -187,4 +189,3 @@ export async function GET(request: Request) {
     }, { status: 502, headers: { "Cache-Control": "no-store, max-age=0" } });
   }
 }
-
