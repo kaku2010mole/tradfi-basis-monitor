@@ -34,8 +34,8 @@ type HistoryPoint = { t: number; value: number; stockCloseHkd?: number; perpClos
 type AdrBook = { symbol: string; streamKey: string; bid: number | null; ask: number | null; last: number | null; bidSize: number | null; askSize: number | null; timestamp: number };
 type AdrFeedState = "connecting" | "live" | "partial" | "reconnecting" | "unconfigured";
 
-const STORAGE_KEY = "hk-auction-pairs-v4";
-const LEGACY_STORAGE_KEYS = ["hk-auction-pairs-v3", "hk-auction-pairs-v2", "hk-auction-pairs-v1"];
+const STORAGE_KEY = "hk-auction-pairs-v5";
+const LEGACY_STORAGE_KEYS = ["hk-auction-pairs-v4", "hk-auction-pairs-v3", "hk-auction-pairs-v2", "hk-auction-pairs-v1"];
 const REMOVED_PERPS = new Set(["XIAOMIUSDT"]);
 const ADR_STALE_MS = 30_000;
 const ADR_BENCHMARK_MAX_AGE_MS = 96 * 60 * 60_000;
@@ -50,6 +50,9 @@ const DEFAULT_ADR: Record<string, { adrSymbol: string; hkSharesPerAdr: number }>
 const REQUIRED_NEW_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.03308", perpSymbol: "ZHONGJIUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.03986", perpSymbol: "GIGADEVUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.01211", perpSymbol: "BYDUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.00992", perpSymbol: "HK0992USDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.00625", perpSymbol: "HK0625USDT", sharesPerContract: 1 },
 ];
 const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.00700", perpSymbol: "TENCENTUSDT", sharesPerContract: 1, ...DEFAULT_ADR["HK.00700"] },
