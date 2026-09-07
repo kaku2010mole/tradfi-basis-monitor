@@ -72,6 +72,13 @@ async function liveRelativeSignal(snapshot: RelativeValueAlertSnapshot): Promise
       if (![bid, ask].every((value) => Number.isFinite(value) && value > 0)) throw new Error(`${leg.symbol} midpoint unavailable.`);
       return (bid + ask) / 2;
     }
+    if (leg.venue === "futu") {
+      const params = new URLSearchParams({ symbol: leg.symbol, usdHkd: String(leg.usdHkd ?? 7.84), start: String(Date.now() - 60 * 60_000), end: String(Date.now()), interval: "1m" });
+      const response = await fetch(`/api/blog/futu?${params}`, { cache: "no-store", signal: AbortSignal.timeout(5_000) });
+      const payload = await response.json() as { live?: number };
+      if (!response.ok || !Number.isFinite(payload.live) || payload.live! <= 0) throw new Error(`${leg.symbol} Futu price unavailable.`);
+      return payload.live!;
+    }
     const dex = leg.symbol.includes(":") ? leg.symbol.split(":", 1)[0] : "";
     if (!dexMids.has(dex)) dexMids.set(dex, fetch("https://api.hyperliquid.xyz/info", {
       method: "POST",
