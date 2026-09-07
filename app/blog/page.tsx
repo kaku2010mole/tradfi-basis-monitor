@@ -142,8 +142,16 @@ async function directLivePrices(relationship: Relationship) {
     if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) throw new Error(`${symbol} live midpoint unavailable.`);
     return (bid + ask) / 2;
   };
+  const futuPrice = async (leg: Relationship["asset1"]) => {
+    const params = new URLSearchParams({ symbol: leg.symbol, usdHkd: String(leg.usdHkd ?? 7.84), start: String(Date.now() - 60 * 60_000), end: String(Date.now()), interval: "1m" });
+    const response = await fetch(`/api/blog/futu?${params}`, { cache: "no-store", signal: AbortSignal.timeout(5_000) });
+    const payload = await response.json() as { live?: number; error?: string };
+    if (!response.ok || !Number.isFinite(payload.live) || payload.live! <= 0) throw new Error(payload.error || `${leg.symbol} live Futu price unavailable.`);
+    return payload.live!;
+  };
   const legPrice = async (leg: Relationship["asset1"]) => {
     if (leg.venue === "binance") return binancePrice(leg.symbol);
+    if (leg.venue === "futu") return futuPrice(leg);
     const dex = leg.symbol.includes(":") ? leg.symbol.split(":", 1)[0] : "";
     const midsPromise = hyperliquidMids.get(dex);
     if (!midsPromise) throw new Error(`${leg.symbol} live midpoint unavailable.`);
@@ -167,12 +175,19 @@ async function rankInBrowser(relationships: Relationship[], start: number, end: 
     if (!response.ok) throw new Error(`Hyperliquid HTTP ${response.status}`);
     return [dex, await response.json() as Record<string, string>] as const;
   })));
+  const futuLegs = [...new Map(relationships.flatMap((item) => [item.asset1, item.asset2]).filter((leg) => leg.venue === "futu").map((leg) => [`${leg.symbol}:${leg.usdHkd ?? 7.84}`, leg])).values()];
+  const futuMids = new Map(await Promise.all(futuLegs.map(async (leg) => {
+    const params = new URLSearchParams({ symbol: leg.symbol, usdHkd: String(leg.usdHkd ?? 7.84), start: String(end - 60 * 60_000), end: String(end), interval: "1m" });
+    const response = await fetch(`/api/blog/futu?${params}`, { cache: "no-store", signal: AbortSignal.timeout(5_000) });
+    const payload = await response.json() as { live?: number };
+    return [`${leg.symbol}:${leg.usdHkd ?? 7.84}`, Number(payload.live)] as const;
+  })));
   const baseline = (leg: Relationship["asset1"], baselineStart: number) => {
     const key = `${leg.venue}:${leg.symbol}:${baselineStart}`;
     const saved = DIRECT_RANKING_BASELINE_CACHE.get(key);
     if (saved) return saved;
     if (DIRECT_RANKING_BASELINE_CACHE.size > 240) DIRECT_RANKING_BASELINE_CACHE.clear();
-    const promise = leg.venue === "binance" ? directBinance<Array<[number, string, string, string, string]>>(`/fapi/v1/klines?${new URLSearchParams({ symbol: leg.symbol, interval: "1m", startTime: String(baselineStart), limit: "1" })}`).then((rows) => Number(rows[0]?.[4])) : fetch("https://api.hyperliquid.xyz/info", {
+    const promise = leg.venue === "binance" ? directBinance<Array<[number, string, string, string, string]>>(`/fapi/v1/klines?${new URLSearchParams({ symbol: leg.symbol, interval: "1m", startTime: String(baselineStart), limit: "1" })}`).then((rows) => Number(rows[0]?.[4])) : leg.venue === "futu" ? directSeries(leg, baselineStart, baselineStart + 5 * 60_000, "1m").then((rows) => Number(rows[0]?.value)) : fetch("https://api.hyperliquid.xyz/info", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "candleSnapshot", req: { coin: leg.symbol, interval: "1m", startTime: baselineStart, endTime: baselineStart + 5 * 60_000 } }), cache: "no-store", signal: AbortSignal.timeout(8_000),
     }).then(async (response) => Number((await response.json() as Array<{ c?: string }>)[0]?.c));
     DIRECT_RANKING_BASELINE_CACHE.set(key, promise);
@@ -183,6 +198,10 @@ async function rankInBrowser(relationships: Relationship[], start: number, end: 
     if (leg.venue === "binance") {
       const book = bookBySymbol.get(leg.symbol); const bid = Number(book?.bidPrice); const ask = Number(book?.askPrice);
       return Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0 ? (bid + ask) / 2 : null;
+    }
+    if (leg.venue === "futu") {
+      const value = futuMids.get(`${leg.symbol}:${leg.usdHkd ?? 7.84}`);
+      return Number.isFinite(value) && value! > 0 ? value! : null;
     }
     const dex = leg.symbol.includes(":") ? leg.symbol.split(":", 1)[0] : "";
     const value = Number(dexMids.get(dex)?.[leg.symbol]);
@@ -228,6 +247,13 @@ async function directSeries(leg: Relationship["asset1"], start: number, end: num
     }
     return rows.flatMap((row) => Number(row[4]) > 0 ? [{ t: row[0], value: Number(row[4]) }] : []);
   }
+  if (leg.venue === "futu") {
+    const params = new URLSearchParams({ symbol: leg.symbol, usdHkd: String(leg.usdHkd ?? 7.84), start: String(start), end: String(end), interval });
+    const response = await fetch(`/api/blog/futu?${params}`, { cache: "no-store", signal: AbortSignal.timeout(8_000) });
+    const payload = await response.json() as { points?: PricePoint[]; error?: string };
+    if (!response.ok || !Array.isArray(payload.points)) throw new Error(payload.error || `${leg.symbol} Futu history unavailable.`);
+    return payload.points;
+  }
   const response = await fetch("https://api.hyperliquid.xyz/info", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -272,7 +298,7 @@ async function analyzeInBrowser(relationship: Relationship, start: number, end: 
   const typeCounts = tradFi.reduce<Record<string, number>>((counts, item) => { const type = item.underlyingType || "OTHER"; counts[type] = (counts[type] ?? 0) + 1; return counts; }, {});
   return {
     generatedAt: Date.now(), interval, observation: { start, end, maxDurationMs: maxObservationMs(relationship) }, relationship, relationships: RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship], model,
-    universe: { count: symbols.length, symbols, typeCounts, candidates: (RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship]).map((item) => ({ id: item.id, available: [item.asset1, item.asset2].every((leg) => leg.venue === "hyperliquid" || active.has(leg.symbol)) })) },
+    universe: { count: symbols.length, symbols, typeCounts, candidates: (RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship]).map((item) => ({ id: item.id, available: [item.asset1, item.asset2].every((leg) => leg.venue !== "binance" || active.has(leg.symbol)) })) },
     ...projection,
   };
 }
@@ -794,7 +820,7 @@ export default function RelativeValueBlog() {
 
   return <main className={styles.shell}><div className={styles.frame}>
     <header className={styles.topbar}>
-      <div><p className={styles.eyebrow}>TEN-SECOND RELATIVE VALUE</p><h1>Relative Value Monitor</h1><p>The selected predictor explains the paired contract's move. Live midpoint, theoretical return and deviation refresh every 10 seconds; the historical curve remains aligned to one-minute candles.</p></div>
+      <div><p className={styles.eyebrow}>TEN-SECOND RELATIVE VALUE</p><h1>Relative Value Monitor</h1><p>The selected predictor explains the paired contract&apos;s move. Live midpoint, theoretical return and deviation refresh every 10 seconds; the historical curve remains aligned to one-minute candles.</p></div>
       <div className={styles.topActions}><span className={styles.releaseBadge}>RELEASE 08.14 · 7D + NEWS HOLD</span><span title={liveError || (lastLiveAt ? `Last live update ${formatTime(lastLiveAt)} HKT` : "Waiting for live quote")} className={`${styles.connection} ${lastLiveAt && !liveError ? styles.online : ""}`}><i />{loading && !analysis ? "Loading history" : liveError ? "Live quote retrying" : lastLiveAt ? "Live · 10s" : "Connecting live"}</span><PageSwitcher active="blog" /></div>
     </header>
 
