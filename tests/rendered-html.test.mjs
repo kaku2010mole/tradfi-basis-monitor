@@ -42,9 +42,29 @@ test("restores the Relative Value Monitor and its global prediction-error broadc
   assert.match(relativeValue, /id: "kodex200-kr200"/);
   assert.match(relativeValue, /symbol: "KODEX200USDT"/);
   assert.match(relativeValue, /symbol: "xyz:KR200"/);
+  assert.match(relativeValue, /id: "baba-hk09988"/);
+  assert.match(relativeValue, /symbol: "BABAUSDT"/);
+  assert.match(relativeValue, /symbol: "HK\.09988"/);
+  assert.match(relativeValue, /usdHkd: 7\.84, sharesPerAdr: 8/);
   assert.match(alerts, /RELATIVE_VALUE_SIGNAL_EVENT/);
   assert.match(alerts, /window\.setInterval\(\(\) => void pollRelative\(\), 10_000\)/);
   assert.match(alerts, /PREDICTION ERROR/);
+  assert.match(alerts, /leg\.venue === "futu"/);
+});
+
+test("uses Futu history and the 1 ADR to 8 HK share mapping for Alibaba", async () => {
+  const [analysis, ranking, page, futu, pusher] = await Promise.all([
+    readFile(new URL("../app/api/blog/analysis/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/blog/ranking/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/blog/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/futuMarket.ts", import.meta.url), "utf8"),
+    readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
+  ]);
+  assert.match(analysis, /leg\.venue === "futu"/);
+  assert.match(ranking, /futuLivePrice/);
+  assert.match(page, /\/api\/blog\/futu/);
+  assert.match(futu, /price \/ rate/);
+  assert.match(pusher, /HK\.09988/);
 });
 
 test("discovers and normalizes Posley ADR streams for HK auction basis", async () => {
