@@ -87,6 +87,9 @@ const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.02513", perpSymbol: "ZHIPUUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.03308", perpSymbol: "ZHONGJIUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.03986", perpSymbol: "GIGADEVUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.01211", perpSymbol: "BYDUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.00992", perpSymbol: "HK0992USDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.00625", perpSymbol: "HK0625USDT", sharesPerContract: 1 },
   { stockSymbol: "HK.00700", perpSymbol: "HK0700USDT", sharesPerContract: 7.83 },
   { stockSymbol: "HK.01810", perpSymbol: "HK1810USDT", sharesPerContract: 7.83 },
 ];
