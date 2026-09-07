@@ -7,6 +7,7 @@ import {
   TRAINING_INTERVAL,
   trainRelationshipModel,
 } from "../../../lib/relativeValue";
+import { futuLivePrice, futuPriceSeries } from "../../../lib/futuMarket";
 
 const BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
 const HYPERLIQUID_INFO = "https://api.hyperliquid.xyz/info";
@@ -36,7 +37,7 @@ async function fetchBinance<T>(path: string) {
 function validRelationship(value: unknown): value is Relationship {
   if (!value || typeof value !== "object") return false;
   const item = value as Partial<Relationship>;
-  const validLeg = (leg: Relationship["asset1"] | undefined) => Boolean(leg && (leg.venue === "binance" ? BINANCE_SYMBOL : leg.venue === "hyperliquid" ? HYPERLIQUID_SYMBOL : /$a/).test(leg.symbol));
+  const validLeg = (leg: Relationship["asset1"] | undefined) => Boolean(leg && (leg.venue === "binance" ? BINANCE_SYMBOL : leg.venue === "hyperliquid" ? HYPERLIQUID_SYMBOL : leg.venue === "futu" ? /^HK\.\d{5}$/ : /$a/).test(leg.symbol));
   return typeof item.id === "string" && item.id.length <= 48 && validLeg(item.asset1) && validLeg(item.asset2)
     && (item.referenceBeta === null || (Number.isFinite(item.referenceBeta) && Math.abs(item.referenceBeta!) <= 20));
 }
@@ -47,6 +48,7 @@ async function trainingSeries(leg: Relationship["asset1"], start: number, end: n
     const rows = await fetchBinance<BinanceKline[]>(`/fapi/v1/klines?${params}`);
     return rows.flatMap((row) => Number(row[4]) > 0 ? [{ t: row[0], value: Number(row[4]) }] : []);
   }
+  if (leg.venue === "futu") return futuPriceSeries(leg, start, end, TRAINING_INTERVAL);
   const response = await fetch(HYPERLIQUID_INFO, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -87,6 +89,11 @@ function baseline(leg: Relationship["asset1"], start: number) {
     const params = new URLSearchParams({ symbol: leg.symbol, interval: "1m", startTime: String(roundedStart), limit: "1" });
     const rows = await fetchBinance<BinanceKline[]>(`/fapi/v1/klines?${params}`);
     const value = Number(rows[0]?.[4]);
+    if (!Number.isFinite(value) || value <= 0) throw new Error(`${leg.symbol} baseline unavailable.`);
+    return value;
+  })() : leg.venue === "futu" ? (async () => {
+    const points = futuPriceSeries(leg, roundedStart, roundedStart + 5 * 60_000, "1m");
+    const value = points[0]?.value;
     if (!Number.isFinite(value) || value <= 0) throw new Error(`${leg.symbol} baseline unavailable.`);
     return value;
   })() : (async () => {
@@ -144,6 +151,9 @@ export async function POST(request: Request) {
         const bid = Number(book?.bidPrice); const ask = Number(book?.askPrice);
         return Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0 ? (bid + ask) / 2 : null;
       }
+      if (leg.venue === "futu") {
+        try { return futuLivePrice(leg); } catch { return null; }
+      }
       const dex = leg.symbol.includes(":") ? leg.symbol.split(":", 1)[0] : "";
       const value = Number(dexMids.get(dex)?.[leg.symbol]);
       return Number.isFinite(value) && value > 0 ? value : null;
@@ -165,4 +175,3 @@ export async function POST(request: Request) {
     return Response.json({ error: error instanceof Error ? error.message : "Prediction ranking unavailable." }, { status: 502, headers: { "Cache-Control": "no-store, max-age=0" } });
   }
 }
-
