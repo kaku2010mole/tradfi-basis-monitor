@@ -2,7 +2,7 @@ const HYPERLIQUID_INFO = "https://api.hyperliquid.xyz/info";
 const MONITORED_USER = "0xa590a393CC3e1776a47f32fD99ef5fc7c464a243";
 const PAGE_SIZE = 500;
 const MAX_PAGES = 40;
-const CACHE_MS = 30_000;
+const CACHE_MS = 60_000;
 const AUTH_COOKIE = "tradfi_access";
 const AUTH_MESSAGE = "tradfi-basis-monitor-access-v1";
 
@@ -45,7 +45,12 @@ type FundingPayload = {
   records: FundingRecord[];
 };
 
-let cached: { expiresAt: number; payload: FundingPayload } | null = null;
+type Runtime = typeof globalThis & {
+  __HL_FUNDING_CACHE__?: { expiresAt: number; promise: Promise<FundingPayload> };
+  __HL_FUNDING_RECORDS__?: Map<string, RawFundingRecord>;
+};
+
+const runtime = globalThis as Runtime;
 
 const finite = (value: unknown) => {
   const parsed = Number(value);
@@ -101,11 +106,13 @@ async function fetchPage(startTime: number) {
 }
 
 async function fetchAllFunding() {
-  const records = new Map<string, RawFundingRecord>();
-  let cursor = 0;
-  let previousLast = -1;
+  const records = runtime.__HL_FUNDING_RECORDS__ ?? new Map<string, RawFundingRecord>();
+  const existingLast = records.size ? Math.max(...[...records.values()].map((record) => finite(record.time) ?? -1)) : -1;
+  let cursor = Math.max(0, existingLast);
+  let previousLast = cursor - 1;
+  const pageLimit = records.size ? 2 : MAX_PAGES;
 
-  for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
+  for (let pageIndex = 0; pageIndex < pageLimit; pageIndex += 1) {
     const page = await fetchPage(cursor);
     if (!page.length) break;
     for (const record of page) records.set(recordKey(record), record);
@@ -116,6 +123,7 @@ async function fetchAllFunding() {
     cursor = lastTime > previousLast ? lastTime : lastTime + 1;
     previousLast = lastTime;
   }
+  runtime.__HL_FUNDING_RECORDS__ = records;
   return [...records.values()].sort((a, b) => (finite(a.time) ?? 0) - (finite(b.time) ?? 0));
 }
 
@@ -177,11 +185,13 @@ function buildPayload(raw: RawFundingRecord[]): FundingPayload {
 export async function GET(request: Request) {
   if (!await isAuthorized(request)) return Response.json({ error: "Authentication required." }, { status: 401, headers: { "Cache-Control": "no-store" } });
   try {
-    if (cached && cached.expiresAt > Date.now()) return Response.json(cached.payload, { headers: { "Cache-Control": "no-store", "X-Data-Cache": "HIT" } });
-    const payload = buildPayload(await fetchAllFunding());
-    cached = { expiresAt: Date.now() + CACHE_MS, payload };
-    return Response.json(payload, { headers: { "Cache-Control": "no-store", "X-Data-Cache": "MISS" } });
+    const now = Date.now();
+    if (!runtime.__HL_FUNDING_CACHE__ || runtime.__HL_FUNDING_CACHE__.expiresAt <= now) {
+      runtime.__HL_FUNDING_CACHE__ = { expiresAt: now + CACHE_MS, promise: fetchAllFunding().then(buildPayload) };
+    }
+    return Response.json(await runtime.__HL_FUNDING_CACHE__.promise, { headers: { "Cache-Control": "no-store", "X-Data-Cache": "60s" } });
   } catch (error) {
+    runtime.__HL_FUNDING_CACHE__ = undefined;
     return Response.json({ error: error instanceof Error ? error.message : "Hyperliquid funding history unavailable." }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 }
