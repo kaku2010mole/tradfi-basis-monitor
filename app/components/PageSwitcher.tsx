@@ -4,7 +4,7 @@ import Link from "next/link";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
-  active: "basis" | "pairs" | "oracle" | "blog" | "taker" | "polymarket" | "auction" | "hsi" | "shanghai" | "sk-grid";
+  active: "basis" | "pairs" | "oracle" | "blog" | "taker" | "polymarket" | "auction" | "onchain" | "hsi" | "shanghai" | "sk-grid";
 };
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
@@ -43,6 +43,10 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         <Link href="/hk-auction" aria-current={active === "auction" ? "page" : undefined}>
           <span>HK auction basis</span>
           <small>Futu auction versus Binance perps and Posley ADRs</small>
+        </Link>
+        <Link href="/onchain" aria-current={active === "onchain" ? "page" : undefined}>
+          <span>Onchain pools</span>
+          <small>X Layer pool premium and discount monitor</small>
         </Link>
         <Link href="/hsi" aria-current={active === "hsi" ? "page" : undefined}>
           <span>HSI close probability</span>

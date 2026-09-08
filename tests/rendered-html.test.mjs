@@ -98,11 +98,15 @@ test("discovers and normalizes Posley ADR streams for HK auction basis", async (
   assert.match(auction, /HK\.01211.*BYDUSDT/);
   assert.match(auction, /HK\.00992.*HK0992USDT/);
   assert.match(auction, /HK\.00625.*HK0625USDT/);
+  assert.match(auction, /isHkQuotedPerp\(pair\.perpSymbol\).*7\.84/);
+  assert.match(auction, /1 Binance perp ↔.*HK shares/);
+  assert.match(auction, /useState\("7\.84"\)/);
   assert.match(quotes, /HK\.03308.*ZHONGJIUSDT/);
   assert.match(quotes, /HK\.03986.*GIGADEVUSDT/);
   assert.match(quotes, /HK\.01211.*BYDUSDT/);
   assert.match(quotes, /HK\.00992.*HK0992USDT/);
   assert.match(quotes, /HK\.00625.*HK0625USDT/);
+  assert.match(quotes, /\^HK\\d\+USDT\$.*7\.84/);
   assert.match(pusher, /HK\.03308/);
   assert.match(pusher, /HK\.03986/);
   assert.match(pusher, /HK\.01211/);
@@ -161,16 +165,16 @@ test("keeps live taker execution explicitly gated", async () => {
 });
 
 test("compares Polymarket, Binance and Hyperliquid funding and price spreads in one view", async () => {
-  const [response, page, markets, accountFunding, lighterFunding, switcher] = await Promise.all([
+  const [response, page, markets, accountFunding, switcher] = await Promise.all([
     render("/polymarket"),
     readFile(new URL("../app/polymarket/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/polymarket-perps/markets/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/hyperliquid/user-funding/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/lighter/user-funding/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
   ]);
   assert.equal(response.status, 200);
-  assert.match(await response.text(), /Funding &amp; Basis/);
+  const renderedPage = await response.text();
+  assert.match(renderedPage, /Funding &amp; Basis/);
   assert.match(page, /POLY ↔ \{venue\.toUpperCase\(\)\}/);
   assert.match(page, /FUNDING SPREAD · 1H/);
   assert.match(page, /PRICE SPREAD/);
@@ -202,14 +206,9 @@ test("compares Polymarket, Binance and Hyperliquid funding and price spreads in 
   assert.match(accountFunding, /process\.env\.SITE_PASSWORD/);
   assert.match(accountFunding, /cumulativeUsdc/);
   assert.match(accountFunding, /__HL_FUNDING_RECORDS__/);
-  assert.match(page, /Lighter funding income/);
-  assert.match(page, /0x821dbB4ed1A7D9Bf25a12E156F4EC10D9Af1f95C/i);
-  assert.match(page, /Public address mode/);
-  assert.match(lighterFunding, /ACCOUNT_INDEX = 719300/);
-  assert.match(lighterFunding, /total_funding_paid_out/);
-  assert.match(lighterFunding, /\/api\/v1\/funding-rates/);
-  assert.match(lighterFunding, /rate! \/ 8/);
-  assert.match(lighterFunding, /lighter-funding-history\.ndjson/);
+  assert.doesNotMatch(renderedPage, /Lighter funding income/);
+  assert.doesNotMatch(page, /LighterFundingPanel|api\/lighter|LIGHTER ACCOUNT FUNDING/);
+  await assert.rejects(readFile(new URL("../app/api/lighter/user-funding/route.ts", import.meta.url), "utf8"), /ENOENT/);
   assert.match(switcher, /Poly ↔ HL ↔ Binance funding and price spreads/);
 });
 
@@ -304,8 +303,32 @@ test("removes the SKHX close desk and its unused background recorder", async () 
   assert.doesNotMatch(switcher, /href="\/skhx"|SKHX close probability/);
   assert.doesNotMatch(globals, /skhx\/skhx\.css/);
   assert.doesNotMatch(recorder, /HYPERTRACKER|liquidationRecorderLoop|captureLiquidations/);
-  assert.doesNotMatch(switcher, /onchain|Onchain pools/i);
-  assert.doesNotMatch(recorder, /onchain/i);
+});
+
+test("restores five selected X Layer pools with live benchmarks and history", async () => {
+  const [response, page, pools, quote, history, switcher, recorder] = await Promise.all([
+    render("/onchain"),
+    readFile(new URL("../app/onchain/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/onchainPools.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/onchain-pools/quote/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/onchain-pools/history/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/start-render.mjs", import.meta.url), "utf8"),
+  ]);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Onchain Pool Monitor/);
+  for (const symbol of ["XIAOx", "POPMTx", "TCENTx", "MEITx", "SHEINx"]) assert.match(pools, new RegExp(symbol));
+  for (const removed of ["MIXUx", "KUAIx", "HKEXCx"]) assert.doesNotMatch(pools, new RegExp(removed));
+  assert.equal((pools.match(/id: "/g) ?? []).length, 5);
+  assert.match(pools, /0xf1ef85ce4691e94a32064b59e766c42183b44497/);
+  assert.match(page, /para=xyz%3ASHEIN/);
+  assert.match(page, /Hyperliquid oracle/);
+  assert.match(page, /\+ ADD PAIR/);
+  assert.match(quote, /group === "hk"/);
+  assert.match(history, /fairUsd/);
+  assert.match(history, /10 \* 60.*15 \* 60/);
+  assert.match(switcher, /href="\/onchain"/);
+  assert.match(recorder, /onchainRecorderLoop/);
 });
 
 test("runs the Pair Grid automatic paper engine against live executable quotes", async () => {
