@@ -67,19 +67,6 @@ type AccountPositionForecast = {
   updatedAt: number | null;
   positions: AccountPositionEstimate[];
 };
-type LighterFundingPayload = {
-  venue: "lighter";
-  user: string;
-  accountIndex: number;
-  updatedAt: number;
-  trackingSince: number;
-  summary: { netUsdc: number; receivedUsdc: number; paidUsdc: number; settlements: number; firstTime: number | null; lastTime: number | null };
-  chart: Array<{ t: number; deltaUsdc: number; cumulativeUsdc: number }>;
-  records: AccountFundingRecord[];
-  positions: AccountPositionEstimate[];
-  nextHourUsdc: number | null;
-  historyMode: "tracked-public";
-};
 type StreamStatus = "connecting" | "live" | "reconnecting";
 type BinanceBook = { symbol?: string; bidPrice?: string; askPrice?: string; time?: number };
 type BinanceStreamFrame = { e?: string; s?: string; b?: string; a?: string; E?: number; r?: string; T?: number };
@@ -462,109 +449,6 @@ function AccountFundingPanel() {
   </section>;
 }
 
-function LighterFundingPanel() {
-  const [payload, setPayload] = useState<LighterFundingPayload | null>(null);
-  const [windowMs, setWindowMs] = useState(ACCOUNT_HISTORY_WINDOWS[3].ms);
-  const [periodMode, setPeriodMode] = useState<"daily" | "weekly">("daily");
-  const [error, setError] = useState("");
-  const inFlight = useRef(false);
-
-  const load = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    try {
-      const response = await fetch("/api/lighter/user-funding", { cache: "no-store" });
-      const raw = await response.text();
-      let next: LighterFundingPayload & { error?: string };
-      try { next = JSON.parse(raw) as LighterFundingPayload & { error?: string }; }
-      catch { throw new Error(`Lighter funding endpoint unavailable · HTTP ${response.status}`); }
-      if (!response.ok) throw new Error(next.error || "Lighter funding data unavailable.");
-      setPayload(next);
-      setError("");
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Lighter funding data unavailable.");
-    } finally { inFlight.current = false; }
-  }, []);
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => void load());
-    const timer = window.setInterval(load, 60_000);
-    return () => { window.cancelAnimationFrame(frame); window.clearInterval(timer); };
-  }, [load]);
-
-  const cutoff = windowMs && payload ? payload.updatedAt - windowMs : 0;
-  const records = useMemo(() => (payload?.records ?? []).filter((record) => record.time >= cutoff), [cutoff, payload?.records]);
-  const chart = useMemo(() => {
-    if (!payload) return [];
-    const visible = payload.records.filter((record) => record.time >= cutoff);
-    let running = 0;
-    const baseline = windowMs ? Math.max(cutoff, payload.trackingSince) : payload.trackingSince;
-    return [{ t: baseline, deltaUsdc: 0, cumulativeUsdc: 0 }, ...visible.map((record) => {
-      running += record.usdc;
-      return { t: record.time, deltaUsdc: record.usdc, cumulativeUsdc: running };
-    })];
-  }, [cutoff, payload, windowMs]);
-  const periodMetrics = useMemo(() => {
-    const now = payload?.updatedAt ?? 0;
-    const summarize = (start: number) => records.reduce((result, record) => {
-      if (record.time < start) return result;
-      result.net += record.usdc;
-      result.received += Math.max(0, record.usdc);
-      result.paid += Math.max(0, -record.usdc);
-      result.settlements += 1;
-      return result;
-    }, { net: 0, received: 0, paid: 0, settlements: 0 });
-    return { today: summarize(startOfHktDay(now)), week: summarize(startOfHktWeek(now)), rolling7d: summarize(now - 7 * DAY_MS) };
-  }, [payload?.updatedAt, records]);
-  const intervals = useMemo(() => {
-    if (!payload) return [];
-    const weekly = periodMode === "weekly";
-    const step = weekly ? 7 * DAY_MS : DAY_MS;
-    const count = weekly ? 12 : 14;
-    const currentStart = weekly ? startOfHktWeek(payload.updatedAt) : startOfHktDay(payload.updatedAt);
-    const buckets = Array.from({ length: count }, (_, index): FundingInterval => {
-      const start = currentStart - (count - 1 - index) * step;
-      return { start, end: start + step, net: 0, received: 0, paid: 0, settlements: 0 };
-    });
-    const firstStart = buckets[0]?.start ?? 0;
-    for (const record of payload.records) {
-      if (record.time < firstStart || record.time >= currentStart + step) continue;
-      const bucketStart = weekly ? startOfHktWeek(record.time) : startOfHktDay(record.time);
-      const bucket = buckets[Math.round((bucketStart - firstStart) / step)];
-      if (!bucket) continue;
-      bucket.net += record.usdc;
-      bucket.received += Math.max(0, record.usdc);
-      bucket.paid += Math.max(0, -record.usdc);
-      bucket.settlements += 1;
-    }
-    return buckets.reverse();
-  }, [payload, periodMode]);
-  const maxIntervalNet = Math.max(1, ...intervals.map((interval) => Math.abs(interval.net)));
-
-  return <section className={`${styles.accountPanel} ${styles.lighterPanel}`}>
-    <header className={styles.accountHeader}><div><p className={styles.eyebrow}>LIGHTER ACCOUNT FUNDING</p><h2>Lighter funding income</h2><code>{payload?.user ?? "0x821dbB4ed1A7D9Bf25a12E156F4EC10D9Af1f95C"}</code></div><div className={styles.accountHeaderActions}><span className={!error && payload ? styles.accountLive : styles.accountWaiting}><i />{error ? "RECONNECTING" : payload ? "LIVE · 60S" : "CONNECTING"}</span><button type="button" onClick={() => void load()}>Refresh</button></div></header>
-    {error && !payload ? <div className={styles.accountEmpty}>{error}</div> : <>
-      <div className={styles.accountSummary}>
-        <article className={styles.accountNet}><span>VENUE LIFETIME NET</span><strong className={(payload?.summary.netUsdc ?? 0) >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload?.summary.netUsdc ?? null)}</strong><small>Official public account total · account #{payload?.accountIndex ?? 719300}</small></article>
-        <article className={styles.nextFundingEstimate}><span>NEXT 1H ESTIMATE</span><strong className={(payload?.nextHourUsdc ?? 0) >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload?.nextHourUsdc ?? null)}</strong><small>{payload ? `${payload.positions.length} open positions · current normalized rates` : "Connecting to current positions"}</small></article>
-        <article><span>TODAY · HKT</span><strong className={periodMetrics.today.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload ? periodMetrics.today.net : null)}</strong><small>Tracked changes since 00:00 HKT</small></article>
-        <article><span>THIS WEEK · HKT</span><strong className={periodMetrics.week.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload ? periodMetrics.week.net : null)}</strong><small>Tracked changes since Monday</small></article>
-        <article><span>ROLLING 7 DAYS</span><strong className={periodMetrics.rolling7d.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload ? periodMetrics.rolling7d.net : null)}</strong><small>{payload?.summary.settlements ?? 0} observed funding changes</small></article>
-      </div>
-      <div className={styles.accountControls}><div><strong>Tracked income history</strong><span>Public address mode · history accrues from {payload ? `${formatTime(payload.trackingSince, true)} HKT` : "first observation"}</span></div><div className={styles.accountWindows}>{ACCOUNT_HISTORY_WINDOWS.map((window) => <button key={window.label} className={windowMs === window.ms ? styles.activeAccountWindow : ""} onClick={() => setWindowMs(window.ms)}>{window.label}</button>)}</div></div>
-      <div className={styles.accountBody}>
-        <section className={styles.accountChartPanel}><div className={styles.accountSectionTitle}><div><span>TRACKED NET · REBASED TO $0</span><strong>{ACCOUNT_HISTORY_WINDOWS.find((window) => window.ms === windowMs)?.label}</strong></div><small>Venue lifetime remains shown above</small></div>{chart.length > 1 ? <AccountFundingChart points={chart} /> : <div className={styles.accountEmpty}>Monitoring is active. The line appears after the first funding change.</div>}</section>
-        <aside className={styles.coinBreakdown}><div className={styles.accountSectionTitle}><div><span>NEXT HOUR BY POSITION</span><strong>Lighter current-rate estimate</strong></div><small>{payload ? "LIVE" : "CONNECTING"}</small></div><div className={styles.coinRows}>{payload?.positions.length ? payload.positions.slice(0, 12).map((position) => <div key={position.coin}><span><b>{position.coin}</b><small>{position.size > 0 ? "LONG" : "SHORT"} {Math.abs(position.size).toLocaleString("en-US", { maximumFractionDigits: 6 })} · {formatCompact(position.notionalUsdc)}</small></span><strong className={(position.estimatedUsdc ?? 0) >= 0 ? styles.positive : styles.negative}>{formatUsdc(position.estimatedUsdc, 4)}</strong></div>) : <div className={styles.positionEmpty}>No open Lighter perpetual positions.</div>}</div><p className={styles.forecastNote}>Lighter comparison rates are normalized from the official 8-hour-equivalent feed to one hour. The final rate can change before settlement.</p></aside>
-      </div>
-      <section className={styles.periodPanel}>
-        <header className={styles.periodHead}><div><p className={styles.eyebrow}>TRACKED PERIOD INCOME</p><h3>{periodMode === "daily" ? "Daily funding income" : "Weekly funding income"}</h3><span>Only changes observed after this monitor started are included.</span></div><div className={styles.periodToggle}><button className={periodMode === "daily" ? styles.activePeriod : ""} onClick={() => setPeriodMode("daily")}>DAILY</button><button className={periodMode === "weekly" ? styles.activePeriod : ""} onClick={() => setPeriodMode("weekly")}>WEEKLY</button></div></header>
-        <div className={styles.periodTable}><div className={styles.periodTableHead}><span>Period</span><span>Net income</span><span>Received</span><span>Paid</span><span>Changes</span></div>{intervals.map((interval, index) => <div className={styles.periodRow} key={interval.start}><span><b>{index === 0 ? (periodMode === "daily" ? "TODAY" : "THIS WEEK") : periodLabel(interval, periodMode)}</b><small>{periodLabel(interval, periodMode)}</small></span><span className={styles.periodNet}><i className={interval.net >= 0 ? styles.periodPositiveBar : styles.periodNegativeBar} style={{ width: `${Math.max(2, Math.abs(interval.net) / maxIntervalNet * 100)}%` }} /><strong className={interval.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(interval.net)}</strong></span><span className={styles.positive}>{formatUsdc(interval.received)}</span><span className={styles.negative}>{interval.paid ? `−$${interval.paid.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "$0.00"}</span><span>{interval.settlements}</span></div>)}</div>
-      </section>
-      <footer className={styles.accountFoot}><span>Public account data · no trading key stored</span><span>{payload?.updatedAt ? `Updated ${formatTime(payload.updatedAt)} HKT` : "Connecting…"}</span></footer>
-    </>}
-  </section>;
-}
-
 export default function PolymarketPerpsPage() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [sources, setSources] = useState({ polymarket: false, binance: false, hyperliquid: false });
@@ -836,8 +720,6 @@ export default function PolymarketPerpsPage() {
     <section className={styles.stats}><article><span>Active Poly Perps</span><strong>{markets.length || "—"}</strong><small>{categories.length} market categories</small></article><article><span>Funding-ready routes</span><strong>{fundingReadyRoutes}</strong><small>Hourly-normalized Poly ↔ BN / HL</small></article><article><span>Price-ready routes</span><strong>{priceReadyRoutes}</strong><small>{matched} Binance · {hyperMatched} Hyperliquid</small></article><article><span>Largest funding spread</span><strong className={(largestFundingSpread?.value ?? 0) >= 0 ? styles.positive : styles.negative}>{formatFunding(largestFundingSpread?.value ?? null)}</strong><small>{largestFundingSpread ? `${largestFundingSpread.market.symbol} · Poly ↔ ${largestFundingSpread.venue}` : "Waiting for synchronized funding"}</small></article><article><span>Largest price spread</span><strong className={(largestSpread?.value ?? 0) >= 0 ? styles.positive : styles.negative}>{formatPct(largestSpread?.value ?? null, 3)}</strong><small>{largestSpread ? `${largestSpread.market.symbol} · Poly ↔ ${largestSpread.venue}` : "Waiting for synchronized midpoint"}</small></article></section>
 
     <AccountFundingPanel />
-    <LighterFundingPanel />
-
     <section className={styles.filters}><label>Search markets<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="BTC, AAPL, GOLD…" /></label><label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">All categories</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label className={styles.matchToggle}><input type="checkbox" checked={matchedOnly} onChange={(event) => setMatchedOnly(event.target.checked)} /><span>Cross-venue midpoint available</span></label><button onClick={() => void loadMarkets()}>Refresh now</button><p>{error || (lastUpdate ? `Last market update ${formatTime(lastUpdate)} HKT` : "Connecting public market data…")}</p></section>
 
     <section className={styles.marketGrid}>{visible.map((market) => {

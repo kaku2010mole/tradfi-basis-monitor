@@ -88,10 +88,10 @@ const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.03308", perpSymbol: "ZHONGJIUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.03986", perpSymbol: "GIGADEVUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.01211", perpSymbol: "BYDUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.00992", perpSymbol: "HK0992USDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.00625", perpSymbol: "HK0625USDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.00700", perpSymbol: "HK0700USDT", sharesPerContract: 7.83 },
-  { stockSymbol: "HK.01810", perpSymbol: "HK1810USDT", sharesPerContract: 7.83 },
+  { stockSymbol: "HK.00992", perpSymbol: "HK0992USDT", sharesPerContract: 7.84 },
+  { stockSymbol: "HK.00625", perpSymbol: "HK0625USDT", sharesPerContract: 7.84 },
+  { stockSymbol: "HK.00700", perpSymbol: "HK0700USDT", sharesPerContract: 7.84 },
+  { stockSymbol: "HK.01810", perpSymbol: "HK1810USDT", sharesPerContract: 7.84 },
 ];
 
 const positive = (value: unknown) => {
@@ -144,10 +144,7 @@ const normalizePerpSymbol = (value: string) => {
   return symbol;
 };
 
-const defaultShares = (perpSymbol: string) =>
-  perpSymbol === "HK0700USDT" || perpSymbol === "HK1810USDT"
-    ? 7.83
-    : 1;
+const defaultShares = (perpSymbol: string) => /^HK\d+USDT$/.test(perpSymbol) ? 7.84 : 1;
 
 const parsePair = (raw: string): PairConfig => {
   const parts = raw.split("|").map((part) => part.trim());

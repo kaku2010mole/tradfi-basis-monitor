@@ -16,12 +16,6 @@
 .positive { color:var(--green)!important; }
 .negative { color:var(--red)!important; }
 .accountPanel { margin-top:12px; overflow:hidden; border:1px solid #d9d3ef; border-radius:14px; background:rgba(255,255,255,.98); box-shadow:0 20px 55px rgba(42,30,82,.08); }
-.lighterPanel { border-color:#cfe3df; }
-.lighterPanel .accountHeader { background:linear-gradient(110deg,#102824 0%,#153c36 58%,#172b31 100%); }
-.lighterPanel .accountNet { background:linear-gradient(145deg,#effaf7,#fff); }
-.lighterPanel .accountLine { stroke:#07977a; }
-.lighterPanel .accountArea { fill:rgba(7,151,122,.11); }
-.lighterPanel .accountDot { fill:#07977a; }
 .accountHeader { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:20px 22px; border-bottom:1px solid #e2def0; background:linear-gradient(110deg,#18182a 0%,#292044 58%,#172b31 100%); color:#fff; }
 .accountHeader h2 { margin:0 0 9px; font-size:clamp(24px,3vw,36px); letter-spacing:-.045em; }
 .accountHeader code { display:block; color:#b8b3ce; font:9px/1.4 monospace; overflow-wrap:anywhere; }
