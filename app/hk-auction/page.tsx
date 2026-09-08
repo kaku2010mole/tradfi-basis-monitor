@@ -51,8 +51,8 @@ const REQUIRED_NEW_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.03308", perpSymbol: "ZHONGJIUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.03986", perpSymbol: "GIGADEVUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.01211", perpSymbol: "BYDUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.00992", perpSymbol: "HK0992USDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.00625", perpSymbol: "HK0625USDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.00992", perpSymbol: "HK0992USDT", sharesPerContract: 7.84 },
+  { stockSymbol: "HK.00625", perpSymbol: "HK0625USDT", sharesPerContract: 7.84 },
 ];
 const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.00700", perpSymbol: "TENCENTUSDT", sharesPerContract: 1, ...DEFAULT_ADR["HK.00700"] },
@@ -62,19 +62,21 @@ const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.00100", perpSymbol: "MINIMAXUSDT", sharesPerContract: 1, ...DEFAULT_ADR["HK.00100"] },
   { stockSymbol: "HK.02513", perpSymbol: "ZHIPUUSDT", sharesPerContract: 1 },
   ...REQUIRED_NEW_PAIRS,
-  { stockSymbol: "HK.00700", perpSymbol: "HK0700USDT", sharesPerContract: 7.83, ...DEFAULT_ADR["HK.00700"] },
-  { stockSymbol: "HK.01810", perpSymbol: "HK1810USDT", sharesPerContract: 7.83, ...DEFAULT_ADR["HK.01810"] },
+  { stockSymbol: "HK.00700", perpSymbol: "HK0700USDT", sharesPerContract: 7.84, ...DEFAULT_ADR["HK.00700"] },
+  { stockSymbol: "HK.01810", perpSymbol: "HK1810USDT", sharesPerContract: 7.84, ...DEFAULT_ADR["HK.01810"] },
 ];
 
-const defaultShares = (perp: string) => ["HK0700USDT", "HK1810USDT"].includes(perp.toUpperCase()) ? 7.83 : 1;
+const isHkQuotedPerp = (perp: string) => /^HK\d+USDT$/.test(perp.toUpperCase());
+const defaultShares = (perp: string) => isHkQuotedPerp(perp) ? 7.84 : 1;
 const number = (value: number | null | undefined, digits = 3) => value === null || value === undefined || !Number.isFinite(value) ? "—" : value.toLocaleString("en-US", { maximumFractionDigits: digits });
 const pct = (value: number | null | undefined, digits = 3) => value === null || value === undefined || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 const time = (value: number | null | undefined) => value ? new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(value) : "—";
 
 const normalizeSavedPair = (pair: PairConfig): PairConfig => {
-  const mapping = DEFAULT_ADR[pair.stockSymbol];
-  if (!mapping || pair.adrSymbol) return pair;
-  return { ...pair, ...mapping };
+  const normalized = isHkQuotedPerp(pair.perpSymbol) ? { ...pair, sharesPerContract: 7.84 } : pair;
+  const mapping = DEFAULT_ADR[normalized.stockSymbol];
+  if (!mapping || normalized.adrSymbol) return normalized;
+  return { ...normalized, ...mapping };
 };
 
 const withoutRemovedPairs = (pairs: PairConfig[]) => pairs.filter((pair) => !REMOVED_PERPS.has(pair.perpSymbol.toUpperCase()));
@@ -131,7 +133,7 @@ function SpreadHistory({ points, cursor, onCursor }: { points: HistoryPoint[]; c
 export default function HkAuctionPage() {
   const [pairs, setPairs] = useState<PairConfig[]>(DEFAULT_PAIRS);
   const [payload, setPayload] = useState<Payload | null>(null);
-  const [usdHkd, setUsdHkd] = useState("7.83");
+  const [usdHkd, setUsdHkd] = useState("7.84");
   const [threshold, setThreshold] = useState("0.50");
   const [now, setNow] = useState(Date.now());
   const [loading, setLoading] = useState(true);
@@ -392,7 +394,7 @@ export default function HkAuctionPage() {
         const adrRich = adrBasisPct !== null && adrBasisPct >= 0;
         const cardHot = hot || (adrBasisPct !== null && Math.abs(adrBasisPct) >= alert);
         return <article key={id} className={`${styles.card} ${cardHot ? styles.hotCard : ""}`}>
-          <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{pair.sharesPerContract.toLocaleString()} shares / perp{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></header>
+          <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{isHkQuotedPerp(pair.perpSymbol) ? `1 Binance perp ↔ ${pair.sharesPerContract.toLocaleString()} HK shares` : `${pair.sharesPerContract.toLocaleString()} shares / perp`}{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></header>
           <div className={styles.cardSignals}>
             <section className={`${styles.signalRow} ${styles.hkSignal} ${!signalReady ? styles.signalWaiting : ""}`}>
               <div className={styles.signalBasis}><span>PRIMARY · FUTU ↔ BINANCE</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>MID BASIS · {quote?.metrics.stockReferenceSource === "close-price" ? "official close" : quote?.metrics.stockReferenceSource === "auction-price" ? "auction / IEP" : quote?.metrics.stockReferenceSource === "book-mid" ? "live BBO" : "waiting"}</small></div>
