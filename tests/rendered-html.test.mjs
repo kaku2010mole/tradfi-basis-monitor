@@ -161,11 +161,12 @@ test("keeps live taker execution explicitly gated", async () => {
 });
 
 test("compares Polymarket, Binance and Hyperliquid funding and price spreads in one view", async () => {
-  const [response, page, markets, accountFunding, switcher] = await Promise.all([
+  const [response, page, markets, accountFunding, lighterFunding, switcher] = await Promise.all([
     render("/polymarket"),
     readFile(new URL("../app/polymarket/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/polymarket-perps/markets/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/hyperliquid/user-funding/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/lighter/user-funding/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
   ]);
   assert.equal(response.status, 200);
@@ -184,7 +185,7 @@ test("compares Polymarket, Binance and Hyperliquid funding and price spreads in 
   assert.match(page, /Cumulative funding income/);
   assert.match(page, /0xa590a393CC3e1776a47f32fD99ef5fc7c464a243/i);
   assert.match(page, /Settlement history/);
-  assert.match(page, /window\.setInterval\(load, 30_000\)/);
+  assert.match(page, /window\.setInterval\(load, 60_000\)/);
   assert.match(page, /Daily funding income/);
   assert.match(page, /Weekly funding income/);
   assert.match(page, /TODAY · HKT/);
@@ -200,6 +201,15 @@ test("compares Polymarket, Binance and Hyperliquid funding and price spreads in 
   assert.match(accountFunding, /cursor = lastTime > previousLast \? lastTime : lastTime \+ 1/);
   assert.match(accountFunding, /process\.env\.SITE_PASSWORD/);
   assert.match(accountFunding, /cumulativeUsdc/);
+  assert.match(accountFunding, /__HL_FUNDING_RECORDS__/);
+  assert.match(page, /Lighter funding income/);
+  assert.match(page, /0x821dbB4ed1A7D9Bf25a12E156F4EC10D9Af1f95C/i);
+  assert.match(page, /Public address mode/);
+  assert.match(lighterFunding, /ACCOUNT_INDEX = 719300/);
+  assert.match(lighterFunding, /total_funding_paid_out/);
+  assert.match(lighterFunding, /\/api\/v1\/funding-rates/);
+  assert.match(lighterFunding, /rate! \/ 8/);
+  assert.match(lighterFunding, /lighter-funding-history\.ndjson/);
   assert.match(switcher, /Poly ↔ HL ↔ Binance funding and price spreads/);
 });
 
@@ -283,21 +293,17 @@ test("removes the liquidation map and uses visible-window depth bands", async ()
   assert.match(heatmap, /One base colour · five high-contrast light levels/);
 });
 
-test("ships the SKHX next-close probability desk and removes onchain pools", async () => {
-  const [response, page, route, switcher, recorder] = await Promise.all([
-    render("/skhx"),
-    readFile(new URL("../app/skhx/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/skhx/route.ts", import.meta.url), "utf8"),
+test("removes the SKHX close desk and its unused background recorder", async () => {
+  const [switcher, globals, recorder] = await Promise.all([
     readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../scripts/start-render.mjs", import.meta.url), "utf8"),
   ]);
-  assert.equal(response.status, 200);
-  assert.match(await response.text(), /SKHX Probability Desk/);
-  assert.match(page, /NEXT DAILY CLOSE/);
-  assert.match(page, /95% parameter interval/);
-  assert.match(route, /candleSnapshot/);
-  assert.match(route, /metaAndAssetCtxs/);
-  assert.match(switcher, /href="\/skhx"/);
+  await assert.rejects(readFile(new URL("../app/skhx/page.tsx", import.meta.url), "utf8"));
+  await assert.rejects(readFile(new URL("../app/api/skhx/route.ts", import.meta.url), "utf8"));
+  assert.doesNotMatch(switcher, /href="\/skhx"|SKHX close probability/);
+  assert.doesNotMatch(globals, /skhx\/skhx\.css/);
+  assert.doesNotMatch(recorder, /HYPERTRACKER|liquidationRecorderLoop|captureLiquidations/);
   assert.doesNotMatch(switcher, /onchain|Onchain pools/i);
   assert.doesNotMatch(recorder, /onchain/i);
 });
