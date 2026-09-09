@@ -13,7 +13,7 @@ const BINANCE_BATCH_CACHE_MS = 5_000;
 const FUTU_LIVE_BOOK_STATES = new Set(["AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"]);
 
 type FutuPushStore = typeof globalThis & {
-  __FUTU_PUSH_SNAPSHOT__?: { payload: unknown; receivedAt: number };
+  __FUTU_PUSH_SNAPSHOT__?: { payload: unknown & { history?: Record<string, Array<[number, number]>> }; receivedAt: number };
   __BINANCE_FUNDING_CACHE__?: Map<string, { value: BinanceFunding; receivedAt: number }>;
   __BINANCE_BATCH_CACHE__?: { quotes: Map<string, BinanceQuote>; receivedAt: number };
   __BINANCE_BATCH_PROMISE__?: Promise<Map<string, BinanceQuote>>;
@@ -33,6 +33,7 @@ type FutuQuote = {
   marketState: string | null;
   auctionPrice: number | null;
   last: number | null;
+  previousClose: number | null;
   bid: number | null;
   ask: number | null;
   bidSize: number | null;
@@ -137,6 +138,12 @@ const normalizeStockSymbol = (value: string) => {
   return symbol;
 };
 
+const normalizeFutuSymbol = (value: string) => {
+  const symbol = value.trim().toUpperCase();
+  if (!/^(?:HK\.\d{5}|US\.(?:LNVGY|NVDA))$/.test(symbol)) throw new Error(`Invalid Futu symbol: ${value}`);
+  return symbol;
+};
+
 const normalizePerpSymbol = (value: string) => {
   const symbol = value.trim().toUpperCase();
   if (!/^[A-Z0-9_]{3,32}USDT$/.test(symbol)) throw new Error(`Invalid Binance perp symbol: ${value}`);
@@ -236,7 +243,7 @@ const normalizeFutuQuote = (raw: unknown, receivedAt: number): FutuQuote | null 
   if (typeof symbolRaw !== "string") return null;
   let symbol: string;
   try {
-    symbol = normalizeStockSymbol(symbolRaw);
+    symbol = normalizeFutuSymbol(symbolRaw);
   } catch {
     return null;
   }
@@ -261,6 +268,7 @@ const normalizeFutuQuote = (raw: unknown, receivedAt: number): FutuQuote | null 
       : null,
     auctionPrice: positive(item.auctionPrice ?? item.indicativePrice ?? item.iep),
     last: positive(item.last ?? item.lastPrice ?? item.last_price ?? item.curPrice),
+    previousClose: positive(item.previousClose ?? item.prevClosePrice ?? item.prev_close_price),
     bid,
     ask,
     bidSize,
@@ -451,6 +459,25 @@ const capacity = (
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : "Unknown market-data error.";
 
+const latestHkCloseAnchor = (symbol: string) => {
+  const pushed = (globalThis as FutuPushStore).__FUTU_PUSH_SNAPSHOT__;
+  const points = pushed?.payload?.history?.[symbol] ?? [];
+  const candidates = points.flatMap((point) => {
+    const time = Number(point?.[0]);
+    const price = positive(point?.[1]);
+    if (!Number.isFinite(time) || price === null) return [];
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Hong_Kong", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(time);
+    const weekday = parts.find((part) => part.type === "weekday")?.value;
+    const hour = Number(parts.find((part) => part.type === "hour")?.value);
+    const minute = Number(parts.find((part) => part.type === "minute")?.value);
+    return !["Sat", "Sun"].includes(weekday ?? "") && hour === 16 && minute <= 15 ? [{ price, timestamp: time }] : [];
+  });
+  const selected = candidates.at(-1);
+  return selected ? { ...selected, source: "Futu OpenD extended-hours 1m bar" } : null;
+};
+
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   let pairConfigs: PairConfig[];
@@ -462,8 +489,9 @@ export async function GET(request: Request) {
     return Response.json({ error: errorMessage(error) }, { status: 400 });
   }
 
+  const referenceSymbols = ["US.LNVGY", "US.NVDA"];
   const [futuResult, binanceResult] = await Promise.allSettled([
-    getFutuQuotes(pairConfigs.map((pair) => pair.stockSymbol)),
+    getFutuQuotes([...pairConfigs.map((pair) => pair.stockSymbol), ...referenceSymbols]),
     getBinanceQuotes(pairConfigs.map((pair) => pair.perpSymbol)),
   ]);
   const futuBySymbol = new Map(
@@ -475,6 +503,10 @@ export async function GET(request: Request) {
   const binanceBySymbol = binanceResult.status === "fulfilled" ? binanceResult.value : new Map<string, BinanceQuote>();
 
   const now = Date.now();
+  const references = Object.fromEntries(referenceSymbols.flatMap((symbol) => {
+    const quote = futuBySymbol.get(symbol);
+    return quote ? [[symbol.slice(3), { ...quote, hkCloseAnchor: latestHkCloseAnchor(symbol) }]] : [];
+  }));
   const quotes = pairConfigs.map((pair) => {
     const futu = futuBySymbol.get(pair.stockSymbol) ?? null;
     const binance = binanceBySymbol.get(pair.perpSymbol) ?? null;
@@ -557,6 +589,7 @@ export async function GET(request: Request) {
 
   return Response.json({
     quotes,
+    references,
     usdHkd,
     timestamp: now,
     sources: {
