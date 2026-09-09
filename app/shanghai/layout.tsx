@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import "../hsi/hsi.css";
 
 export const metadata: Metadata = {
   title: "Shanghai Composite Next-Close Probability",
