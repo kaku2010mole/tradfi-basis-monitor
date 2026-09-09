@@ -11,7 +11,7 @@ export default function XstockPerpPage() {
         <div>
           <p className={styles.eyebrow}>CROSS-VENUE EXECUTION WATCH</p>
           <h1>xStock–Perp</h1>
-          <p>OKX X Layer xStocks against matching Binance perpetuals. Both directions use tradeable top-of-book prices and the scanner can exclude oversized-volume contracts.</p>
+          <p>OKX centralized-exchange xStock spot order books against matching Binance perpetuals. Both directions use tradeable best bid / ask, with configurable high-volume exclusion.</p>
         </div>
         <PageSwitcher active="onchain" />
       </header>

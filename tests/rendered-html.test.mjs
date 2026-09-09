@@ -305,32 +305,27 @@ test("removes the SKHX close desk and its unused background recorder", async () 
   assert.doesNotMatch(recorder, /HYPERTRACKER|liquidationRecorderLoop|captureLiquidations/);
 });
 
-test("compares five selected X Layer xStocks with executable Binance perps", async () => {
-  const [response, page, monitor, pools, quote, history, switcher, recorder] = await Promise.all([
+test("scans OKX stock spot books against executable Binance perpetual prices", async () => {
+  const [response, page, monitor, route, switcher, recorder] = await Promise.all([
     render("/onchain"),
     readFile(new URL("../app/onchain/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/XstockPerpMonitor.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/lib/onchainPools.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/onchain-pools/quote/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/onchain-pools/history/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/xstock-perp/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
     readFile(new URL("../scripts/start-render.mjs", import.meta.url), "utf8"),
   ]);
   assert.equal(response.status, 200);
   assert.match(await response.text(), /xStock–Perp/);
-  for (const symbol of ["XIAOx", "POPMTx", "TCENTx", "MEITx", "SHEINx"]) assert.match(pools, new RegExp(symbol));
-  for (const removed of ["MIXUx", "KUAIx", "HKEXCx"]) assert.doesNotMatch(pools, new RegExp(removed));
-  assert.equal((pools.match(/id: "/g) ?? []).length, 5);
-  assert.match(pools, /0xf1ef85ce4691e94a32064b59e766c42183b44497/);
-  assert.match(monitor, /LONG xSTOCK · SHORT BINANCE/);
-  assert.match(monitor, /buyPriceBeforeSlippage/);
-  assert.match(monitor, /quoteVolume24h/);
-  assert.match(monitor, /Add xStock pair/);
-  assert.match(quote, /group === "hk"/);
-  assert.match(history, /fairUsd/);
-  assert.match(history, /10 \* 60.*15 \* 60/);
+  assert.match(page, /centralized-exchange xStock spot/);
+  assert.match(monitor, /OKX SPOT · BINANCE FUTURES/);
+  assert.match(monitor, /MAX BINANCE 24H VOLUME/);
+  assert.match(monitor, /Add exchange pair/);
+  assert.match(route, /instCategory === "3"/);
+  assert.match(route, /XSHEIN-USDT/);
+  assert.match(route, /XPOPMART-USDT/);
+  assert.match(route, /XXIAOMI-USDT.*HK1810USDT.*7\.84/s);
   assert.match(switcher, /href="\/onchain"/);
-  assert.match(recorder, /onchainRecorderLoop/);
+  assert.doesNotMatch(recorder, /onchainRecorderLoop|onchain-pools/);
 });
 
 test("runs the Pair Grid automatic paper engine against live executable quotes", async () => {

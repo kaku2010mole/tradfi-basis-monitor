@@ -46,7 +46,7 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         </Link>
         <Link href="/onchain" aria-current={active === "onchain" ? "page" : undefined}>
           <span>xStock–Perp</span>
-          <small>OKX xStocks versus Binance perpetuals</small>
+          <small>OKX spot versus Binance perpetuals</small>
         </Link>
         <Link href="/hsi" aria-current={active === "hsi" ? "page" : undefined}>
           <span>HSI close probability</span>

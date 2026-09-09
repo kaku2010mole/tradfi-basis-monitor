@@ -6,7 +6,6 @@ import path from "node:path";
 const SYMBOLS = ["para:OTHERS", "para:TOTAL2", "para:BTCD"];
 const HYPERLIQUID_INFO = "https://api.hyperliquid.xyz/info";
 const CAPTURE_MS = 10_000;
-const ONCHAIN_CAPTURE_MS = 60_000;
 let dataDirectory = process.env.PARA_DATA_DIR || "/var/data/para-orderbooks";
 let dataDirectoryReady = false;
 const RETENTION_DAYS = Math.max(1, Math.min(90, Number(process.env.PARA_RETENTION_DAYS) || 14));
@@ -38,53 +37,6 @@ async function cleanupOldFiles() {
     const file = path.join(dataDirectory, entry.name);
     if ((await stat(file)).mtimeMs < cutoff) await unlink(file);
   }));
-}
-
-const inOnchainCaptureWindow = (timestamp = Date.now()) => {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Hong_Kong",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(timestamp).map((part) => [part.type, part.value]));
-  const minute = Number(parts.hour) * 60 + Number(parts.minute);
-  return parts.weekday !== "Sat" && parts.weekday !== "Sun" && minute >= 10 * 60 && minute <= 15 * 60;
-};
-
-async function captureOnchainHistory() {
-  const port = Number(process.env.PORT) || 3000;
-  const origin = `http://127.0.0.1:${port}`;
-  const request = (cookie = "") => fetch(`${origin}/api/onchain-pools/history?capture=1`, {
-    cache: "no-store",
-    headers: cookie ? { Cookie: cookie } : undefined,
-    signal: AbortSignal.timeout(25_000),
-  });
-  let response = await request();
-  if (response.status === 401 && process.env.SITE_PASSWORD) {
-    const login = await fetch(`${origin}/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ password: process.env.SITE_PASSWORD }),
-      redirect: "manual",
-      signal: AbortSignal.timeout(10_000),
-    });
-    const cookie = login.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
-    if (!cookie) throw new Error("Recorder login did not return an access cookie.");
-    response = await request(cookie);
-  }
-  if (!response.ok) throw new Error(`history capture HTTP ${response.status}`);
-}
-
-async function onchainRecorderLoop() {
-  while (!stopped) {
-    const started = Date.now();
-    if (inOnchainCaptureWindow(started)) {
-      try { await captureOnchainHistory(); }
-      catch (error) { console.warn(`[onchain-recorder] ${error instanceof Error ? error.message : "capture failed"}`); }
-    }
-    await new Promise((resolve) => setTimeout(resolve, Math.max(1_000, ONCHAIN_CAPTURE_MS - (Date.now() - started))));
-  }
 }
 
 async function ensureDataDirectory() {
@@ -161,7 +113,6 @@ const web = spawn(executable, ["start"], {
 });
 
 void recorderLoop();
-void onchainRecorderLoop();
 
 const shutdown = (signal) => {
   stopped = true;
