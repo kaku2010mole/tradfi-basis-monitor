@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import "./sk-grid.css";
 
 export const metadata: Metadata = {
   title: "Pair Grid Lab · TradFi Basis Monitor",
