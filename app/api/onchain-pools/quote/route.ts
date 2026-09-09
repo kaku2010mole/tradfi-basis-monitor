@@ -51,6 +51,7 @@ type PoolPayload = {
   displayBase: string;
   displayQuote: string;
   stockSymbol: string;
+  perpSymbol: string;
   chain: string;
   chainId: number;
   protocol: string;
@@ -102,6 +103,7 @@ const customPoolFromUrl = (url: URL): OnchainPoolConfig | null => {
     displayBase,
     displayQuote,
     stockSymbol,
+    perpSymbol: (url.searchParams.get("perp") ?? "").trim().toUpperCase(),
     chain: "X Layer",
     chainId: 196,
     protocol: "Uniswap V3",
@@ -156,6 +158,7 @@ async function readPool(pool: OnchainPoolConfig, blockNumber: bigint, blockTimes
     displayBase: pool.displayBase,
     displayQuote: pool.displayQuote,
     stockSymbol: pool.stockSymbol,
+    perpSymbol: pool.perpSymbol,
     chain: pool.chain,
     chainId: pool.chainId,
     protocol: pool.protocol,
@@ -215,4 +218,3 @@ export async function GET(request: Request) {
     return Response.json({ error: error instanceof Error ? error.message : "X Layer RPC unavailable." }, { status: 502 });
   }
 }
-

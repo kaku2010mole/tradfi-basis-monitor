@@ -305,10 +305,11 @@ test("removes the SKHX close desk and its unused background recorder", async () 
   assert.doesNotMatch(recorder, /HYPERTRACKER|liquidationRecorderLoop|captureLiquidations/);
 });
 
-test("restores five selected X Layer pools with live benchmarks and history", async () => {
-  const [response, page, pools, quote, history, switcher, recorder] = await Promise.all([
+test("compares five selected X Layer xStocks with executable Binance perps", async () => {
+  const [response, page, monitor, pools, quote, history, switcher, recorder] = await Promise.all([
     render("/onchain"),
     readFile(new URL("../app/onchain/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/XstockPerpMonitor.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/onchainPools.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/onchain-pools/quote/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/onchain-pools/history/route.ts", import.meta.url), "utf8"),
@@ -316,14 +317,15 @@ test("restores five selected X Layer pools with live benchmarks and history", as
     readFile(new URL("../scripts/start-render.mjs", import.meta.url), "utf8"),
   ]);
   assert.equal(response.status, 200);
-  assert.match(await response.text(), /Onchain Pool Monitor/);
+  assert.match(await response.text(), /xStock–Perp/);
   for (const symbol of ["XIAOx", "POPMTx", "TCENTx", "MEITx", "SHEINx"]) assert.match(pools, new RegExp(symbol));
   for (const removed of ["MIXUx", "KUAIx", "HKEXCx"]) assert.doesNotMatch(pools, new RegExp(removed));
   assert.equal((pools.match(/id: "/g) ?? []).length, 5);
   assert.match(pools, /0xf1ef85ce4691e94a32064b59e766c42183b44497/);
-  assert.match(page, /para=xyz%3ASHEIN/);
-  assert.match(page, /Hyperliquid oracle/);
-  assert.match(page, /\+ ADD PAIR/);
+  assert.match(monitor, /LONG xSTOCK · SHORT BINANCE/);
+  assert.match(monitor, /buyPriceBeforeSlippage/);
+  assert.match(monitor, /quoteVolume24h/);
+  assert.match(monitor, /Add xStock pair/);
   assert.match(quote, /group === "hk"/);
   assert.match(history, /fairUsd/);
   assert.match(history, /10 \* 60.*15 \* 60/);

@@ -45,8 +45,8 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
           <small>Futu auction versus Binance perps and Posley ADRs</small>
         </Link>
         <Link href="/onchain" aria-current={active === "onchain" ? "page" : undefined}>
-          <span>Onchain pools</span>
-          <small>X Layer pool premium and discount monitor</small>
+          <span>xStock–Perp</span>
+          <small>OKX xStocks versus Binance perpetuals</small>
         </Link>
         <Link href="/hsi" aria-current={active === "hsi" ? "page" : undefined}>
           <span>HSI close probability</span>

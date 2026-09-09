@@ -34,6 +34,11 @@ type BinancePremium = {
   nextFundingTime?: number;
   time?: number;
 };
+type BinanceTicker = {
+  symbol: string;
+  quoteVolume?: string;
+};
+let tickerCache: { expiresAt: number; items: BinanceTicker[] } | null = null;
 type HyperMeta = { universe: Array<{ name: string }> };
 type HyperContext = { oraclePx?: string; markPx?: string; midPx?: string; funding?: string };
 type HyperLevel = { px?: string; sz?: string };
@@ -106,7 +111,7 @@ async function fetchJson<T>(url: string, init?: RequestInit) {
   throw lastError instanceof Error ? lastError : new Error("Market request failed.");
 }
 
-const buildBinanceQuote = (symbol: string, book?: BinanceBook, premium?: BinancePremium) => {
+const buildBinanceQuote = (symbol: string, book?: BinanceBook, premium?: BinancePremium, ticker?: BinanceTicker) => {
   const bid = finite(book?.bidPrice);
   const bidQty = finite(book?.bidQty);
   const ask = finite(book?.askPrice);
@@ -130,30 +135,41 @@ const buildBinanceQuote = (symbol: string, book?: BinanceBook, premium?: Binance
     funding: Number.isFinite(Number(premium?.lastFundingRate)) ? Number(premium?.lastFundingRate) : null,
     fundingHours: 8,
     nextFundingTime: premium?.nextFundingTime ?? null,
+    quoteVolume24h: Number.isFinite(Number(ticker?.quoteVolume)) ? Number(ticker?.quoteVolume) : null,
     updatedAt: Math.max(book?.time ?? 0, premium?.time ?? 0, Date.now()),
     ...executable,
   };
 };
 
 async function getBinanceSymbolQuote(symbol: string) {
-  const [book, premium] = await Promise.all([
+  const [book, premium, ticker] = await Promise.all([
     fetchJson<BinanceBook>(`${BINANCE_API}/fapi/v1/ticker/bookTicker?symbol=${encodeURIComponent(symbol)}`),
     fetchJson<BinancePremium>(`${BINANCE_API}/fapi/v1/premiumIndex?symbol=${encodeURIComponent(symbol)}`),
+    fetchJson<BinanceTicker>(`${BINANCE_API}/fapi/v1/ticker/24hr?symbol=${encodeURIComponent(symbol)}`),
   ]);
-  return buildBinanceQuote(symbol, book, premium);
+  return buildBinanceQuote(symbol, book, premium, ticker);
+}
+
+async function getBinanceTickers() {
+  if (tickerCache && tickerCache.expiresAt > Date.now()) return tickerCache.items;
+  const items = await fetchJson<BinanceTicker[]>(`${BINANCE_API}/fapi/v1/ticker/24hr`);
+  tickerCache = { expiresAt: Date.now() + 30_000, items };
+  return items;
 }
 
 async function getBinanceQuotes(symbols: string[]) {
   if (!symbols.length) return [];
   try {
-    const [bookItems, premiumItems] = await Promise.all([
+    const [bookItems, premiumItems, tickerItems] = await Promise.all([
       fetchJson<BinanceBook[]>(`${BINANCE_API}/fapi/v1/ticker/bookTicker`),
       fetchJson<BinancePremium[]>(`${BINANCE_API}/fapi/v1/premiumIndex`),
+      getBinanceTickers(),
     ]);
     const books = new Map(bookItems.map((item) => [item.symbol, item]));
     const premiums = new Map(premiumItems.map((item) => [item.symbol, item]));
+    const tickers = new Map(tickerItems.map((item) => [item.symbol, item]));
     return symbols.flatMap((symbol) => {
-      const quote = buildBinanceQuote(symbol, books.get(symbol), premiums.get(symbol));
+      const quote = buildBinanceQuote(symbol, books.get(symbol), premiums.get(symbol), tickers.get(symbol));
       return quote ? [quote] : [];
     });
   } catch {

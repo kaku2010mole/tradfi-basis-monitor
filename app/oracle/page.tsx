@@ -11,6 +11,7 @@ import {
   ORACLE_THRESHOLD_KEY,
 } from "../lib/oracleAlerts";
 import ParaDepthHeatmap from "./ParaDepthHeatmap";
+import XstockPerpMonitor from "../components/XstockPerpMonitor";
 import styles from "./page.module.css";
 
 type OracleQuote = {
@@ -825,6 +826,8 @@ export default function OracleMonitor() {
             <span>{chartPoints.length.toLocaleString()} points</span>
           </footer>
         </section>
+
+        <XstockPerpMonitor compact />
 
         <ParaDepthHeatmap />
 
