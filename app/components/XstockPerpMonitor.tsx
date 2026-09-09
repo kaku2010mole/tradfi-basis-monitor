@@ -7,6 +7,7 @@ import styles from "./XstockPerpMonitor.module.css";
 type PoolQuote = {
   id: string; label: string; name: string; displayBase: string; displayQuote: string;
   perpSymbol: string; poolAddress: string; explorerUrl: string; feePct: number;
+  xstockUnitsPerPerp: number;
   spotPrice: number | null; buyPriceBeforeSlippage: number | null; sellPriceBeforeSlippage: number | null;
   tvlQuote: number | null; blockTimestamp: number; unlocked: boolean;
 };
@@ -19,7 +20,7 @@ type Row = PoolQuote & {
   bestEdge: number | null; direction: string; filtered: boolean;
 };
 type TrailPoint = { t: number; edge: number };
-type CustomPair = { id: string; name: string; base: string; quote: string; perp: string; address: string; fee: number };
+type CustomPair = { id: string; name: string; base: string; quote: string; perp: string; address: string; fee: number; ratio: number };
 
 const DEFAULT_MAX_VOLUME_M = 25;
 const VOLUME_KEY = "xstock-perp-max-volume-m:v1";
@@ -54,7 +55,7 @@ export default function XstockPerpMonitor({ compact = false }: { compact?: boole
   const [customPairs, setCustomPairs] = useState<CustomPair[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [formError, setFormError] = useState("");
-  const [draft, setDraft] = useState({ name: "", base: "", perp: "", address: "", feePct: "0.05" });
+  const [draft, setDraft] = useState({ name: "", base: "", perp: "", address: "", feePct: "0.05", ratio: "1" });
   const inFlight = useRef(false);
 
   useEffect(() => {
@@ -71,7 +72,7 @@ export default function XstockPerpMonitor({ compact = false }: { compact?: boole
       const poolPayload = await poolResponse.json() as { quotes?: PoolQuote[]; errors?: string[]; error?: string };
       if (!poolResponse.ok || !poolPayload.quotes?.length) throw new Error(poolPayload.error || "OKX X Layer pool feed unavailable.");
       const customResults = await Promise.all(customPairs.map(async (pair) => {
-        const params = new URLSearchParams({ address: pair.address, stock: "HK.00000", base: pair.base, quote: pair.quote, name: pair.name, fee: String(pair.fee), perp: pair.perp });
+        const params = new URLSearchParams({ address: pair.address, stock: "HK.00000", base: pair.base, quote: pair.quote, name: pair.name, fee: String(pair.fee), perp: pair.perp, ratio: String(pair.ratio || 1) });
         const response = await fetch(`/api/onchain-pools/quote?${params}`, { cache: "no-store" });
         return response.ok ? await response.json() as PoolQuote : null;
       }));
@@ -90,15 +91,16 @@ export default function XstockPerpMonitor({ compact = false }: { compact?: boole
   const addPair = (event: React.FormEvent) => {
     event.preventDefault();
     const address = draft.address.trim(); const base = draft.base.trim(); const perp = draft.perp.trim().toUpperCase();
-    const fee = Math.round(Number(draft.feePct) * 10_000);
+    const fee = Math.round(Number(draft.feePct) * 10_000); const ratio = Number(draft.ratio);
     if (!/^0x[a-fA-F0-9]{40}$/.test(address)) return setFormError("Enter a valid X Layer Uniswap V3 pool address.");
     if (!/^[A-Za-z0-9._-]{2,24}$/.test(base)) return setFormError("Enter the xStock token symbol.");
     if (!/^[A-Z0-9_]{2,32}$/.test(perp)) return setFormError("Enter a Binance futures symbol such as POPMARTUSDT.");
     if (!Number.isInteger(fee) || fee < 1 || fee > 1_000_000) return setFormError("Enter a valid pool fee.");
-    const pair = { id: `custom-${address.toLowerCase()}`, name: draft.name.trim() || base, base, quote: "USD", perp, address, fee };
+    if (!Number.isFinite(ratio) || ratio <= 0 || ratio > 1_000) return setFormError("Enter a valid xStock units per perp ratio.");
+    const pair = { id: `custom-${address.toLowerCase()}`, name: draft.name.trim() || base, base, quote: "USD", perp, address, fee, ratio };
     const next = [...customPairs.filter((item) => item.id !== pair.id), pair].slice(-12);
     setCustomPairs(next); window.localStorage.setItem(CUSTOM_KEY, JSON.stringify(next));
-    setDraft({ name: "", base: "", perp: "", address: "", feePct: "0.05" }); setFormError(""); setShowAdd(false);
+    setDraft({ name: "", base: "", perp: "", address: "", feePct: "0.05", ratio: "1" }); setFormError(""); setShowAdd(false);
   };
 
   useEffect(() => { const frame = requestAnimationFrame(() => void load()); const timer = window.setInterval(load, POLL_MS); return () => { cancelAnimationFrame(frame); clearInterval(timer); }; }, [load]);
@@ -107,8 +109,10 @@ export default function XstockPerpMonitor({ compact = false }: { compact?: boole
     const bySymbol = new Map(perps.map((perp) => [perp.apiSymbol, perp]));
     return pools.map((pool) => {
       const perp = bySymbol.get(pool.perpSymbol) ?? null;
-      const longPoolEdge = pool.buyPriceBeforeSlippage !== null && perp ? (perp.bid / pool.buyPriceBeforeSlippage - 1) * 100 : null;
-      const shortPoolEdge = pool.sellPriceBeforeSlippage !== null && perp ? (pool.sellPriceBeforeSlippage / perp.ask - 1) * 100 : null;
+      const ratio = pool.xstockUnitsPerPerp || 1;
+      const normalizedBid = perp ? perp.bid / ratio : null; const normalizedAsk = perp ? perp.ask / ratio : null;
+      const longPoolEdge = pool.buyPriceBeforeSlippage !== null && normalizedBid !== null ? (normalizedBid / pool.buyPriceBeforeSlippage - 1) * 100 : null;
+      const shortPoolEdge = pool.sellPriceBeforeSlippage !== null && normalizedAsk !== null ? (pool.sellPriceBeforeSlippage / normalizedAsk - 1) * 100 : null;
       const bestEdge = longPoolEdge === null ? shortPoolEdge : shortPoolEdge === null ? longPoolEdge : Math.max(longPoolEdge, shortPoolEdge);
       const direction = bestEdge === null ? "WAITING FOR BINANCE PERP" : longPoolEdge !== null && longPoolEdge >= (shortPoolEdge ?? -Infinity) ? "LONG xSTOCK · SHORT BINANCE" : "SHORT xSTOCK · LONG BINANCE";
       const filtered = perp?.quoteVolume24h != null && perp.quoteVolume24h > maxVolumeM * 1_000_000;
@@ -147,14 +151,15 @@ export default function XstockPerpMonitor({ compact = false }: { compact?: boole
       <label>Binance perp<input value={draft.perp} onChange={(event) => setDraft({ ...draft, perp: event.target.value })} placeholder="TOKENUSDT" /></label>
       <label>Pool address<input value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} placeholder="0x…" /></label>
       <label>Fee %<input type="number" min="0.0001" step="0.01" value={draft.feePct} onChange={(event) => setDraft({ ...draft, feePct: event.target.value })} /></label>
+      <label>xStock / perp<input type="number" min="0.000001" step="0.01" value={draft.ratio} onChange={(event) => setDraft({ ...draft, ratio: event.target.value })} /></label>
       <button type="submit">Add pair</button>{formError && <p>{formError}</p>}
     </form>}</>}
     {error && <p className={styles.notice}>{error}</p>}
     <div className={styles.grid}>
       {visible.map((row) => <button key={row.id} className={`${styles.card} ${selected?.id === row.id ? styles.selected : ""}`} onClick={() => setSelectedId(row.id)}>
-        <div className={styles.cardTop}><div><small>{row.label} · {row.feePct.toFixed(2)}% fee</small><strong>{row.displayBase} <b>↔</b> {row.perpSymbol}</strong></div><span>{row.perp ? "MATCHED" : "NO LISTING"}</span></div>
+        <div className={styles.cardTop}><div><small>{row.label} · {row.feePct.toFixed(2)}% fee · {row.xstockUnitsPerPerp}:1 units</small><strong>{row.displayBase} <b>↔</b> {row.perpSymbol}</strong></div><span>{row.perp ? "MATCHED" : "NO LISTING"}</span></div>
         <div className={styles.edge}><small>BEST INDICATIVE EDGE</small><strong className={(row.bestEdge ?? 0) > 0 ? styles.positive : styles.muted}>{formatPct(row.bestEdge)}</strong><span>{row.direction}</span></div>
-        <div className={styles.prices}><span><small>BUY xSTOCK</small><b>{formatPrice(row.buyPriceBeforeSlippage)}</b></span><span><small>BINANCE BID / ASK</small><b>{row.perp ? `${formatPrice(row.perp.bid)} / ${formatPrice(row.perp.ask)}` : "—"}</b></span><span><small>SELL xSTOCK</small><b>{formatPrice(row.sellPriceBeforeSlippage)}</b></span></div>
+        <div className={styles.prices}><span><small>BUY xSTOCK</small><b>{formatPrice(row.buyPriceBeforeSlippage)}</b></span><span><small>BINANCE BBO / xSTOCK</small><b>{row.perp ? `${formatPrice(row.perp.bid / row.xstockUnitsPerPerp)} / ${formatPrice(row.perp.ask / row.xstockUnitsPerPerp)}` : "—"}</b></span><span><small>SELL xSTOCK</small><b>{formatPrice(row.sellPriceBeforeSlippage)}</b></span></div>
         <footer><span>Funding {row.perp?.funding == null ? "—" : formatPct(row.perp.funding * 100, 4)} / {row.perp?.fundingHours ?? 8}h</span><span>24h vol {formatCompact(row.perp?.quoteVolume24h)} USDT</span></footer>
       </button>)}
     </div>

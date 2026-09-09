@@ -52,6 +52,7 @@ type PoolPayload = {
   displayQuote: string;
   stockSymbol: string;
   perpSymbol: string;
+  xstockUnitsPerPerp: number;
   chain: string;
   chainId: number;
   protocol: string;
@@ -104,6 +105,7 @@ const customPoolFromUrl = (url: URL): OnchainPoolConfig | null => {
     displayQuote,
     stockSymbol,
     perpSymbol: (url.searchParams.get("perp") ?? "").trim().toUpperCase(),
+    xstockUnitsPerPerp: Math.max(0.000001, Number(url.searchParams.get("ratio") ?? "1") || 1),
     chain: "X Layer",
     chainId: 196,
     protocol: "Uniswap V3",
@@ -159,6 +161,7 @@ async function readPool(pool: OnchainPoolConfig, blockNumber: bigint, blockTimes
     displayQuote: pool.displayQuote,
     stockSymbol: pool.stockSymbol,
     perpSymbol: pool.perpSymbol,
+    xstockUnitsPerPerp: pool.xstockUnitsPerPerp,
     chain: pool.chain,
     chainId: pool.chainId,
     protocol: pool.protocol,

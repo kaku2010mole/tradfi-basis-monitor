@@ -6,6 +6,7 @@ export type OnchainPoolConfig = {
   displayQuote: string;
   stockSymbol: string;
   perpSymbol: string;
+  xstockUnitsPerPerp: number;
   chain: string;
   chainId: number;
   protocol: string;
@@ -24,6 +25,7 @@ export const ONCHAIN_POOLS: readonly OnchainPoolConfig[] = [
     displayQuote: "USDC",
     stockSymbol: "HK.01810",
     perpSymbol: "HK1810USDT",
+    xstockUnitsPerPerp: 7.84,
     chain: "X Layer",
     chainId: 196,
     protocol: "Uniswap V3",
@@ -40,6 +42,7 @@ export const ONCHAIN_POOLS: readonly OnchainPoolConfig[] = [
     displayQuote: "USDG",
     stockSymbol: "HK.00700",
     perpSymbol: "TENCENTUSDT",
+    xstockUnitsPerPerp: 1,
     chain: "X Layer",
     chainId: 196,
     protocol: "Uniswap V3",
@@ -56,6 +59,7 @@ export const ONCHAIN_POOLS: readonly OnchainPoolConfig[] = [
     displayQuote: "USDG",
     stockSymbol: "HK.03690",
     perpSymbol: "MEITUANUSDT",
+    xstockUnitsPerPerp: 1,
     chain: "X Layer",
     chainId: 196,
     protocol: "Uniswap V3",
@@ -72,6 +76,7 @@ export const ONCHAIN_POOLS: readonly OnchainPoolConfig[] = [
     displayQuote: "USDC",
     stockSymbol: "HK.09992",
     perpSymbol: "POPMARTUSDT",
+    xstockUnitsPerPerp: 1,
     chain: "X Layer",
     chainId: 196,
     protocol: "Uniswap V3",
@@ -88,6 +93,7 @@ export const ONCHAIN_POOLS: readonly OnchainPoolConfig[] = [
     displayQuote: "USDG",
     stockSymbol: "xyz:SHEIN",
     perpSymbol: "SHEINUSDT",
+    xstockUnitsPerPerp: 1,
     chain: "X Layer",
     chainId: 196,
     protocol: "Uniswap V3",
