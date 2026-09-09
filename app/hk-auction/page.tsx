@@ -33,12 +33,14 @@ type Payload = { quotes: Quote[]; usdHkd: number; timestamp: number; sources: { 
 type HistoryPoint = { t: number; value: number; stockCloseHkd?: number; perpClose?: number };
 type AdrBook = { symbol: string; streamKey: string; bid: number | null; ask: number | null; last: number | null; bidSize: number | null; askSize: number | null; timestamp: number };
 type AdrFeedState = "connecting" | "live" | "partial" | "reconnecting" | "unconfigured";
+type LiteAnchor = { price: number; timestamp: number; source: string };
 
 const STORAGE_KEY = "hk-auction-pairs-v5";
 const LEGACY_STORAGE_KEYS = ["hk-auction-pairs-v4", "hk-auction-pairs-v3", "hk-auction-pairs-v2", "hk-auction-pairs-v1"];
 const REMOVED_PERPS = new Set(["XIAOMIUSDT"]);
 const ADR_STALE_MS = 30_000;
 const ADR_BENCHMARK_MAX_AGE_MS = 96 * 60 * 60_000;
+const LITE_REFERENCE_SYMBOL = "LITE";
 const DEFAULT_ADR: Record<string, { adrSymbol: string; hkSharesPerAdr: number }> = {
   "HK.00700": { adrSymbol: "TCEHY", hkSharesPerAdr: 1 },
   "HK.01810": { adrSymbol: "XIACY", hkSharesPerAdr: 5 },
@@ -46,6 +48,7 @@ const DEFAULT_ADR: Record<string, { adrSymbol: string; hkSharesPerAdr: number }>
   "HK.03690": { adrSymbol: "MPNGY", hkSharesPerAdr: 2 },
   "HK.09992": { adrSymbol: "PMRTY", hkSharesPerAdr: 1 },
   "HK.00100": { adrSymbol: "MMXGY", hkSharesPerAdr: 0.2 },
+  "HK.00992": { adrSymbol: "LNVGY", hkSharesPerAdr: 20 },
 };
 const REQUIRED_NEW_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.03308", perpSymbol: "ZHONGJIUSDT", sharesPerContract: 1 },
@@ -149,6 +152,8 @@ export default function HkAuctionPage() {
   const [adrFeedState, setAdrFeedState] = useState<AdrFeedState>("connecting");
   const [adrFeedError, setAdrFeedError] = useState("");
   const [missingAdrStreams, setMissingAdrStreams] = useState<string[]>([]);
+  const [liteAnchor, setLiteAnchor] = useState<LiteAnchor | null>(null);
+  const [liteAnchorError, setLiteAnchorError] = useState("");
   const requestRef = useRef(false);
 
   useEffect(() => {
@@ -177,7 +182,33 @@ export default function HkAuctionPage() {
     } catch { /* Keep safe defaults. */ }
   }, []);
 
-  const adrSymbolsKey = useMemo(() => [...new Set(pairs.flatMap((pair) => pair.adrSymbol ? [pair.adrSymbol.toUpperCase()] : []))].sort().join(","), [pairs]);
+  const adrSymbolsKey = useMemo(() => [...new Set([
+    LITE_REFERENCE_SYMBOL,
+    ...pairs.flatMap((pair) => pair.adrSymbol ? [pair.adrSymbol.toUpperCase()] : []),
+  ])].sort().join(","), [pairs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadLiteAnchor = async () => {
+      try {
+        const response = await fetch("/api/hk-auction/lite-reference", { cache: "no-store", signal: AbortSignal.timeout(8_000) });
+        const result = await response.json() as { anchor?: LiteAnchor; error?: string };
+        if (!response.ok || !result.anchor) throw new Error(result.error || "LITE close-time benchmark is unavailable.");
+        if (!cancelled) {
+          setLiteAnchor(result.anchor);
+          setLiteAnchorError("");
+        }
+      } catch (error) {
+        if (!cancelled) setLiteAnchorError(error instanceof Error ? error.message : "LITE close-time benchmark is unavailable.");
+      }
+    };
+    void loadLiteAnchor();
+    const timer = window.setInterval(() => void loadLiteAnchor(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     const symbols = adrSymbolsKey.split(",").filter(Boolean);
@@ -391,6 +422,11 @@ export default function HkAuctionPage() {
           ? quote.metrics.binanceMid * perpsPerAdr : null;
         const adrBasisPct = adrMid !== null && binanceImpliedAdrUsd !== null && binanceImpliedAdrUsd > 0
           ? (adrMid / binanceImpliedAdrUsd - 1) * 100 : null;
+        const lite = adrBooks[LITE_REFERENCE_SYMBOL];
+        const liteUsable = Boolean(lite && now - lite.timestamp <= ADR_BENCHMARK_MAX_AGE_MS);
+        const litePrice = liteUsable && lite ? lite.bid !== null && lite.ask !== null ? (lite.bid + lite.ask) / 2 : lite.last : null;
+        const liteMoveFromHkClose = pair.perpSymbol === "ZHONGJIUSDT" && litePrice !== null && liteAnchor?.price
+          ? (litePrice / liteAnchor.price - 1) * 100 : null;
         const adrRich = adrBasisPct !== null && adrBasisPct >= 0;
         const cardHot = hot || (adrBasisPct !== null && Math.abs(adrBasisPct) >= alert);
         return <article key={id} className={`${styles.card} ${cardHot ? styles.hotCard : ""}`}>
@@ -406,6 +442,13 @@ export default function HkAuctionPage() {
                 <div><dt>Funding</dt><dd className={fundingPct !== null && fundingPct < 0 ? styles.negative : styles.positive}>{pct(fundingPct, 4)}</dd><small>Next {time(quote?.binance?.nextFundingTime)}</small></div>
               </dl>
             </section>
+            {pair.perpSymbol === "ZHONGJIUSDT" ? <section className={`${styles.liteReference} ${liteMoveFromHkClose === null ? styles.signalWaiting : ""}`}>
+              <div><span>LITE REFERENCE · SINCE HK CLOSE</span><strong className={liteMoveFromHkClose !== null && liteMoveFromHkClose < 0 ? styles.negative : styles.positive}>{pct(liteMoveFromHkClose)}</strong><small>Directional context for Zhongji · not an executable basis</small></div>
+              <dl>
+                <div><dt>LITE NOW · USD</dt><dd>{number(litePrice, 4)}</dd><small>{lite ? `Posley · ${time(lite.timestamp)} HKT` : "Waiting for Posley LITE"}</small></div>
+                <div><dt>HK CLOSE ANCHOR</dt><dd>{number(liteAnchor?.price, 4)}</dd><small>{liteAnchor ? `${time(liteAnchor.timestamp)} HKT · ${liteAnchor.source}` : liteAnchorError || "Reading 16:00 HKT benchmark"}</small></div>
+              </dl>
+            </section> : null}
             {pair.adrSymbol ? <section className={`${styles.signalRow} ${styles.adrSignal} ${adrBasisPct === null ? styles.signalWaiting : ""} ${adrBasisPct !== null && Math.abs(adrBasisPct) >= alert ? styles.signalRowHot : ""}`}>
               <div className={styles.signalBasis}><span>OVERNIGHT · POSLEY ADR ↔ BINANCE</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small title={adr?.streamKey}>{adrFresh ? `LIVE ADR · ${time(adr?.timestamp)}` : adrUsable && adr ? `US BENCHMARK · ${time(adr.timestamp)}` : adr ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
               <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{adrBasisPct === null ? "WAITING FOR BOTH VENUES" : adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}`}</strong><small>{adrBasisPct === null ? "Unavailable or expired data is excluded" : `${adrFresh ? "Live" : "Latest US benchmark"} ADR versus Binance · gap ${pct(Math.abs(adrBasisPct))}`}</small></div>
