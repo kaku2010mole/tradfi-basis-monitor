@@ -324,6 +324,9 @@ test("scans OKX stock spot books against executable Binance perpetual prices", a
   assert.match(route, /XSHEIN-USDT/);
   assert.match(route, /XPOPMART-USDT/);
   assert.match(route, /XXIAOMI-USDT.*HK1810USDT.*7\.84/s);
+  assert.match(route, /TRADIFI_PERPETUAL/);
+  assert.match(route, /exchangeInfo/);
+  assert.match(route, /scale < 0\.5 \|\| scale > 2/);
   assert.match(switcher, /href="\/onchain"/);
   assert.doesNotMatch(recorder, /onchainRecorderLoop|onchain-pools/);
 });

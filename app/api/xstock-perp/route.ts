@@ -13,9 +13,11 @@ type OkxTicker = { instId: string; bidPx?: string; bidSz?: string; askPx?: strin
 type BinanceBook = { symbol: string; bidPrice?: string; bidQty?: string; askPrice?: string; askQty?: string; time?: number };
 type BinancePremium = { symbol: string; markPrice?: string; indexPrice?: string; lastFundingRate?: string; nextFundingTime?: number; time?: number };
 type BinanceTicker = { symbol: string; quoteVolume?: string };
+type BinanceInstrument = { symbol: string; contractType?: string; underlyingType?: string; underlyingSubType?: string[]; status?: string };
 type CustomPair = { okx: string; perp: string; ratio: number };
 
 let instrumentCache: { expires: number; items: OkxInstrument[] } | null = null;
+let binanceTradfiCache: { expires: number; symbols: Set<string> } | null = null;
 let snapshotCache: { expires: number; value: ReturnType<typeof buildSnapshot> } | null = null;
 
 const number = (value: unknown) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; };
@@ -42,6 +44,20 @@ async function instruments() {
   return items;
 }
 
+async function binanceTradfiSymbols() {
+  if (binanceTradfiCache && binanceTradfiCache.expires > Date.now()) return binanceTradfiCache.symbols;
+  const payload = await json<{ symbols: BinanceInstrument[] }>(`${BINANCE_API}/exchangeInfo`);
+  const symbols = new Set(payload.symbols.filter((item) =>
+    item.status === "TRADING" && (
+      item.contractType === "TRADIFI_PERPETUAL" ||
+      item.underlyingSubType?.includes("TradFi") ||
+      /EQUITY/.test(item.underlyingType ?? "")
+    )
+  ).map((item) => item.symbol));
+  binanceTradfiCache = { expires: Date.now() + 5 * 60_000, symbols };
+  return symbols;
+}
+
 const parseCustom = (value: string | null): CustomPair[] => (value ?? "").split(",").flatMap((entry) => {
   const [okxRaw, perpRaw, ratioRaw] = entry.split("|");
   const okx = (okxRaw ?? "").trim().toUpperCase(); const perp = (perpRaw ?? "").trim().toUpperCase(); const ratio = Number(ratioRaw ?? 1);
@@ -49,15 +65,16 @@ const parseCustom = (value: string | null): CustomPair[] => (value ?? "").split(
 }).slice(0, 12);
 
 async function buildSnapshot() {
-  const [instrumentItems, okxPayload, books, premiums, tickers] = await Promise.all([
+  const [instrumentItems, tradfi, okxPayload, books, premiums, tickers] = await Promise.all([
     instruments(),
+    binanceTradfiSymbols(),
     json<{ code: string; data: OkxTicker[] }>(`${OKX_API}/market/tickers?instType=SPOT`),
     json<BinanceBook[]>(`${BINANCE_API}/ticker/bookTicker`),
     json<BinancePremium[]>(`${BINANCE_API}/premiumIndex`),
     json<BinanceTicker[]>(`${BINANCE_API}/ticker/24hr`),
   ]);
   return {
-    instrumentItems,
+    instrumentItems, tradfi,
     okx: new Map(okxPayload.data.map((item) => [item.instId, item])),
     books: new Map(books.map((item) => [item.symbol, item])),
     premiums: new Map(premiums.map((item) => [item.symbol, item])),
@@ -76,12 +93,14 @@ export async function GET(request: Request) {
     const url = new URL(request.url); const custom = parseCustom(url.searchParams.get("pairs"));
     const data = await snapshot();
     const customByOkx = new Map(custom.map((item) => [item.okx, { perp: item.perp, ratio: item.ratio }]));
-    const configs = data.instrumentItems.map((instrument) => {
+    const configs = data.instrumentItems.flatMap((instrument) => {
       const base = instrument.baseCcy.toUpperCase(); const inferred = base.startsWith("X") ? `${base.slice(1)}USDT` : "";
       const mapping = customByOkx.get(instrument.instId) ?? PRIORITY.get(instrument.instId) ?? { perp: inferred, ratio: 1 };
-      return { instrument, ...mapping, priority: PRIORITY.has(instrument.instId) };
+      const priority = PRIORITY.has(instrument.instId); const isCustom = customByOkx.has(instrument.instId);
+      if (!priority && !isCustom && !data.tradfi.has(mapping.perp)) return [];
+      return [{ instrument, ...mapping, priority, isCustom }];
     });
-    custom.forEach((item) => { if (!configs.some((config) => config.instrument.instId === item.okx)) configs.push({ instrument: { instId: item.okx, instType: "SPOT", baseCcy: item.okx.split("-")[0], quoteCcy: "USDT", state: "live" }, perp: item.perp, ratio: item.ratio, priority: false }); });
+    custom.forEach((item) => { if (!configs.some((config) => config.instrument.instId === item.okx)) configs.push({ instrument: { instId: item.okx, instType: "SPOT", baseCcy: item.okx.split("-")[0], quoteCcy: "USDT", state: "live" }, perp: item.perp, ratio: item.ratio, priority: false, isCustom: true }); });
 
     const rows = configs.flatMap((config) => {
       const spot = data.okx.get(config.instrument.instId); const book = data.books.get(config.perp); const premium = data.premiums.get(config.perp); const ticker = data.tickers.get(config.perp);
@@ -89,6 +108,12 @@ export async function GET(request: Request) {
       if ((spotBid === null || spotAsk === null) && !config.priority) return [];
       if ((!book || !premium) && !config.priority && !customByOkx.has(config.instrument.instId)) return [];
       const perpBid = perpBidRaw === null ? null : perpBidRaw / config.ratio; const perpAsk = perpAskRaw === null ? null : perpAskRaw / config.ratio;
+      const spotMid = spotBid !== null && spotAsk !== null ? (spotBid + spotAsk) / 2 : null;
+      const perpMid = perpBid !== null && perpAsk !== null ? (perpBid + perpAsk) / 2 : null;
+      if (!config.priority && !config.isCustom && spotMid !== null && perpMid !== null) {
+        const scale = perpMid / spotMid;
+        if (scale < 0.5 || scale > 2) return [];
+      }
       const longSpotEdge = spotAsk !== null && perpBid !== null ? (perpBid / spotAsk - 1) * 100 : null;
       const shortSpotEdge = spotBid !== null && perpAsk !== null ? (spotBid / perpAsk - 1) * 100 : null;
       const bestEdge = longSpotEdge === null ? shortSpotEdge : shortSpotEdge === null ? longSpotEdge : Math.max(longSpotEdge, shortSpotEdge);
