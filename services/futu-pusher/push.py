@@ -28,7 +28,7 @@ SYMBOLS = [
     item.strip()
     for item in os.getenv(
         "FUTU_SYMBOLS",
-        "HK.00388,HK.00625,HK.00700,HK.00992,HK.01024,HK.01211,HK.01810,HK.02097,HK.03690,HK.09992,HK.00100,HK.02513,HK.03308,HK.03986,HK.800000,HK.HSImain",
+        "HK.00388,HK.00625,HK.00700,HK.00992,HK.01024,HK.01211,HK.01810,HK.02097,HK.03690,HK.09988,HK.09992,HK.00100,HK.02513,HK.03308,HK.03986,HK.800000,HK.HSImain,US.LNVGY,US.NVDA",
     ).split(",")
     if item.strip()
 ]
@@ -84,6 +84,7 @@ def build_history(context: OpenQuoteContext) -> dict[str, list[list[float | int]
     for symbol in SYMBOLS:
         frames = []
         page_key = None
+        failed = False
         while True:
             ret, frame, page_key = context.request_history_kline(
                 symbol,
@@ -93,12 +94,17 @@ def build_history(context: OpenQuoteContext) -> dict[str, list[list[float | int]
                 autype=AuType.NONE,
                 max_count=1000,
                 page_req_key=page_key,
+                extended_time=symbol.startswith("US."),
             )
             if ret != RET_OK:
-                raise RuntimeError(f"Futu history failed for {symbol}: {frame}")
+                print(f"Futu history unavailable for {symbol}: {frame}", file=sys.stderr, flush=True)
+                failed = True
+                break
             frames.extend(frame[["time_key", "close"]].to_dict("records"))
             if not page_key:
                 break
+        if failed:
+            continue
         points: list[list[float | int]] = []
         limit = HSI_HISTORY_LIMIT if symbol in {"HK.800000", "HK.HSImain"} else HISTORY_LIMIT
         for row in frames[-limit:]:
@@ -116,15 +122,17 @@ def build_history(context: OpenQuoteContext) -> dict[str, list[list[float | int]
 def build_payload(context: OpenQuoteContext, history: dict[str, list[list[float | int]]]) -> dict[str, object]:
     generated_at = int(time.time() * 1000)
     state_ret, state = context.get_global_state()
-    market_state = str(state.get("market_hk")) if state_ret == RET_OK and hasattr(state, "get") else None
+    hk_market_state = str(state.get("market_hk")) if state_ret == RET_OK and hasattr(state, "get") else None
+    us_market_state = str(state.get("market_us")) if state_ret == RET_OK and hasattr(state, "get") else None
     snapshot_ret, snapshot = context.get_market_snapshot(SYMBOLS)
     if snapshot_ret != RET_OK:
         raise RuntimeError(f"Futu snapshot failed: {snapshot}")
     snapshot_by_code = {str(row.get("code")): row for _, row in snapshot.iterrows()}
-    book_required = market_state is not None and market_state.upper() in LIVE_BOOK_STATES
     quotes: list[dict[str, object]] = []
     orderbooks: list[dict[str, object]] = []
     for symbol in SYMBOLS:
+        market_state = us_market_state if symbol.startswith("US.") else hk_market_state
+        book_required = market_state is not None and market_state.upper() in LIVE_BOOK_STATES
         row = snapshot_by_code.get(symbol)
         book_ret, book = (RET_OK, {}) if symbol in SNAPSHOT_ONLY_SYMBOLS else context.get_order_book(symbol, num=10)
         if row is None:
