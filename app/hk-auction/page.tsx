@@ -29,7 +29,17 @@ type Quote = PairConfig & {
   };
   status: "live" | "stale" | "partial";
 };
-type Payload = { quotes: Quote[]; usdHkd: number; timestamp: number; sources: { futu: boolean; binance: boolean }; errors: string[] };
+type OpenDReference = {
+  symbol: string;
+  bid: number | null;
+  ask: number | null;
+  last: number | null;
+  previousClose: number | null;
+  marketTimestamp: number | null;
+  stale: boolean | null;
+  hkCloseAnchor: { price: number; timestamp: number; source: string } | null;
+};
+type Payload = { quotes: Quote[]; references?: Record<string, OpenDReference>; usdHkd: number; timestamp: number; sources: { futu: boolean; binance: boolean }; errors: string[] };
 type HistoryPoint = { t: number; value: number; stockCloseHkd?: number; perpClose?: number };
 type AdrBook = { symbol: string; streamKey: string; bid: number | null; ask: number | null; last: number | null; bidSize: number | null; askSize: number | null; timestamp: number };
 type AdrFeedState = "connecting" | "live" | "partial" | "reconnecting" | "unconfigured";
@@ -41,6 +51,7 @@ const REMOVED_PERPS = new Set(["XIAOMIUSDT"]);
 const ADR_STALE_MS = 30_000;
 const ADR_BENCHMARK_MAX_AGE_MS = 96 * 60 * 60_000;
 const LITE_REFERENCE_SYMBOL = "LITE";
+const OPEND_ADR_SYMBOLS = new Set(["LNVGY"]);
 const DEFAULT_ADR: Record<string, { adrSymbol: string; hkSharesPerAdr: number }> = {
   "HK.00700": { adrSymbol: "TCEHY", hkSharesPerAdr: 1 },
   "HK.01810": { adrSymbol: "XIACY", hkSharesPerAdr: 5 },
@@ -184,7 +195,7 @@ export default function HkAuctionPage() {
 
   const adrSymbolsKey = useMemo(() => [...new Set([
     LITE_REFERENCE_SYMBOL,
-    ...pairs.flatMap((pair) => pair.adrSymbol ? [pair.adrSymbol.toUpperCase()] : []),
+    ...pairs.flatMap((pair) => pair.adrSymbol && !OPEND_ADR_SYMBOLS.has(pair.adrSymbol.toUpperCase()) ? [pair.adrSymbol.toUpperCase()] : []),
   ])].sort().join(","), [pairs]);
 
   useEffect(() => {
@@ -341,9 +352,14 @@ export default function HkAuctionPage() {
     const score = (pair: PairConfig) => {
       const quote = quoteById.get(`${pair.stockSymbol}:${pair.perpSymbol}`);
       if (!adrSortActive) return quote?.metrics.midBasisPct === null || quote?.metrics.midBasisPct === undefined ? -1 : Math.abs(quote.metrics.midBasisPct);
-      const adr = pair.adrSymbol ? adrBooks[pair.adrSymbol] : undefined;
-      if (!adr || now - adr.timestamp > ADR_BENCHMARK_MAX_AGE_MS || quote?.metrics.binanceMid === null || quote?.metrics.binanceMid === undefined || !pair.hkSharesPerAdr) return -1;
-      const adrMid = adr.bid !== null && adr.ask !== null ? (adr.bid + adr.ask) / 2 : adr.last;
+      const openDAdr = pair.adrSymbol && OPEND_ADR_SYMBOLS.has(pair.adrSymbol) ? payload?.references?.[pair.adrSymbol] : undefined;
+      const posleyAdr = pair.adrSymbol ? adrBooks[pair.adrSymbol] : undefined;
+      const timestamp = openDAdr?.marketTimestamp ?? posleyAdr?.timestamp ?? null;
+      if (!timestamp || now - timestamp > ADR_BENCHMARK_MAX_AGE_MS || quote?.metrics.binanceMid === null || quote?.metrics.binanceMid === undefined || !pair.hkSharesPerAdr) return -1;
+      const bid = openDAdr?.bid ?? posleyAdr?.bid ?? null;
+      const ask = openDAdr?.ask ?? posleyAdr?.ask ?? null;
+      const last = openDAdr?.last ?? posleyAdr?.last ?? null;
+      const adrMid = bid !== null && ask !== null ? (bid + ask) / 2 : last;
       const perpsPerAdr = pair.hkSharesPerAdr / pair.sharesPerContract;
       const binanceImpliedAdr = quote.metrics.binanceMid * perpsPerAdr;
       return adrMid === null || binanceImpliedAdr <= 0 ? -1 : Math.abs((adrMid / binanceImpliedAdr - 1) * 100);
@@ -351,14 +367,14 @@ export default function HkAuctionPage() {
     const leftScore = score(left);
     const rightScore = score(right);
     return rightScore - leftScore;
-  }), [adrBooks, adrSortActive, now, pairs, quoteById]);
+  }), [adrBooks, adrSortActive, now, pairs, payload?.references, quoteById]);
   const futuState = payload?.quotes.find((quote) => quote.futu?.marketState)?.futu?.marketState;
   const session = sessionState(now, futuState);
   const alert = Number(threshold) || 0;
 
   return <main className={styles.shell}>
     <header className={styles.topbar}>
-      <div><p>HKEX PRE-OPEN / CROSS-VENUE BASIS</p><h1>HK Auction Basis</h1><small>Futu auction versus Binance perpetuals and Posley ADRs</small></div>
+      <div><p>HKEX PRE-OPEN / CROSS-VENUE BASIS</p><h1>HK Auction Basis</h1><small>Futu auction versus Binance perpetuals · Posley and Futu OpenD US references</small></div>
       <div className={styles.topActions}><span className={styles.clock}>{time(now)} HKT</span><PageSwitcher active="auction" /></div>
     </header>
 
@@ -375,7 +391,7 @@ export default function HkAuctionPage() {
     <section className={styles.controls}>
       <label><span>USD / HKD</span><input type="number" min="1" max="20" step="0.0001" value={usdHkd} onChange={(event) => setUsdHkd(event.target.value)} /><small>FX conversion · separate from shares/contract</small></label>
       <label><span>Alert threshold</span><input type="number" min="0" max="100" step="0.05" value={threshold} onChange={(event) => setThreshold(event.target.value)} /><small>Absolute midpoint basis %</small></label>
-      <div className={styles.formula}><span>CROSS-VENUE NORMALIZATION</span><strong>HK basis: Futu stock ↔ Binance perp · ADR basis: Posley ADR ↔ Binance perp</strong><small>Each comparison is normalized by its HK-share exposure.</small></div>
+      <div className={styles.formula}><span>CROSS-VENUE NORMALIZATION</span><strong>HK basis: Futu stock ↔ Binance perp · ADR basis: US reference ↔ Binance perp</strong><small>LNVGY and NVDA come from Futu OpenD; other ADR streams use Posley.</small></div>
       <button onClick={() => setManagerOpen((open) => !open)}>{managerOpen ? "Close pair setup" : "Manage pairs"}</button>
     </section>
 
@@ -412,10 +428,15 @@ export default function HkAuctionPage() {
         const signalEdge = signalReady ? Math.max(richEdge ?? -Infinity, cheapEdge ?? -Infinity) : null;
         const activeTab = cardTabs[id] ?? "overview";
         const fundingPct = quote?.binance?.fundingRate === null || quote?.binance?.fundingRate === undefined ? null : quote.binance.fundingRate * 100;
-        const adr = pair.adrSymbol ? adrBooks[pair.adrSymbol] : undefined;
-        const adrFresh = Boolean(adr && now - adr.timestamp <= ADR_STALE_MS);
-        const adrUsable = Boolean(adr && now - adr.timestamp <= ADR_BENCHMARK_MAX_AGE_MS);
-        const adrMid = adrUsable && adr ? adr.bid !== null && adr.ask !== null ? (adr.bid + adr.ask) / 2 : adr.last : null;
+        const openDAdr = pair.adrSymbol && OPEND_ADR_SYMBOLS.has(pair.adrSymbol) ? payload?.references?.[pair.adrSymbol] : undefined;
+        const posleyAdr = pair.adrSymbol ? adrBooks[pair.adrSymbol] : undefined;
+        const adrTimestamp = openDAdr?.marketTimestamp ?? posleyAdr?.timestamp ?? null;
+        const adrFresh = Boolean(adrTimestamp && now - adrTimestamp <= ADR_STALE_MS);
+        const adrUsable = Boolean(adrTimestamp && now - adrTimestamp <= ADR_BENCHMARK_MAX_AGE_MS);
+        const adrBid = openDAdr?.bid ?? posleyAdr?.bid ?? null;
+        const adrAsk = openDAdr?.ask ?? posleyAdr?.ask ?? null;
+        const adrLast = openDAdr?.last ?? posleyAdr?.last ?? null;
+        const adrMid = adrUsable ? adrBid !== null && adrAsk !== null ? (adrBid + adrAsk) / 2 : adrLast : null;
         const adrRatio = pair.hkSharesPerAdr ?? null;
         const perpsPerAdr = adrRatio !== null ? adrRatio / pair.sharesPerContract : null;
         const binanceImpliedAdrUsd = quote?.metrics.binanceMid !== null && quote?.metrics.binanceMid !== undefined && perpsPerAdr !== null
@@ -427,6 +448,13 @@ export default function HkAuctionPage() {
         const litePrice = liteUsable && lite ? lite.bid !== null && lite.ask !== null ? (lite.bid + lite.ask) / 2 : lite.last : null;
         const liteMoveFromHkClose = pair.perpSymbol === "ZHONGJIUSDT" && litePrice !== null && liteAnchor?.price
           ? (litePrice / liteAnchor.price - 1) * 100 : null;
+        const nvda = payload?.references?.NVDA;
+        const nvdaTimestamp = nvda?.marketTimestamp ?? null;
+        const nvdaUsable = Boolean(nvdaTimestamp && now - nvdaTimestamp <= ADR_BENCHMARK_MAX_AGE_MS);
+        const nvdaPrice = nvdaUsable && nvda ? nvda.bid !== null && nvda.ask !== null ? (nvda.bid + nvda.ask) / 2 : nvda.last : null;
+        const nvdaAnchor = nvda?.hkCloseAnchor?.price ?? nvda?.previousClose ?? null;
+        const nvdaMove = pair.perpSymbol === "GIGADEVUSDT" && nvdaPrice !== null && nvdaAnchor !== null
+          ? (nvdaPrice / nvdaAnchor - 1) * 100 : null;
         const adrRich = adrBasisPct !== null && adrBasisPct >= 0;
         const cardHot = hot || (adrBasisPct !== null && Math.abs(adrBasisPct) >= alert);
         return <article key={id} className={`${styles.card} ${cardHot ? styles.hotCard : ""}`}>
@@ -449,8 +477,15 @@ export default function HkAuctionPage() {
                 <div><dt>HK CLOSE ANCHOR</dt><dd>{number(liteAnchor?.price, 4)}</dd><small>{liteAnchor ? `${time(liteAnchor.timestamp)} HKT · ${liteAnchor.source}` : liteAnchorError || "Reading 16:00 HKT benchmark"}</small></div>
               </dl>
             </section> : null}
+            {pair.perpSymbol === "GIGADEVUSDT" ? <section className={`${styles.liteReference} ${nvdaMove === null ? styles.signalWaiting : ""}`}>
+              <div><span>NVDA REFERENCE · SINCE HK CLOSE</span><strong className={nvdaMove !== null && nvdaMove < 0 ? styles.negative : styles.positive}>{pct(nvdaMove)}</strong><small>Directional semiconductor context for GIGADEV · not an executable basis</small></div>
+              <dl>
+                <div><dt>NVDA NOW · USD</dt><dd>{number(nvdaPrice, 4)}</dd><small>{nvdaTimestamp ? `Futu OpenD · ${time(nvdaTimestamp)} HKT` : "Waiting for Futu OpenD NVDA"}</small></div>
+                <div><dt>{nvda?.hkCloseAnchor ? "HK CLOSE ANCHOR" : "US PRIOR CLOSE"}</dt><dd>{number(nvdaAnchor, 4)}</dd><small>{nvda?.hkCloseAnchor ? `${time(nvda.hkCloseAnchor.timestamp)} HKT · OpenD 1m` : "Fallback when a 16:00 HKT bar is unavailable"}</small></div>
+              </dl>
+            </section> : null}
             {pair.adrSymbol ? <section className={`${styles.signalRow} ${styles.adrSignal} ${adrBasisPct === null ? styles.signalWaiting : ""} ${adrBasisPct !== null && Math.abs(adrBasisPct) >= alert ? styles.signalRowHot : ""}`}>
-              <div className={styles.signalBasis}><span>OVERNIGHT · POSLEY ADR ↔ BINANCE</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small title={adr?.streamKey}>{adrFresh ? `LIVE ADR · ${time(adr?.timestamp)}` : adrUsable && adr ? `US BENCHMARK · ${time(adr.timestamp)}` : adr ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
+              <div className={styles.signalBasis}><span>OVERNIGHT · {openDAdr ? "FUTU OPEND" : "POSLEY"} ADR ↔ BINANCE</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small title={posleyAdr?.streamKey}>{adrFresh ? `LIVE ADR · ${time(adrTimestamp)}` : adrUsable ? `US BENCHMARK · ${time(adrTimestamp)}` : adrTimestamp ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
               <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{adrBasisPct === null ? "WAITING FOR BOTH VENUES" : adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}`}</strong><small>{adrBasisPct === null ? "Unavailable or expired data is excluded" : `${adrFresh ? "Live" : "Latest US benchmark"} ADR versus Binance · gap ${pct(Math.abs(adrBasisPct))}`}</small></div>
               <dl className={`${styles.signalMetrics} ${styles.adrMetrics}`}>
                 <div><dt>{pair.adrSymbol} · USD</dt><dd>{number(adrMid, 4)}</dd></div>
@@ -469,6 +504,6 @@ export default function HkAuctionPage() {
       })}</div>
     </section>
 
-    <footer className={styles.pageFooter}>Raw basis excludes fees, funding, FX execution cost, ADR fees and lot-size rounding. ADR basis compares Posley ADR directly with Binance perp after HK-share exposure normalization; ADR data older than 96 hours and missing venue data remain blank.</footer>
+    <footer className={styles.pageFooter}>Raw basis excludes fees, funding, FX execution cost, ADR fees and lot-size rounding. LNVGY is read from Futu OpenD and normalized at 1 ADR = 20 Lenovo HK shares. NVDA is directional context only; it is not fungible with GIGADEV and is never shown as an executable basis.</footer>
   </main>;
 }
