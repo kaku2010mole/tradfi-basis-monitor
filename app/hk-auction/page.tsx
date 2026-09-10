@@ -67,6 +67,13 @@ const ASSET_TIERS: Record<string, { grade: AssetTier; label: string; reason: str
   "HK.03986": { grade: "B", label: "SELECTIVE", reason: "NVDA is a directional semiconductor reference, not a hedge" },
 };
 const TIER_LABELS: Record<AssetTier, string> = { S: "Top", A: "High quality", B: "Selective", C: "Tactical" };
+const TIER_DESCRIPTIONS: Record<AssetTier, string> = {
+  S: "Core names",
+  A: "High-conviction mappings",
+  B: "Selective opportunities",
+  C: "Tactical watchlist",
+};
+const TIER_ORDER: AssetTier[] = ["S", "A", "B", "C"];
 const DEFAULT_ADR: Record<string, { adrSymbol: string; hkSharesPerAdr: number }> = {
   "HK.00700": { adrSymbol: "TCEHY", hkSharesPerAdr: 1 },
   "HK.01810": { adrSymbol: "XIACY", hkSharesPerAdr: 5 },
@@ -387,6 +394,10 @@ export default function HkAuctionPage() {
     const rightScore = score(right);
     return rightScore - leftScore;
   }), [adrBooks, adrSortActive, now, pairs, payload?.references, quoteById]);
+  const tierGroups = useMemo(() => TIER_ORDER.map((tier) => ({
+    tier,
+    pairs: orderedPairs.filter((pair) => (pair.tier ?? ASSET_TIERS[pair.stockSymbol]?.grade ?? "C") === tier),
+  })).filter((group) => group.pairs.length), [orderedPairs]);
   const futuState = payload?.quotes.find((quote) => quote.futu?.marketState)?.futu?.marketState;
   const session = sessionState(now, futuState);
   const alert = Number(threshold) || 0;
@@ -428,8 +439,10 @@ export default function HkAuctionPage() {
     {adrFeedError || missingAdrStreams.length ? <div className={styles.notice}><strong>Posley ADR</strong><span>{adrFeedError || "Some configured ADR streams are not currently published."}{missingAdrStreams.length ? ` Missing: ${missingAdrStreams.join(", ")}.` : ""}</span></div> : null}
 
     <section className={styles.board}>
-      <div className={styles.boardHead}><div><span>MONITORED MAPPINGS</span><h2>Executable auction basis</h2></div><p>{loading ? "Connecting…" : `${payload?.quotes.filter((quote) => quote.status === "live").length ?? 0}/${pairs.length} fully live`} · {adrSortActive ? "night ranking by |ADR/Binance basis| · 21:00–06:00 HKT" : "ranking by |Futu/Binance basis|"}</p></div>
-      <div className={styles.cards}>{orderedPairs.map((pair) => {
+      <div className={styles.boardHead}><div><span>MONITORED MAPPINGS</span><h2>Executable auction basis</h2></div><p>{loading ? "Connecting…" : `${payload?.quotes.filter((quote) => quote.status === "live").length ?? 0}/${pairs.length} fully live`} · grouped by your tags · {adrSortActive ? "night ranking by |ADR/Binance basis|" : "ranking by |Futu/Binance basis|"}</p></div>
+      <div className={styles.tierGroups}>{tierGroups.map((group) => <section className={`${styles.tierGroup} ${styles[`tierGroup${group.tier}`]}`} key={group.tier}>
+        <header className={styles.tierGroupHead}><div><strong>TAG {group.tier}</strong><span>{TIER_LABELS[group.tier]}</span><small>{TIER_DESCRIPTIONS[group.tier]}</small></div><b>{group.pairs.length} {group.pairs.length === 1 ? "PAIR" : "PAIRS"}</b></header>
+        <div className={styles.cards}>{group.pairs.map((pair) => {
         const id = `${pair.stockSymbol}:${pair.perpSymbol}`;
         const quote = quoteById.get(id);
         const suggestedTier = ASSET_TIERS[pair.stockSymbol] ?? { grade: "C" as const, label: "TACTICAL", reason: "Smaller or less directly hedgeable cross-venue market" };
@@ -479,7 +492,7 @@ export default function HkAuctionPage() {
         const adrRich = adrBasisPct !== null && adrBasisPct >= 0;
         const cardHot = hot || (adrBasisPct !== null && Math.abs(adrBasisPct) >= alert);
         return <article key={id} className={`${styles.card} ${cardHot ? styles.hotCard : ""}`}>
-          <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{isHkQuotedPerp(pair.perpSymbol) ? `1 Binance perp ↔ ${pair.sharesPerContract.toLocaleString()} HK shares` : `${pair.sharesPerContract.toLocaleString()} shares / perp`}{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={styles.headerMeta}><label className={`${styles.tierControl} ${styles[`tier${tier}`]}`} title={`Suggested: Tier ${suggestedTier.grade} · ${suggestedTier.reason}`}><span>TIER</span><select aria-label={`Tier for ${pair.perpSymbol}`} value={tier} onChange={(event) => updateTier(pair, event.target.value as AssetTier)}><option value="S">S · Top</option><option value="A">A · High quality</option><option value="B">B · Selective</option><option value="C">C · Tactical</option></select><small>{TIER_LABELS[tier]}</small></label><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></div></header>
+          <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{isHkQuotedPerp(pair.perpSymbol) ? `1 Binance perp ↔ ${pair.sharesPerContract.toLocaleString()} HK shares` : `${pair.sharesPerContract.toLocaleString()} shares / perp`}{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={styles.headerMeta}><label className={`${styles.tierControl} ${styles[`tier${tier}`]}`} title={`Suggested: Tier ${suggestedTier.grade} · ${suggestedTier.reason}`}><span>TAG</span><select aria-label={`Tier for ${pair.perpSymbol}`} value={tier} onChange={(event) => updateTier(pair, event.target.value as AssetTier)}><option value="S">S · Top</option><option value="A">A · High quality</option><option value="B">B · Selective</option><option value="C">C · Tactical</option></select><small>{TIER_LABELS[tier]}</small></label><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></div></header>
           <div className={styles.cardSignals}>
             <section className={`${styles.signalRow} ${styles.hkSignal} ${!signalReady ? styles.signalWaiting : ""}`}>
               <div className={styles.signalBasis}><span>PRIMARY · FUTU ↔ BINANCE</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>MID BASIS · {quote?.metrics.stockReferenceSource === "close-price" ? "official close" : quote?.metrics.stockReferenceSource === "auction-price" ? "auction / IEP" : quote?.metrics.stockReferenceSource === "book-mid" ? "live BBO" : "waiting"}</small></div>
@@ -522,7 +535,8 @@ export default function HkAuctionPage() {
           {activeTab === "history" ? <div className={styles.tabPanel} role="tabpanel">{historyLoading[id] ? <div className={styles.emptyChart}>Reading Futu and Binance one-minute history…</div> : historyError[id] ? <div className={styles.historyFailure}><strong>History unavailable</strong><span>{historyError[id]}</span><button onClick={() => void loadHistory(id, pair)}>Retry</button></div> : <SpreadHistory points={history[id] ?? []} cursor={historyCursor[id]} onCursor={(index) => setHistoryCursor((current) => ({ ...current, [id]: index }))} />}</div> : null}
           <footer><span>Futu {time(quote?.futu?.marketTimestamp)} HKT</span><span>Binance {time(quote?.binance?.marketTimestamp)} HKT</span><button aria-label={`Remove ${pair.perpSymbol}`} onClick={() => savePairs(pairs.filter((item) => item.stockSymbol !== pair.stockSymbol || item.perpSymbol !== pair.perpSymbol))}>Remove</button></footer>
         </article>;
-      })}</div>
+        })}</div>
+      </section>)}</div>
     </section>
 
     <footer className={styles.pageFooter}>Raw basis excludes fees, funding, FX execution cost, ADR fees and lot-size rounding. LNVGY is read from Futu OpenD and normalized at 1 ADR = 20 Lenovo HK shares. NVDA is directional context only; it is not fungible with GIGADEV and is never shown as an executable basis.</footer>
