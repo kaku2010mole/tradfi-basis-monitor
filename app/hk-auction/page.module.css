@@ -42,6 +42,15 @@
 .card>header { min-height:66px; display:flex; align-items:center; justify-content:space-between; gap:18px; padding:13px 16px; border-bottom:1px solid #dce3de; }
 .card h3 { margin:7px 0 5px; font:900 19px/1 monospace; letter-spacing:-.04em; }
 .card header small { display:block; color:#69766f; font:9px/1.4 monospace; }
+.headerMeta { display:flex; align-items:center; gap:7px; flex:0 0 auto; }
+.tierControl { display:grid; grid-template-columns:auto auto; align-items:center; gap:2px 5px; padding:5px 8px; border:1px solid #d6ddd8; border-radius:8px; color:#657169!important; background:#f6f8f5; white-space:nowrap; }
+.tierControl>span { grid-row:1/3; font-size:7px!important; letter-spacing:.06em!important; }
+.tierControl select { min-width:42px; border:0; outline:0; appearance:auto; background:transparent; color:inherit; cursor:pointer; font:950 11px/1 monospace; }
+.tierControl small { margin:0; color:inherit!important; font:750 7px/1 monospace!important; }
+.tierS { border-color:#bca14d; color:#755b0f!important; background:#fff8d8; }
+.tierA { border-color:#9fcfbd; color:#0d7455!important; background:#ecf8f3; }
+.tierB { border-color:#b8c5df; color:#53658f!important; background:#f0f3fb; }
+.tierC { border-color:#d6ddd8; color:#68746d!important; background:#f5f7f4; }
 .status { display:flex; align-items:center; gap:7px; flex:0 0 auto; padding:8px 10px; border:1px solid #ead0cc; border-radius:99px; color:#a64d47; font:800 8px monospace; text-transform:uppercase; }
 .status.live { border-color:#b9e1d0; color:#14825e; background:#eefaf5; }
 .status.stale { border-color:#e8d3a4; color:#9a6b1d; }
@@ -123,4 +132,4 @@
 @media(max-width:1240px){.cards{grid-template-columns:1fr}.card{max-width:980px;width:100%;margin-inline:auto}}
 @media(max-width:980px){.sessionHero{grid-template-columns:1fr 1.4fr}.links{grid-column:1/-1}.controls{grid-template-columns:1fr 1fr}.formula{border-left:0}.manager{grid-template-columns:1fr 1fr 1fr}.manager button{min-height:58px}.signalRow{grid-template-columns:155px minmax(0,1fr)}.signalMetrics{grid-column:1/-1;border-top:1px solid #dfe5e0}.signalDirection{border-right:0}.signalMetrics>div{padding:7px 10px}.adrSignal{grid-template-columns:145px minmax(0,1fr)}.adrSignal .signalMetrics{grid-column:1/-1}}
 @media(max-width:720px){.shell{padding-inline:10px}.topbar{align-items:flex-start;padding:15px 0}.topbar small,.clock{display:none}.sessionHero{grid-template-columns:1fr;gap:18px;margin-top:12px}.sessionTrack{margin-bottom:18px}.links{grid-column:auto;grid-template-columns:1fr}.controls,.manager{grid-template-columns:1fr}.formula{padding:7px 0}.cards{padding:7px;gap:9px}.boardHead{align-items:flex-start;flex-direction:column;gap:7px}.hkSignal{grid-template-columns:1fr}.hkSignal .signalBasis,.hkSignal .signalDirection{border-right:0;border-bottom:1px solid #dfe5e0}.hkSignal .signalBasis{grid-template-columns:1fr auto;gap:4px 12px;align-items:center}.hkSignal .signalBasis>strong{grid-column:2;grid-row:1/3;font-size:34px}.signalMetrics{grid-template-columns:1fr 1fr}.signalMetrics>div:nth-child(2n){border-right:0}.signalMetrics>div:nth-child(n+3){margin-top:9px}.liteReference{grid-template-columns:1fr}.liteReference>div{border-right:0;border-bottom:1px solid #dce1ec}.adrSignal{grid-template-columns:1fr 1.35fr}.adrSignal .signalBasis,.adrSignal .signalDirection{border-bottom:1px solid #e4dfd4}.adrSignal .signalMetrics{grid-template-columns:repeat(3,1fr)}.adrSignal .signalMetrics>div{margin-top:0}.chartReadout{grid-template-columns:1fr 1fr}.chartReadout>div:last-child{grid-column:1/-1}.chart{height:190px}.card>footer{flex-wrap:wrap}}
-@media(max-width:430px){.card>header{align-items:flex-start}.signalDirection>strong{font-size:15px}.signalMetrics,.adrMetrics{grid-template-columns:1fr 1fr}.signalMetrics dd{font-size:13px}.cardTabs button{padding-inline:9px;font-size:8px}}
+@media(max-width:430px){.card>header{align-items:flex-start}.headerMeta{align-items:flex-end;flex-direction:column}.tierControl{padding:4px 7px}.signalDirection>strong{font-size:15px}.signalMetrics,.adrMetrics{grid-template-columns:1fr 1fr}.signalMetrics dd{font-size:13px}.cardTabs button{padding-inline:9px;font-size:8px}}
