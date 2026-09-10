@@ -76,12 +76,12 @@ def history_timestamp(value: object) -> int | None:
         return None
 
 
-def build_history(context: OpenQuoteContext) -> dict[str, list[list[float | int]]]:
+def build_history(context: OpenQuoteContext, symbols: list[str]) -> dict[str, list[list[float | int]]]:
     today = datetime.now(HKT).date()
     start = (today - timedelta(days=7)).isoformat()
     end = today.isoformat()
     result: dict[str, list[list[float | int]]] = {}
-    for symbol in SYMBOLS:
+    for symbol in symbols:
         frames = []
         page_key = None
         failed = False
@@ -119,22 +119,27 @@ def build_history(context: OpenQuoteContext) -> dict[str, list[list[float | int]
     return result
 
 
-def build_payload(context: OpenQuoteContext, history: dict[str, list[list[float | int]]]) -> dict[str, object]:
+def build_payload(
+    context: OpenQuoteContext,
+    history: dict[str, list[list[float | int]]],
+    quote_symbols: list[str],
+    orderbook_symbols: set[str],
+) -> dict[str, object]:
     generated_at = int(time.time() * 1000)
     state_ret, state = context.get_global_state()
     hk_market_state = str(state.get("market_hk")) if state_ret == RET_OK and hasattr(state, "get") else None
     us_market_state = str(state.get("market_us")) if state_ret == RET_OK and hasattr(state, "get") else None
-    snapshot_ret, snapshot = context.get_market_snapshot(SYMBOLS)
+    snapshot_ret, snapshot = context.get_market_snapshot(quote_symbols)
     if snapshot_ret != RET_OK:
         raise RuntimeError(f"Futu snapshot failed: {snapshot}")
     snapshot_by_code = {str(row.get("code")): row for _, row in snapshot.iterrows()}
     quotes: list[dict[str, object]] = []
     orderbooks: list[dict[str, object]] = []
-    for symbol in SYMBOLS:
+    for symbol in quote_symbols:
         market_state = us_market_state if symbol.startswith("US.") else hk_market_state
         book_required = market_state is not None and market_state.upper() in LIVE_BOOK_STATES
         row = snapshot_by_code.get(symbol)
-        book_ret, book = (RET_OK, {}) if symbol in SNAPSHOT_ONLY_SYMBOLS else context.get_order_book(symbol, num=10)
+        book_ret, book = context.get_order_book(symbol, num=10) if symbol in orderbook_symbols else (RET_OK, {})
         if row is None:
             continue
         bids = levels(book.get("Bid", [])) if book_ret == RET_OK else []
@@ -144,7 +149,7 @@ def build_payload(context: OpenQuoteContext, history: dict[str, list[list[float 
         # states legitimately have no two-sided book, but the official last is
         # still the required overnight / pre-open benchmark. During auction or
         # continuous trading, never hide a missing book behind the last price.
-        if symbol not in SNAPSHOT_ONLY_SYMBOLS and (not bids or not asks) and (book_required or last is None):
+        if symbol in orderbook_symbols and (not bids or not asks) and (book_required or last is None):
             continue
         quotes.append({
             "symbol": symbol,
@@ -182,17 +187,34 @@ def push(payload: dict[str, object], token: str) -> None:
             raise RuntimeError(f"Push endpoint returned HTTP {response.status}")
 
 
+def subscribe_available(context: OpenQuoteContext, symbols: list[str], subtype: SubType) -> list[str]:
+    """Subscribe independently so one unavailable OTC symbol cannot stop HK data."""
+    available: list[str] = []
+    for symbol in symbols:
+        ret, message = context.subscribe([symbol], [subtype], subscribe_push=False)
+        if ret == RET_OK:
+            available.append(symbol)
+        else:
+            print(f"Futu {subtype} skipped for {symbol}: {message}", file=sys.stderr, flush=True)
+    return available
+
+
 def relay_session(token: str) -> None:
     """Run one OpenD session; the caller reconnects if startup drops."""
     context = OpenQuoteContext(host=OPEND_HOST, port=OPEND_PORT)
     try:
-        subscribe_ret, message = context.subscribe(SYMBOLS, [SubType.QUOTE], subscribe_push=False)
-        if subscribe_ret != RET_OK:
-            raise RuntimeError(f"Futu subscription failed: {message}")
-        book_symbols = [symbol for symbol in SYMBOLS if symbol not in SNAPSHOT_ONLY_SYMBOLS]
-        subscribe_ret, message = context.subscribe(book_symbols, [SubType.ORDER_BOOK], subscribe_push=False)
-        if subscribe_ret != RET_OK:
-            raise RuntimeError(f"Futu order-book subscription failed: {message}")
+        quote_symbols = subscribe_available(context, SYMBOLS, SubType.QUOTE)
+        if not quote_symbols:
+            raise RuntimeError("Futu rejected every quote subscription.")
+        book_candidates = [symbol for symbol in quote_symbols if symbol not in SNAPSHOT_ONLY_SYMBOLS]
+        book_symbols = set(subscribe_available(context, book_candidates, SubType.ORDER_BOOK))
+        skipped = sorted(set(SYMBOLS) - set(quote_symbols))
+        print(
+            f"Futu subscriptions ready: {len(quote_symbols)}/{len(SYMBOLS)} quotes, "
+            f"{len(book_symbols)}/{len(book_candidates)} books"
+            + (f"; skipped {', '.join(skipped)}" if skipped else ""),
+            flush=True,
+        )
         failures = 0
         history: dict[str, list[list[float | int]]] = {}
         history_refreshed_at = 0.0
@@ -200,10 +222,10 @@ def relay_session(token: str) -> None:
             started = time.monotonic()
             try:
                 if not history or started - history_refreshed_at >= HISTORY_REFRESH_SECONDS:
-                    history = build_history(context)
+                    history = build_history(context, quote_symbols)
                     history_refreshed_at = started
                     print(f"Loaded {sum(len(points) for points in history.values())} Futu one-minute history points.", flush=True)
-                push(build_payload(context, history), token)
+                push(build_payload(context, history, quote_symbols, book_symbols), token)
                 if failures:
                     print("Futu push recovered.", flush=True)
                 failures = 0
