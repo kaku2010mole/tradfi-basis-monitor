@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
+import AdrPerpNightPanel, { type NightBasisPair } from "./AdrPerpNightPanel";
 import styles from "./page.module.css";
 
 type AssetTier = "S" | "A" | "B" | "C";
@@ -398,6 +399,11 @@ export default function HkAuctionPage() {
     tier,
     pairs: orderedPairs.filter((pair) => (pair.tier ?? ASSET_TIERS[pair.stockSymbol]?.grade ?? "C") === tier),
   })).filter((group) => group.pairs.length), [orderedPairs]);
+  const nightBasisPairs = useMemo(() => pairs.flatMap((pair): NightBasisPair[] =>
+    pair.adrSymbol && pair.hkSharesPerAdr && pair.hkSharesPerAdr > 0
+      ? [{ ...pair, adrSymbol: pair.adrSymbol, hkSharesPerAdr: pair.hkSharesPerAdr }]
+      : []
+  ), [pairs]);
   const futuState = payload?.quotes.find((quote) => quote.futu?.marketState)?.futu?.marketState;
   const session = sessionState(now, futuState);
   const alert = Number(threshold) || 0;
@@ -437,6 +443,8 @@ export default function HkAuctionPage() {
 
     {payload?.errors?.length ? <div className={styles.notice}><strong>Partial data</strong><span>{payload.errors.join(" · ")}</span></div> : null}
     {adrFeedError || missingAdrStreams.length ? <div className={styles.notice}><strong>Posley ADR</strong><span>{adrFeedError || "Some configured ADR streams are not currently published."}{missingAdrStreams.length ? ` Missing: ${missingAdrStreams.join(", ")}.` : ""}</span></div> : null}
+
+    <AdrPerpNightPanel pairs={nightBasisPairs} />
 
     <section className={styles.board}>
       <div className={styles.boardHead}><div><span>MONITORED MAPPINGS</span><h2>Executable auction basis</h2></div><p>{loading ? "Connecting…" : `${payload?.quotes.filter((quote) => quote.status === "live").length ?? 0}/${pairs.length} fully live`} · grouped by your tags · {adrSortActive ? "night ranking by |ADR/Binance basis|" : "ranking by |Futu/Binance basis|"}</p></div>
