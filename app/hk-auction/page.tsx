@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
 import styles from "./page.module.css";
 
-type PairConfig = { stockSymbol: string; perpSymbol: string; sharesPerContract: number; adrSymbol?: string; hkSharesPerAdr?: number };
+type AssetTier = "S" | "A" | "B" | "C";
+type PairConfig = { stockSymbol: string; perpSymbol: string; sharesPerContract: number; adrSymbol?: string; hkSharesPerAdr?: number; tier?: AssetTier };
 type Book = { bid: number; ask: number; bidSize: number | null; askSize: number | null; marketTimestamp: number; stale: boolean | null };
 type FutuBook = Omit<Book, "marketTimestamp"> & {
   name: string | null;
@@ -51,7 +52,21 @@ const REMOVED_PERPS = new Set(["XIAOMIUSDT"]);
 const ADR_STALE_MS = 30_000;
 const ADR_BENCHMARK_MAX_AGE_MS = 96 * 60 * 60_000;
 const LITE_REFERENCE_SYMBOL = "LITE";
-const OPEND_ADR_SYMBOLS = new Set(["LNVGY"]);
+const OPEND_ADR_SYMBOLS = new Set(["LNVGY", "BYDDY"]);
+const POSLEY_EXCLUDED_ADR_SYMBOLS = new Set(["LNVGY"]);
+const ASSET_TIERS: Record<string, { grade: AssetTier; label: string; reason: string }> = {
+  "HK.00700": { grade: "S", label: "TOP TIER", reason: "Blue-chip liquidity and a direct US reference" },
+  "HK.01810": { grade: "S", label: "TOP TIER", reason: "Large-cap liquidity and strong cross-venue price discovery" },
+  "HK.09988": { grade: "S", label: "TOP TIER", reason: "Blue-chip liquidity and a directly convertible ADR" },
+  "HK.01211": { grade: "A", label: "HIGH QUALITY", reason: "Large-cap liquidity with a directly convertible ADR" },
+  "HK.03690": { grade: "A", label: "HIGH QUALITY", reason: "Liquid HK stock with an established US reference" },
+  "HK.00992": { grade: "A", label: "HIGH QUALITY", reason: "Direct ADR conversion, but thinner US liquidity" },
+  "HK.09992": { grade: "A", label: "HIGH QUALITY", reason: "Good HK liquidity with an established US reference" },
+  "HK.01024": { grade: "B", label: "SELECTIVE", reason: "Usable cross-venue mapping with thinner ADR liquidity" },
+  "HK.03308": { grade: "B", label: "SELECTIVE", reason: "Liquid HK/perp pair; LITE is directional rather than fungible" },
+  "HK.03986": { grade: "B", label: "SELECTIVE", reason: "NVDA is a directional semiconductor reference, not a hedge" },
+};
+const TIER_LABELS: Record<AssetTier, string> = { S: "Top", A: "High quality", B: "Selective", C: "Tactical" };
 const DEFAULT_ADR: Record<string, { adrSymbol: string; hkSharesPerAdr: number }> = {
   "HK.00700": { adrSymbol: "TCEHY", hkSharesPerAdr: 1 },
   "HK.01810": { adrSymbol: "XIACY", hkSharesPerAdr: 5 },
@@ -60,11 +75,12 @@ const DEFAULT_ADR: Record<string, { adrSymbol: string; hkSharesPerAdr: number }>
   "HK.09992": { adrSymbol: "PMRTY", hkSharesPerAdr: 1 },
   "HK.00100": { adrSymbol: "MMXGY", hkSharesPerAdr: 0.2 },
   "HK.00992": { adrSymbol: "LNVGY", hkSharesPerAdr: 20 },
+  "HK.01211": { adrSymbol: "BYDDY", hkSharesPerAdr: 1 },
 };
 const REQUIRED_NEW_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.03308", perpSymbol: "ZHONGJIUSDT", sharesPerContract: 1 },
   { stockSymbol: "HK.03986", perpSymbol: "GIGADEVUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.01211", perpSymbol: "BYDUSDT", sharesPerContract: 1 },
+  { stockSymbol: "HK.01211", perpSymbol: "BYDUSDT", sharesPerContract: 1, adrSymbol: "BYDDY", hkSharesPerAdr: 1 },
   { stockSymbol: "HK.00992", perpSymbol: "HK0992USDT", sharesPerContract: 7.84 },
   { stockSymbol: "HK.00625", perpSymbol: "HK0625USDT", sharesPerContract: 7.84 },
 ];
@@ -195,7 +211,7 @@ export default function HkAuctionPage() {
 
   const adrSymbolsKey = useMemo(() => [...new Set([
     LITE_REFERENCE_SYMBOL,
-    ...pairs.flatMap((pair) => pair.adrSymbol && !OPEND_ADR_SYMBOLS.has(pair.adrSymbol.toUpperCase()) ? [pair.adrSymbol.toUpperCase()] : []),
+    ...pairs.flatMap((pair) => pair.adrSymbol && !POSLEY_EXCLUDED_ADR_SYMBOLS.has(pair.adrSymbol.toUpperCase()) ? [pair.adrSymbol.toUpperCase()] : []),
   ])].sort().join(","), [pairs]);
 
   useEffect(() => {
@@ -344,6 +360,9 @@ export default function HkAuctionPage() {
     const perpSymbol = value.toUpperCase();
     setDraft((current) => ({ ...current, perpSymbol, sharesPerContract: String(defaultShares(perpSymbol)) }));
   };
+  const updateTier = (target: PairConfig, tier: AssetTier) => savePairs(pairs.map((pair) =>
+    pair.stockSymbol === target.stockSymbol && pair.perpSymbol === target.perpSymbol ? { ...pair, tier } : pair
+  ));
 
   const quoteById = useMemo(() => new Map(payload?.quotes.map((quote) => [quote.id, quote]) ?? []), [payload]);
   const hktHour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", hour12: false }).format(now));
@@ -413,6 +432,8 @@ export default function HkAuctionPage() {
       <div className={styles.cards}>{orderedPairs.map((pair) => {
         const id = `${pair.stockSymbol}:${pair.perpSymbol}`;
         const quote = quoteById.get(id);
+        const suggestedTier = ASSET_TIERS[pair.stockSymbol] ?? { grade: "C" as const, label: "TACTICAL", reason: "Smaller or less directly hedgeable cross-venue market" };
+        const tier = pair.tier ?? suggestedTier.grade;
         const basisValue = quote?.metrics.midBasisPct ?? null;
         const hot = basisValue !== null && Math.abs(basisValue) >= alert;
         const sellPerpBasis = quote?.metrics.sellPerpBuyStock.basisPct ?? null;
@@ -458,7 +479,7 @@ export default function HkAuctionPage() {
         const adrRich = adrBasisPct !== null && adrBasisPct >= 0;
         const cardHot = hot || (adrBasisPct !== null && Math.abs(adrBasisPct) >= alert);
         return <article key={id} className={`${styles.card} ${cardHot ? styles.hotCard : ""}`}>
-          <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{isHkQuotedPerp(pair.perpSymbol) ? `1 Binance perp ↔ ${pair.sharesPerContract.toLocaleString()} HK shares` : `${pair.sharesPerContract.toLocaleString()} shares / perp`}{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></header>
+          <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{isHkQuotedPerp(pair.perpSymbol) ? `1 Binance perp ↔ ${pair.sharesPerContract.toLocaleString()} HK shares` : `${pair.sharesPerContract.toLocaleString()} shares / perp`}{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={styles.headerMeta}><label className={`${styles.tierControl} ${styles[`tier${tier}`]}`} title={`Suggested: Tier ${suggestedTier.grade} · ${suggestedTier.reason}`}><span>TIER</span><select aria-label={`Tier for ${pair.perpSymbol}`} value={tier} onChange={(event) => updateTier(pair, event.target.value as AssetTier)}><option value="S">S · Top</option><option value="A">A · High quality</option><option value="B">B · Selective</option><option value="C">C · Tactical</option></select><small>{TIER_LABELS[tier]}</small></label><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></div></header>
           <div className={styles.cardSignals}>
             <section className={`${styles.signalRow} ${styles.hkSignal} ${!signalReady ? styles.signalWaiting : ""}`}>
               <div className={styles.signalBasis}><span>PRIMARY · FUTU ↔ BINANCE</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>MID BASIS · {quote?.metrics.stockReferenceSource === "close-price" ? "official close" : quote?.metrics.stockReferenceSource === "auction-price" ? "auction / IEP" : quote?.metrics.stockReferenceSource === "book-mid" ? "live BBO" : "waiting"}</small></div>
