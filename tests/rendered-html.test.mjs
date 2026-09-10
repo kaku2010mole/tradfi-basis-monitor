@@ -67,11 +67,12 @@ test("uses Futu history and the 1 ADR to 8 HK share mapping for Alibaba", async 
   assert.match(pusher, /HK\.09988/);
 });
 
-test("discovers and normalizes Posley ADR streams for HK auction basis", async () => {
-  const [auction, quotes, pusher] = await Promise.all([
+test("normalizes Posley and Futu OpenD US references for HK auction basis", async () => {
+  const [auction, quotes, pusher, worker] = await Promise.all([
     readFile(new URL("../app/hk-auction/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/hk-auction/quotes/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
+    readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
   ]);
   assert.match(auction, /\/api\/hk-auction\/adr-quotes/);
   assert.doesNotMatch(auction, /beginPosleyLogin/);
@@ -81,9 +82,18 @@ test("discovers and normalizes Posley ADR streams for HK auction basis", async (
   assert.match(auction, /MPNGY/);
   assert.match(auction, /PMRTY/);
   assert.match(auction, /MMXGY/);
+  assert.match(auction, /LNVGY/);
+  assert.match(auction, /"HK\.00992".*hkSharesPerAdr: 20/);
   assert.match(auction, /Binance-implied ADR/);
   assert.match(auction, /FUTU ↔ BINANCE/);
-  assert.match(auction, /POSLEY ADR ↔ BINANCE/);
+  assert.match(auction, /OPEND_ADR_SYMBOLS = new Set\(\["LNVGY", "BYDDY"\]\)/);
+  assert.match(auction, /HK\.01211.*BYDUSDT.*BYDDY.*hkSharesPerAdr: 1/);
+  assert.match(auction, /ASSET_TIERS/);
+  assert.match(auction, /Tier for \$\{pair\.perpSymbol\}/);
+  assert.match(auction, /updateTier/);
+  assert.match(auction, /tierGroups/);
+  assert.match(auction, /grouped by your tags/);
+  assert.match(auction, /NVDA REFERENCE · SINCE HK CLOSE/);
   assert.match(auction, /hktHour >= 21 \|\| hktHour < 6/);
   assert.match(auction, /night ranking by \|ADR\/Binance basis\|/);
   assert.doesNotMatch(auction, /perpSymbol: "XIAOMIUSDT"/);
@@ -94,6 +104,8 @@ test("discovers and normalizes Posley ADR streams for HK auction basis", async (
   assert.doesNotMatch(auction, /SHORT \$\{pair\.adrSymbol\} \/ LONG FUTU/);
   assert.match(auction, /ADR_BENCHMARK_MAX_AGE_MS/);
   assert.match(auction, /HK\.03308.*ZHONGJIUSDT/);
+  assert.match(auction, /LITE REFERENCE · SINCE HK CLOSE/);
+  assert.match(auction, /\/api\/hk-auction\/lite-reference/);
   assert.match(auction, /HK\.03986.*GIGADEVUSDT/);
   assert.match(auction, /HK\.01211.*BYDUSDT/);
   assert.match(auction, /HK\.00992.*HK0992USDT/);
@@ -112,6 +124,13 @@ test("discovers and normalizes Posley ADR streams for HK auction basis", async (
   assert.match(pusher, /HK\.01211/);
   assert.match(pusher, /HK\.00992/);
   assert.match(pusher, /HK\.00625/);
+  assert.match(pusher, /US\.LNVGY/);
+  assert.match(pusher, /US\.BYDDY/);
+  assert.match(pusher, /US\.NVDA/);
+  assert.match(pusher, /def subscribe_available/);
+  assert.match(pusher, /skipped \{', '\.join\(skipped\)\}/);
+  assert.match(pusher, /extended_time=symbol\.startswith\("US\."\)/);
+  assert.match(worker, /US\\\.\(\?:LNVGY\|BYDDY\|NVDA\)/);
   assert.match(pusher, /LIVE_BOOK_STATES = \{"AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"\}/);
   assert.match(pusher, /book_required or last is None/);
   assert.match(quotes, /useOfficialLast/);
@@ -122,6 +141,29 @@ test("discovers and normalizes Posley ADR streams for HK auction basis", async (
   assert.match(quotes, /BINANCE_BATCH_CACHE_MS/);
   assert.doesNotMatch(quotes, /bookTicker\?symbol=/);
   assert.doesNotMatch(quotes, /premiumIndex\?symbol=/);
+});
+
+test("keeps a selectable 21:00–04:00 ADR versus perp basis tape on HK Auction Basis", async () => {
+  const [auction, panel, route] = await Promise.all([
+    readFile(new URL("../app/hk-auction/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/hk-auction/AdrPerpNightPanel.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/hk-auction/adr-basis-history/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(auction, /<AdrPerpNightPanel pairs=\{nightBasisPairs\}/);
+  assert.match(panel, /Overnight basis tape/);
+  assert.match(panel, /21:00–04:00 HKT/);
+  assert.match(panel, /LAST COMPLETED NIGHT/);
+  assert.match(panel, /ADR premium \/ discount to Binance-implied ADR/);
+  assert.match(panel, /window\.setInterval\(\(\) => void load\(\), 30_000\)/);
+  assert.match(route, /NIGHT_START_HOUR = 21/);
+  assert.match(route, /NIGHT_END_HOUR = 4/);
+  assert.match(route, /openDHistory/);
+  assert.match(route, /Futu OpenD live/);
+  assert.match(route, /posleyAdrSnapshot/);
+  assert.match(route, /includePrePost=true/);
+  assert.match(route, /interval: "1m"/);
+  assert.match(route, /hkSharesPerAdr \/ sharesPerContract/);
+  assert.match(route, /offset < 7/);
 });
 
 test("keeps the Posley refresh token on the server", async () => {
@@ -278,18 +320,17 @@ test("uses executable best bid or ask for live Oracle Monitor deviations", async
   assert.match(alerts, /executable best bid\/ask/);
 });
 
-test("removes the liquidation map and uses visible-window depth bands", async () => {
-  const [page, heatmap] = await Promise.all([
+test("removes the Oracle orderbook recorder, heatmap, APIs and legacy disk data", async () => {
+  const [page, recorder] = await Promise.all([
     readFile(new URL("../app/oracle/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/oracle/ParaDepthHeatmap.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/start-render.mjs", import.meta.url), "utf8"),
   ]);
-  assert.doesNotMatch(page, /LiquidationPriceMap/);
-  assert.match(heatmap, /DEPTH_PERCENTILES = \[\.25, \.5, \.75, \.9\]/);
-  assert.match(heatmap, /Resting USD intensity/);
-  assert.match(heatmap, /five high-contrast light levels/);
-  assert.match(heatmap, /depthBucket\(cell\.usd, depthScale\)/);
-  assert.match(heatmap, /const depthColors = \["#102c40"/);
-  assert.match(heatmap, /One base colour · five high-contrast light levels/);
+  assert.doesNotMatch(page, /ParaDepthHeatmap|Liquidity heatmap|orderbook-history/);
+  await assert.rejects(readFile(new URL("../app/oracle/ParaDepthHeatmap.tsx", import.meta.url), "utf8"));
+  await assert.rejects(readFile(new URL("../app/api/oracle-monitor/orderbook/route.ts", import.meta.url), "utf8"));
+  await assert.rejects(readFile(new URL("../app/api/oracle-monitor/orderbook-history/route.ts", import.meta.url), "utf8"));
+  assert.match(recorder, /legacyOrderbookDirectories/);
+  assert.doesNotMatch(recorder, /recorderLoop|appendFile|para-recorder/);
 });
 
 test("removes the SKHX close desk and its unused background recorder", async () => {
@@ -355,4 +396,16 @@ test("runs the Pair Grid automatic paper engine against live executable quotes",
   assert.match(route, /LIVE_CACHE_MS = 4_000/);
   assert.match(route, /buildLivePayload/);
   assert.match(switcher, /href="\/sk-grid"/);
+});
+
+test("loads route-scoped styles for the HSI, Shanghai and Pair Grid dashboards", async () => {
+  const [hsiLayout, shanghaiLayout, gridLayout] = await Promise.all([
+    readFile(new URL("../app/hsi/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/shanghai/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/sk-grid/layout.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(hsiLayout, /import\s+["']\.\/hsi\.css["']/);
+  assert.match(shanghaiLayout, /import\s+["']\.\.\/hsi\/hsi\.css["']/);
+  assert.match(gridLayout, /import\s+["']\.\/sk-grid\.css["']/);
 });
