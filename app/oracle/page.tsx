@@ -10,7 +10,6 @@ import {
   ORACLE_THRESHOLD_CHANGED_EVENT,
   ORACLE_THRESHOLD_KEY,
 } from "../lib/oracleAlerts";
-import ParaDepthHeatmap from "./ParaDepthHeatmap";
 import XstockPerpMonitor from "../components/XstockPerpMonitor";
 import styles from "./page.module.css";
 
@@ -828,8 +827,6 @@ export default function OracleMonitor() {
         </section>
 
         <XstockPerpMonitor compact />
-
-        <ParaDepthHeatmap />
 
         <footer className={styles.footer}>Executable deviation uses best bid only when it can be sold above Oracle, and best ask only when it can be bought below Oracle. If Oracle sits inside the spread, the executable edge is zero. Funding is shown in each venue&apos;s native interval.</footer>
       </div>
