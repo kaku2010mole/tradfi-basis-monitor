@@ -140,7 +140,7 @@ const normalizeStockSymbol = (value: string) => {
 
 const normalizeFutuSymbol = (value: string) => {
   const symbol = value.trim().toUpperCase();
-  if (!/^(?:HK\.\d{5}|US\.(?:LNVGY|NVDA))$/.test(symbol)) throw new Error(`Invalid Futu symbol: ${value}`);
+  if (!/^(?:HK\.\d{5}|US\.(?:LNVGY|BYDDY|NVDA))$/.test(symbol)) throw new Error(`Invalid Futu symbol: ${value}`);
   return symbol;
 };
 
@@ -489,7 +489,7 @@ export async function GET(request: Request) {
     return Response.json({ error: errorMessage(error) }, { status: 400 });
   }
 
-  const referenceSymbols = ["US.LNVGY", "US.NVDA"];
+  const referenceSymbols = ["US.LNVGY", "US.BYDDY", "US.NVDA"];
   const [futuResult, binanceResult] = await Promise.allSettled([
     getFutuQuotes([...pairConfigs.map((pair) => pair.stockSymbol), ...referenceSymbols]),
     getBinanceQuotes(pairConfigs.map((pair) => pair.perpSymbol)),
