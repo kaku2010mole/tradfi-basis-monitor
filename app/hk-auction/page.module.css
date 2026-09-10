@@ -36,7 +36,20 @@
 .boardHead { min-height:64px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:13px 18px; border-bottom:1px solid #dfe5df; }
 .boardHead h2 { margin:6px 0 0; font-size:21px; letter-spacing:-.035em; }
 .boardHead p { margin:0; color:#66736c; font:9px monospace; }
-.cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; padding:14px; }
+.tierGroups { display:grid; gap:0; }
+.tierGroup { padding:0 14px 16px; border-bottom:1px solid #dfe5df; }
+.tierGroup:last-child { border-bottom:0; }
+.tierGroupHead { min-height:58px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:11px 3px 9px; }
+.tierGroupHead>div { display:grid; grid-template-columns:auto auto; align-items:baseline; gap:3px 9px; }
+.tierGroupHead strong { display:inline-grid; place-items:center; min-width:58px; min-height:28px; border-radius:7px; color:#fff; background:#26372f; font:950 12px monospace; letter-spacing:.07em; }
+.tierGroupHead span { color:#24362d; font:900 14px monospace; letter-spacing:-.02em; }
+.tierGroupHead small { grid-column:2; color:#77837c; font:8px monospace; }
+.tierGroupHead b { color:#738078; font:850 8px monospace; letter-spacing:.08em; }
+.tierGroupS .tierGroupHead strong { background:#826611; }
+.tierGroupA .tierGroupHead strong { background:#147a5d; }
+.tierGroupB .tierGroupHead strong { background:#5d6f9e; }
+.tierGroupC .tierGroupHead strong { background:#68746d; }
+.cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; padding:0; }
 .card { min-width:0; overflow:hidden; border:1px solid #d4dcd6; border-radius:11px; background:#fff; box-shadow:0 9px 26px rgba(20,35,28,.055); }
 .hotCard { border-color:#d8a14d; box-shadow:0 0 0 2px rgba(216,161,77,.1),0 12px 32px rgba(82,57,17,.07); }
 .card>header { min-height:66px; display:flex; align-items:center; justify-content:space-between; gap:18px; padding:13px 16px; border-bottom:1px solid #dce3de; }
@@ -131,5 +144,5 @@
 
 @media(max-width:1240px){.cards{grid-template-columns:1fr}.card{max-width:980px;width:100%;margin-inline:auto}}
 @media(max-width:980px){.sessionHero{grid-template-columns:1fr 1.4fr}.links{grid-column:1/-1}.controls{grid-template-columns:1fr 1fr}.formula{border-left:0}.manager{grid-template-columns:1fr 1fr 1fr}.manager button{min-height:58px}.signalRow{grid-template-columns:155px minmax(0,1fr)}.signalMetrics{grid-column:1/-1;border-top:1px solid #dfe5e0}.signalDirection{border-right:0}.signalMetrics>div{padding:7px 10px}.adrSignal{grid-template-columns:145px minmax(0,1fr)}.adrSignal .signalMetrics{grid-column:1/-1}}
-@media(max-width:720px){.shell{padding-inline:10px}.topbar{align-items:flex-start;padding:15px 0}.topbar small,.clock{display:none}.sessionHero{grid-template-columns:1fr;gap:18px;margin-top:12px}.sessionTrack{margin-bottom:18px}.links{grid-column:auto;grid-template-columns:1fr}.controls,.manager{grid-template-columns:1fr}.formula{padding:7px 0}.cards{padding:7px;gap:9px}.boardHead{align-items:flex-start;flex-direction:column;gap:7px}.hkSignal{grid-template-columns:1fr}.hkSignal .signalBasis,.hkSignal .signalDirection{border-right:0;border-bottom:1px solid #dfe5e0}.hkSignal .signalBasis{grid-template-columns:1fr auto;gap:4px 12px;align-items:center}.hkSignal .signalBasis>strong{grid-column:2;grid-row:1/3;font-size:34px}.signalMetrics{grid-template-columns:1fr 1fr}.signalMetrics>div:nth-child(2n){border-right:0}.signalMetrics>div:nth-child(n+3){margin-top:9px}.liteReference{grid-template-columns:1fr}.liteReference>div{border-right:0;border-bottom:1px solid #dce1ec}.adrSignal{grid-template-columns:1fr 1.35fr}.adrSignal .signalBasis,.adrSignal .signalDirection{border-bottom:1px solid #e4dfd4}.adrSignal .signalMetrics{grid-template-columns:repeat(3,1fr)}.adrSignal .signalMetrics>div{margin-top:0}.chartReadout{grid-template-columns:1fr 1fr}.chartReadout>div:last-child{grid-column:1/-1}.chart{height:190px}.card>footer{flex-wrap:wrap}}
+@media(max-width:720px){.shell{padding-inline:10px}.topbar{align-items:flex-start;padding:15px 0}.topbar small,.clock{display:none}.sessionHero{grid-template-columns:1fr;gap:18px;margin-top:12px}.sessionTrack{margin-bottom:18px}.links{grid-column:auto;grid-template-columns:1fr}.controls,.manager{grid-template-columns:1fr}.formula{padding:7px 0}.tierGroup{padding:0 7px 12px}.tierGroupHead{padding-inline:2px}.cards{gap:9px}.boardHead{align-items:flex-start;flex-direction:column;gap:7px}.hkSignal{grid-template-columns:1fr}.hkSignal .signalBasis,.hkSignal .signalDirection{border-right:0;border-bottom:1px solid #dfe5e0}.hkSignal .signalBasis{grid-template-columns:1fr auto;gap:4px 12px;align-items:center}.hkSignal .signalBasis>strong{grid-column:2;grid-row:1/3;font-size:34px}.signalMetrics{grid-template-columns:1fr 1fr}.signalMetrics>div:nth-child(2n){border-right:0}.signalMetrics>div:nth-child(n+3){margin-top:9px}.liteReference{grid-template-columns:1fr}.liteReference>div{border-right:0;border-bottom:1px solid #dce1ec}.adrSignal{grid-template-columns:1fr 1.35fr}.adrSignal .signalBasis,.adrSignal .signalDirection{border-bottom:1px solid #e4dfd4}.adrSignal .signalMetrics{grid-template-columns:repeat(3,1fr)}.adrSignal .signalMetrics>div{margin-top:0}.chartReadout{grid-template-columns:1fr 1fr}.chartReadout>div:last-child{grid-column:1/-1}.chart{height:190px}.card>footer{flex-wrap:wrap}}
 @media(max-width:430px){.card>header{align-items:flex-start}.headerMeta{align-items:flex-end;flex-direction:column}.tierControl{padding:4px 7px}.signalDirection>strong{font-size:15px}.signalMetrics,.adrMetrics{grid-template-columns:1fr 1fr}.signalMetrics dd{font-size:13px}.cardTabs button{padding-inline:9px;font-size:8px}}
