@@ -67,14 +67,14 @@ test("uses Futu history and the 1 ADR to 8 HK share mapping for Alibaba", async 
   assert.match(pusher, /HK\.09988/);
 });
 
-test("normalizes Posley and Futu OpenD US references for HK auction basis", async () => {
+test("normalizes Futu OpenD US references for HK auction basis", async () => {
   const [auction, quotes, pusher, worker] = await Promise.all([
     readFile(new URL("../app/hk-auction/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/hk-auction/quotes/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
     readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(auction, /\/api\/hk-auction\/adr-quotes/);
+  assert.doesNotMatch(auction, /\/api\/hk-auction\/adr-quotes/);
   assert.doesNotMatch(auction, /beginPosleyLogin/);
   assert.match(auction, /TCEHY/);
   assert.match(auction, /XIACY/);
@@ -86,7 +86,7 @@ test("normalizes Posley and Futu OpenD US references for HK auction basis", asyn
   assert.match(auction, /"HK\.00992".*hkSharesPerAdr: 20/);
   assert.match(auction, /Binance-implied ADR/);
   assert.match(auction, /FUTU ↔ BINANCE/);
-  assert.match(auction, /OPEND_ADR_SYMBOLS = new Set\(\["LNVGY", "BYDDY"\]\)/);
+  assert.match(auction, /OpenD US references live/);
   assert.match(auction, /HK\.01211.*BYDUSDT.*BYDDY.*hkSharesPerAdr: 1/);
   assert.match(auction, /ASSET_TIERS/);
   assert.match(auction, /Tier for \$\{pair\.perpSymbol\}/);
@@ -124,13 +124,14 @@ test("normalizes Posley and Futu OpenD US references for HK auction basis", asyn
   assert.match(pusher, /HK\.01211/);
   assert.match(pusher, /HK\.00992/);
   assert.match(pusher, /HK\.00625/);
-  assert.match(pusher, /US\.LNVGY/);
-  assert.match(pusher, /US\.BYDDY/);
-  assert.match(pusher, /US\.NVDA/);
+  for (const symbol of ["TCEHY", "XIACY", "KSHTY", "MPNGY", "PMRTY", "MMXGY", "LNVGY", "BYDDY", "LITE", "NVDA"]) {
+    assert.match(pusher, new RegExp(`US\\.${symbol}`));
+    assert.match(quotes, new RegExp(symbol));
+  }
   assert.match(pusher, /def subscribe_available/);
   assert.match(pusher, /skipped \{', '\.join\(skipped\)\}/);
   assert.match(pusher, /extended_time=symbol\.startswith\("US\."\)/);
-  assert.match(worker, /US\\\.\(\?:LNVGY\|BYDDY\|NVDA\)/);
+  assert.match(worker, /TCEHY\|XIACY\|KSHTY\|MPNGY\|PMRTY\|MMXGY\|LNVGY\|BYDDY\|LITE\|NVDA/);
   assert.match(pusher, /LIVE_BOOK_STATES = \{"AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"\}/);
   assert.match(pusher, /book_required or last is None/);
   assert.match(quotes, /useOfficialLast/);
@@ -159,7 +160,7 @@ test("keeps a selectable 21:00–04:00 ADR versus perp basis tape on HK Auction 
   assert.match(route, /NIGHT_END_HOUR = 4/);
   assert.match(route, /openDHistory/);
   assert.match(route, /Futu OpenD live/);
-  assert.match(route, /posleyAdrSnapshot/);
+  assert.doesNotMatch(route, /posleyAdrSnapshot|Posley ADR live/);
   assert.match(route, /includePrePost=true/);
   assert.match(route, /interval: "1m"/);
   assert.match(route, /hkSharesPerAdr \/ sharesPerContract/);

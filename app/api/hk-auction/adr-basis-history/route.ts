@@ -1,5 +1,3 @@
-import { posleyAdrSnapshot } from "../../../lib/posleyAdr";
-
 const BINANCE_FUTURES_APIS = [
   "https://fapi.binance.com",
   "https://fapi1.binance.com",
@@ -194,15 +192,7 @@ async function binanceLive(symbol: string) {
 async function appendLivePoint(points: BasisPoint[], adrSymbol: string, perpSymbol: string, perpsPerAdr: number, start: number, end: number) {
   const now = Date.now();
   if (now < start || now >= end) return { points, source: null as string | null };
-  let adr = openDLive(adrSymbol);
-  if (!adr) {
-    const snapshot = await posleyAdrSnapshot([adrSymbol]);
-    const book = snapshot.books[0];
-    if (book && now - book.timestamp < 60_000) {
-      const price = book.bid !== null && book.ask !== null ? (book.bid + book.ask) / 2 : book.last;
-      if (price !== null) adr = { price, timestamp: book.timestamp, source: "Posley ADR live" };
-    }
-  }
+  const adr = openDLive(adrSymbol);
   const perpPrice = await binanceLive(perpSymbol);
   if (!adr || perpPrice === null) return { points, source: null };
   const point = {

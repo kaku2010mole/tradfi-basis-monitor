@@ -11,6 +11,7 @@ const FUTU_STALE_MS = 20_000;
 const BINANCE_STALE_MS = 30_000;
 const BINANCE_BATCH_CACHE_MS = 5_000;
 const FUTU_LIVE_BOOK_STATES = new Set(["AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"]);
+const FUTU_REFERENCE_SYMBOLS = ["US.TCEHY", "US.XIACY", "US.KSHTY", "US.MPNGY", "US.PMRTY", "US.MMXGY", "US.LNVGY", "US.BYDDY", "US.LITE", "US.NVDA"];
 
 type FutuPushStore = typeof globalThis & {
   __FUTU_PUSH_SNAPSHOT__?: { payload: unknown & { history?: Record<string, Array<[number, number]>> }; receivedAt: number };
@@ -140,7 +141,7 @@ const normalizeStockSymbol = (value: string) => {
 
 const normalizeFutuSymbol = (value: string) => {
   const symbol = value.trim().toUpperCase();
-  if (!/^(?:HK\.\d{5}|US\.(?:LNVGY|BYDDY|NVDA))$/.test(symbol)) throw new Error(`Invalid Futu symbol: ${value}`);
+  if (!/^(?:HK\.\d{5}|US\.(?:TCEHY|XIACY|KSHTY|MPNGY|PMRTY|MMXGY|LNVGY|BYDDY|LITE|NVDA))$/.test(symbol)) throw new Error(`Invalid Futu symbol: ${value}`);
   return symbol;
 };
 
@@ -489,7 +490,7 @@ export async function GET(request: Request) {
     return Response.json({ error: errorMessage(error) }, { status: 400 });
   }
 
-  const referenceSymbols = ["US.LNVGY", "US.BYDDY", "US.NVDA"];
+  const referenceSymbols = FUTU_REFERENCE_SYMBOLS;
   const [futuResult, binanceResult] = await Promise.allSettled([
     getFutuQuotes([...pairConfigs.map((pair) => pair.stockSymbol), ...referenceSymbols]),
     getBinanceQuotes(pairConfigs.map((pair) => pair.perpSymbol)),

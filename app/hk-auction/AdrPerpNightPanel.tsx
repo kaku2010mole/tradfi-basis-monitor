@@ -163,7 +163,7 @@ export default function AdrPerpNightPanel({ pairs }: { pairs: NightBasisPair[] }
       </aside>
       <div className={styles.nightPlot}>
         {loading && !payload ? <div className={styles.nightEmpty}>Loading the latest night window…</div> : error && !payload ? <div className={styles.nightEmpty}><strong>Night history unavailable</strong><span>{error}</span></div> : <NightChart points={payload?.points ?? []} cursor={cursor} windowStart={payload?.window.start} windowEnd={payload?.window.end} onCursor={setCursor} />}
-        <footer><span>{payload?.points.length.toLocaleString() ?? 0} aligned one-minute observations</span><span>{payload?.sources.join(" + ") || "OpenD / Posley + Binance"}</span>{error && payload ? <span className={styles.negative}>Refresh delayed · keeping last chart</span> : null}</footer>
+        <footer><span>{payload?.points.length.toLocaleString() ?? 0} aligned one-minute observations</span><span>{payload?.sources.join(" + ") || "Futu OpenD + Binance"}</span>{error && payload ? <span className={styles.negative}>Refresh delayed · keeping last chart</span> : null}</footer>
       </div>
     </div>
   </section>;
