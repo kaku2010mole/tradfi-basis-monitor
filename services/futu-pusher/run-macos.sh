@@ -31,9 +31,14 @@ fi
 # The outer loop also recovers from an unexpected Python process exit.
 posley_pid=""
 if [[ -x /usr/local/bin/node && -r "$relay_root/posley-adr-pusher.mjs" ]]; then
-  /usr/bin/env FUTU_PUSH_TOKEN_FILE="$relay_root/.futu-push-token" \
-    /usr/local/bin/node "$relay_root/posley-adr-pusher.mjs" \
-    >>/tmp/tradfi-posley-adr.out.log 2>>/tmp/tradfi-posley-adr.err.log &
+  (
+    while true; do
+      /usr/bin/env FUTU_PUSH_TOKEN_FILE="$relay_root/.futu-push-token" \
+        /usr/local/bin/node "$relay_root/posley-adr-pusher.mjs" \
+        >>/tmp/tradfi-posley-adr.out.log 2>>/tmp/tradfi-posley-adr.err.log
+      /bin/sleep 5
+    done
+  ) &
   posley_pid="$!"
 fi
 

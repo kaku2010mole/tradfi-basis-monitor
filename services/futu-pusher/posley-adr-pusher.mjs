@@ -102,7 +102,11 @@ const connect = () => {
     console.error(`Posley ADR relay disconnected; retrying in ${wait}ms.`);
     setTimeout(connect, wait);
   });
-  socket.addEventListener("error", () => socket.close());
+  socket.addEventListener("error", (event) => {
+    // The close event owns reconnects. Calling close() from Node's error event
+    // can recursively dispatch another error and overflow the call stack.
+    console.error(`Posley ADR socket error: ${event?.message ?? "connection failed"}`);
+  });
 };
 
 setInterval(async () => {
