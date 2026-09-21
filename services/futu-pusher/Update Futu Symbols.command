@@ -13,11 +13,12 @@ if [[ ! -x "$runtime_dir/.venv/bin/python" ]]; then
 fi
 
 /bin/cp "$source_relay/push.py" "$runtime_dir/push.py"
+/bin/cp "$source_relay/posley-adr-pusher.mjs" "$runtime_dir/posley-adr-pusher.mjs"
 /bin/cp "$source_relay/run-macos.sh" "$runtime_dir/run-macos.sh"
 /bin/chmod 700 "$runtime_dir/run-macos.sh"
 /bin/rm -f /tmp/tradfi-futu-pusher.pid
 /bin/launchctl kickstart -k "$service"
 
 echo
-echo "Futu symbols updated. Equities, HK.800000 and HK.HSImain are now subscribed."
+echo "Market-data relay updated. Futu and the eight Posley ADR streams are now subscribed."
 echo "You can close this window."

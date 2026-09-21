@@ -33,6 +33,7 @@ type Quote = PairConfig & {
 };
 type OpenDReference = {
   symbol: string;
+  source?: string;
   bid: number | null;
   ask: number | null;
   last: number | null;
@@ -370,14 +371,14 @@ export default function HkAuctionPage() {
       <div className={styles.links}>
         <span className={payload?.sources.futu ? styles.online : ""}><i />Futu {payload?.sources.futu ? "connected" : "waiting for relay"}</span>
         <span className={payload?.sources.binance ? styles.online : ""}><i />Binance {payload?.sources.binance ? "live" : "reconnecting"}</span>
-        <button className={availableReferences.length === wantedReferences.length ? styles.online : ""} disabled><i />{availableReferences.length === wantedReferences.length ? "OpenD US references live" : availableReferences.length ? `OpenD US partial ${availableReferences.length}/${wantedReferences.length}` : "OpenD US waiting"}</button>
+        <button className={availableReferences.length === wantedReferences.length ? styles.online : ""} disabled><i />{availableReferences.length === wantedReferences.length ? "US references live" : availableReferences.length ? `US references partial ${availableReferences.length}/${wantedReferences.length}` : "US references waiting"}</button>
       </div>
     </section>
 
     <section className={styles.controls}>
       <label><span>USD / HKD</span><input type="number" min="1" max="20" step="0.0001" value={usdHkd} onChange={(event) => setUsdHkd(event.target.value)} /><small>FX conversion · separate from shares/contract</small></label>
       <label><span>Alert threshold</span><input type="number" min="0" max="100" step="0.05" value={threshold} onChange={(event) => setThreshold(event.target.value)} /><small>Absolute midpoint basis %</small></label>
-      <div className={styles.formula}><span>CROSS-VENUE NORMALIZATION</span><strong>HK basis: Futu stock ↔ Binance perp · ADR basis: Futu OpenD US reference ↔ Binance perp</strong><small>All live stock and ADR references now use the same OpenD relay.</small></div>
+      <div className={styles.formula}><span>CROSS-VENUE NORMALIZATION</span><strong>HK basis: Futu stock ↔ Binance perp · ADR basis: US reference ↔ Binance perp</strong><small>HK stocks, LITE and NVDA use OpenD; eight OTC ADRs use the Posley office feed.</small></div>
       <button onClick={() => setManagerOpen((open) => !open)}>{managerOpen ? "Close pair setup" : "Manage pairs"}</button>
     </section>
 
@@ -392,7 +393,7 @@ export default function HkAuctionPage() {
     </section>}
 
     {payload?.errors?.length ? <div className={styles.notice}><strong>Partial data</strong><span>{payload.errors.join(" · ")}</span></div> : null}
-    {payload && missingReferences.length ? <div className={styles.notice}><strong>Futu OpenD US references</strong><span>Unavailable in the latest push: {missingReferences.join(", ")}.</span></div> : null}
+    {payload && missingReferences.length ? <div className={styles.notice}><strong>US references</strong><span>Unavailable in the latest push: {missingReferences.join(", ")}.</span></div> : null}
 
     <AdrPerpNightPanel pairs={nightBasisPairs} />
 
@@ -477,7 +478,7 @@ export default function HkAuctionPage() {
               </dl>
             </section> : null}
             {pair.adrSymbol ? <section className={`${styles.signalRow} ${styles.adrSignal} ${adrBasisPct === null ? styles.signalWaiting : ""} ${adrBasisPct !== null && Math.abs(adrBasisPct) >= alert ? styles.signalRowHot : ""}`}>
-              <div className={styles.signalBasis}><span>OVERNIGHT · FUTU OPEND ADR ↔ BINANCE</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small>{adrFresh ? `LIVE ADR · ${time(adrTimestamp)}` : adrUsable ? `US BENCHMARK · ${time(adrTimestamp)}` : adrTimestamp ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
+              <div className={styles.signalBasis}><span>OVERNIGHT · {(openDAdr?.source ?? "US REFERENCE").toUpperCase()} ↔ BINANCE</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small>{adrFresh ? `LIVE ADR · ${time(adrTimestamp)}` : adrUsable ? `US BENCHMARK · ${time(adrTimestamp)}` : adrTimestamp ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
               <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{adrBasisPct === null ? "WAITING FOR BOTH VENUES" : adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}`}</strong><small>{adrBasisPct === null ? "Unavailable or expired data is excluded" : `${adrFresh ? "Live" : "Latest US benchmark"} ADR versus Binance · gap ${pct(Math.abs(adrBasisPct))}`}</small></div>
               <dl className={`${styles.signalMetrics} ${styles.adrMetrics}`}>
                 <div><dt>{pair.adrSymbol} · USD</dt><dd>{number(adrMid, 4)}</dd></div>
@@ -497,6 +498,6 @@ export default function HkAuctionPage() {
       </section>)}</div>
     </section>
 
-    <footer className={styles.pageFooter}>Raw basis excludes fees, funding, FX execution cost, ADR fees and lot-size rounding. HK stocks and US references are read from the background Futu OpenD relay. NVDA and LITE are directional context only and are never shown as executable fungible bases.</footer>
+    <footer className={styles.pageFooter}>Raw basis excludes fees, funding, FX execution cost, ADR fees and lot-size rounding. HK stocks, LITE and NVDA are read through Futu OpenD; OTC ADRs are read through the Posley office relay. NVDA and LITE are directional context only.</footer>
   </main>;
 }

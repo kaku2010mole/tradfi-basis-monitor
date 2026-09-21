@@ -168,7 +168,12 @@ const openDLive = (symbol: string) => {
   const ask = positive(quote.ask ?? quote.askPrice ?? quote.ask_price);
   const last = positive(quote.last ?? quote.lastPrice ?? quote.last_price ?? quote.curPrice);
   const price = bid !== null && ask !== null ? (bid + ask) / 2 : last;
-  return price === null ? null : { price, timestamp: pushed.receivedAt, source: "Futu OpenD live" };
+  const quoteTimestamp = Number(quote.marketTimestamp ?? quote.timestamp);
+  return price === null ? null : {
+    price,
+    timestamp: Number.isFinite(quoteTimestamp) ? quoteTimestamp : pushed.receivedAt,
+    source: typeof quote.source === "string" ? `${quote.source} live` : "Futu OpenD live",
+  };
 };
 
 async function binanceLive(symbol: string) {

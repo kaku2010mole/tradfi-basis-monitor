@@ -68,10 +68,11 @@ test("uses Futu history and the 1 ADR to 8 HK share mapping for Alibaba", async 
 });
 
 test("normalizes Futu OpenD US references for HK auction basis", async () => {
-  const [auction, quotes, pusher, worker] = await Promise.all([
+  const [auction, quotes, pusher, adrPusher, worker] = await Promise.all([
     readFile(new URL("../app/hk-auction/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/hk-auction/quotes/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
+    readFile(new URL("../services/futu-pusher/posley-adr-pusher.mjs", import.meta.url), "utf8"),
     readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(auction, /\/api\/hk-auction\/adr-quotes/);
@@ -86,7 +87,7 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(auction, /"HK\.00992".*hkSharesPerAdr: 20/);
   assert.match(auction, /Binance-implied ADR/);
   assert.match(auction, /FUTU ↔ BINANCE/);
-  assert.match(auction, /OpenD US references live/);
+  assert.match(auction, /US references live/);
   assert.match(auction, /HK\.01211.*BYDUSDT.*BYDDY.*hkSharesPerAdr: 1/);
   assert.match(auction, /ASSET_TIERS/);
   assert.match(auction, /Tier for \$\{pair\.perpSymbol\}/);
@@ -124,10 +125,14 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(pusher, /HK\.01211/);
   assert.match(pusher, /HK\.00992/);
   assert.match(pusher, /HK\.00625/);
-  for (const symbol of ["TCEHY", "XIACY", "KSHTY", "MPNGY", "PMRTY", "MMXGY", "LNVGY", "BYDDY", "LITE", "NVDA"]) {
-    assert.match(pusher, new RegExp(`US\\.${symbol}`));
+  for (const symbol of ["TCEHY", "XIACY", "KSHTY", "MPNGY", "PMRTY", "MMXGY", "LNVGY", "BYDDY"]) {
+    assert.match(adrPusher, new RegExp(symbol));
     assert.match(quotes, new RegExp(symbol));
   }
+  for (const symbol of ["LITE", "NVDA"]) assert.match(pusher, new RegExp(`US\\.${symbol}`));
+  assert.match(adrPusher, /ws:\/\/192\.168\.50\.112:8787\/ws/);
+  assert.match(adrPusher, /snapshot: 1/);
+  assert.match(worker, /mergeBySymbol/);
   assert.match(pusher, /def subscribe_available/);
   assert.match(pusher, /skipped \{', '\.join\(skipped\)\}/);
   assert.match(pusher, /extended_time=symbol\.startswith\("US\."\)/);

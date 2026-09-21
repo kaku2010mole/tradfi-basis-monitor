@@ -168,7 +168,23 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
   ) {
     return json({ error: "Futu payload failed validation." }, 400);
   }
-  (globalThis as FutuPushStore).__FUTU_PUSH_SNAPSHOT__ = { payload, receivedAt: now };
+  const store = globalThis as FutuPushStore;
+  const previous = store.__FUTU_PUSH_SNAPSHOT__?.payload;
+  const mergeBySymbol = (older: Array<Record<string, unknown>> = [], newer: Array<Record<string, unknown>> = []) => {
+    const merged = new Map<string, Record<string, unknown>>();
+    for (const record of [...older, ...newer]) {
+      const symbol = typeof record?.symbol === "string" ? record.symbol.toUpperCase() : "";
+      if (symbol) merged.set(symbol, record);
+    }
+    return [...merged.values()];
+  };
+  const mergedPayload: FutuPushPayload = {
+    generatedAt: Math.max(previous?.generatedAt ?? 0, payload.generatedAt),
+    quotes: mergeBySymbol(previous?.quotes, payload.quotes),
+    orderbooks: mergeBySymbol(previous?.orderbooks, payload.orderbooks),
+    history: { ...(previous?.history ?? {}), ...(payload.history ?? {}) },
+  };
+  store.__FUTU_PUSH_SNAPSHOT__ = { payload: mergedPayload, receivedAt: now };
   return json({ accepted: true, receivedAt: now }, 202);
 }
 

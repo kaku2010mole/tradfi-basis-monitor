@@ -30,6 +30,7 @@ type Level = { price: number; size: number };
 
 type FutuQuote = {
   symbol: string;
+  source: string;
   name: string | null;
   marketState: string | null;
   auctionPrice: number | null;
@@ -263,6 +264,7 @@ const normalizeFutuQuote = (raw: unknown, receivedAt: number): FutuQuote | null 
   );
   return {
     symbol,
+    source: typeof item.source === "string" ? item.source : "Futu OpenD",
     name: typeof item.name === "string" ? item.name : null,
     marketState: typeof (item.marketState ?? item.market_state) === "string"
       ? String(item.marketState ?? item.market_state)

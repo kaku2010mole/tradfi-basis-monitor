@@ -23,6 +23,7 @@ if [[ ! -x "$runtime_dir/.venv/bin/python" ]] || ! "$runtime_dir/.venv/bin/pytho
   /usr/bin/ditto "$source_relay/.venv" "$runtime_dir/.venv"
 fi
 /bin/cp "$source_relay/push.py" "$runtime_dir/push.py"
+/bin/cp "$source_relay/posley-adr-pusher.mjs" "$runtime_dir/posley-adr-pusher.mjs"
 /bin/cp "$source_relay/run-macos.sh" "$runtime_dir/run-macos.sh"
 /bin/cp "$source_token" "$runtime_dir/.futu-push-token"
 /bin/chmod 700 "$runtime_dir/run-macos.sh"

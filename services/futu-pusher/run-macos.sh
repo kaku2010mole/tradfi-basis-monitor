@@ -29,6 +29,18 @@ fi
 # -s keeps the Mac awake while connected to AC power. The display may still
 # sleep normally, which is exactly what an overnight market-data relay needs.
 # The outer loop also recovers from an unexpected Python process exit.
+posley_pid=""
+if [[ -x /usr/local/bin/node && -r "$relay_root/posley-adr-pusher.mjs" ]]; then
+  /usr/bin/env FUTU_PUSH_TOKEN_FILE="$relay_root/.futu-push-token" \
+    /usr/local/bin/node "$relay_root/posley-adr-pusher.mjs" \
+    >>/tmp/tradfi-posley-adr.out.log 2>>/tmp/tradfi-posley-adr.err.log &
+  posley_pid="$!"
+fi
+
+cleanup() {
+  [[ -n "$posley_pid" ]] && /bin/kill "$posley_pid" >/dev/null 2>&1 || true
+  /bin/rm -f "$pid_file"
+}
 trap 'cleanup; exit 0' INT TERM
 trap cleanup EXIT
 while true; do
