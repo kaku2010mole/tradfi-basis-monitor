@@ -6,6 +6,7 @@ type Instrument = { venue: "BINANCE" | "OKX" | "BITGET" | "HYPERLIQUID"; symbol:
 type Proposal = { direction: Direction; symbol: string; venue?: string; reason?: string; role?: "PRIMARY" | "RELATED" | "HEDGE" };
 
 const CACHE_MS = 5 * 60_000;
+const BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
 const runtime = globalThis as typeof globalThis & { __THESIS_UNIVERSE__?: { expiresAt: number; value: Promise<Instrument[]> } };
 const timeout = (ms = 10_000) => AbortSignal.timeout(ms);
 
@@ -15,12 +16,21 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function binanceDirectory() {
+  let lastError: unknown;
+  for (const host of BINANCE_HOSTS) {
+    try { return await json<{ symbols?: Array<{ symbol?: string; status?: string; contractType?: string }> }>(`${host}/fapi/v1/exchangeInfo`); }
+    catch (error) { lastError = error; }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Binance directory unavailable.");
+}
+
 async function loadUniverse() {
   const now = Date.now();
   if (runtime.__THESIS_UNIVERSE__ && runtime.__THESIS_UNIVERSE__.expiresAt > now) return runtime.__THESIS_UNIVERSE__.value;
   const value = (async () => {
     const results = await Promise.allSettled([
-      json<{ symbols?: Array<{ symbol?: string; status?: string; contractType?: string }> }>("https://fapi.binance.com/fapi/v1/exchangeInfo"),
+      binanceDirectory(),
       json<{ data?: Array<{ instId?: string; state?: string }> }>("https://www.okx.com/api/v5/public/instruments?instType=SWAP"),
       json<{ data?: Array<{ instId?: string; state?: string }> }>("https://www.okx.com/api/v5/public/instruments?instType=SPOT"),
       json<{ data?: Array<{ symbol?: string; symbolStatus?: string }> }>("https://api.bitget.com/api/v2/mix/market/contracts?productType=usdt-futures"),
@@ -68,10 +78,14 @@ function resolveProposal(proposal: Proposal, universe: Instrument[]) {
 
 const reasoningPrompt = "You are an independent cross-asset trading researcher. First identify the entity, issuer, ticker, commodity or index explicitly named by the user. If that exact exposure is exchange-listed, it MUST be PRIMARY and must appear before every proxy. Never replace a directly tradeable company with generic crypto, AI-compute or blockchain tokens merely because the thesis mentions AI. Use RELATED only for a tight one-hop economic link with a clearly affected cash flow or price driver; omit weak thematic associations. Avoid duplicate underlyings across quote currencies and prefer perpetuals over spot. Then identify useful hedges. Do not rely on a fixed scenario table. Return at most 8 candidate listings. Never output categories, prose placeholders, OTC-only instruments or fabricated tickers. Use only LONG or SHORT. Return only JSON: {\"items\":[{\"direction\":\"LONG\",\"symbol\":\"...\",\"venue\":\"BINANCE|OKX|BITGET|HYPERLIQUID\",\"role\":\"PRIMARY|RELATED|HEDGE\",\"reason\":\"specific causal link in one sentence\"}]}";
 
-function explicitMatches(thesis: string, universe: Instrument[]) {
+function explicitTokens(thesis: string) {
   const ignored = new Set(["AI", "USD", "USDT", "USDC", "LONG", "SHORT", "ETF", "ADR"]);
-  const tokens = [...new Set(thesis.match(/\b[A-Z][A-Z0-9.:-]{1,15}\b/g) ?? [])]
+  return [...new Set(thesis.match(/\b[A-Z][A-Z0-9.:-]{1,15}\b/g) ?? [])]
     .map(normalized).filter((token) => token.length >= 2 && !ignored.has(token));
+}
+
+function explicitMatches(thesis: string, universe: Instrument[]) {
+  const tokens = explicitTokens(thesis);
   return universe.filter((item) => tokens.includes(normalized(item.symbol)));
 }
 
@@ -161,12 +175,14 @@ export async function POST(request: Request) {
       ? [...directProposals, ...reasoning.items.filter((item) => item.role !== "RELATED")]
       : reasoning.items;
     const source = `${reasoning.provider} REASONING + LIVE DIRECTORY`;
-    const items = proposals.flatMap((proposal) => resolveProposal(proposal, universe));
+    let items = proposals.flatMap((proposal) => resolveProposal(proposal, universe));
+    const namedTokens = explicitTokens(thesis);
+    if (namedTokens.length && !items.some((item) => item.role === "PRIMARY" && namedTokens.includes(normalized(item.symbol)))) items = [];
     const roleRank = { PRIMARY: 0, RELATED: 1, HEDGE: 2 } as const;
     const venueRank = { BINANCE: 0, HYPERLIQUID: 1, BITGET: 2, OKX: 3 } as const;
     const ranked = items.sort((a, b) => roleRank[a.role] - roleRank[b.role] || Number(b.market === "PERP") - Number(a.market === "PERP") || venueRank[a.venue] - venueRank[b.venue]);
     const unique = [...new Map(ranked.map((item) => [`${item.direction}:${normalized(item.symbol)}`, item])).values()].slice(0, 8);
-    return Response.json({ ok: true, thesis, source, items: unique, checked: universe.length, timestamp: Date.now(), message: unique.length ? null : "No currently tradeable symbol passed exchange-directory verification." }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ ok: true, thesis, source, items: unique, checked: universe.length, timestamp: Date.now(), message: unique.length ? null : namedTokens.length ? "The explicitly named exposure could not be verified in the live exchange directory. Weak thematic proxies were suppressed." : "No currently tradeable symbol passed exchange-directory verification." }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Thesis mapping unavailable." }, { status: 502 });
   }

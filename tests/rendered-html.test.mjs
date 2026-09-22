@@ -389,7 +389,8 @@ test("maps theses only to live exchange-verified instruments", async () => {
   assert.match(await response.text(), /Thesis Mapper/);
   assert.match(page, /No categories\. No invented tickers/);
   assert.match(page, /BINANCE.*OKX.*BITGET.*HYPERLIQUID/s);
-  assert.match(route, /fapi\.binance\.com\/fapi\/v1\/exchangeInfo/);
+  assert.match(route, /BINANCE_HOSTS/);
+  assert.match(route, /fapi\/v1\/exchangeInfo/);
   assert.match(route, /api\/v5\/public\/instruments\?instType=SWAP/);
   assert.match(route, /api\/v2\/mix\/market\/contracts\?productType=usdt-futures/);
   assert.match(route, /metaAndAssetCtxs/);
