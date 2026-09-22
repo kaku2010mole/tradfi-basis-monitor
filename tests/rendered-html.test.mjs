@@ -378,40 +378,33 @@ test("scans OKX stock spot books against executable Binance perpetual prices", a
   assert.doesNotMatch(recorder, /onchainRecorderLoop|onchain-pools/);
 });
 
-test("runs the Pair Grid automatic paper engine against live executable quotes", async () => {
-  const [response, page, panel, engine, route, switcher] = await Promise.all([
-    render("/sk-grid"),
-    readFile(new URL("../app/sk-grid/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/sk-grid/PaperGrid.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/sk-grid/paper.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/sk-grid/route.ts", import.meta.url), "utf8"),
+test("maps theses only to live exchange-verified instruments", async () => {
+  const [response, page, route, switcher] = await Promise.all([
+    render("/thesis"),
+    readFile(new URL("../app/thesis/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/thesis/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
   ]);
   assert.equal(response.status, 200);
-  assert.match(await response.text(), /PAIR\/GRID/);
-  assert.match(page, /live=1/);
-  assert.match(page, /window\.setInterval\(refreshLive, 5_000\)/);
-  assert.match(page, /<PaperGrid/);
-  assert.match(panel, /AUTOMATIC PAPER EXECUTION/);
-  assert.match(panel, /Live grid simulation/);
-  assert.match(panel, /pair_grid_paper_v1_/);
-  assert.match(engine, /advancePaper/);
-  assert.match(engine, /TAKE PROFIT/);
-  assert.match(engine, /MAX HOLD/);
-  assert.match(engine, /paperMarkPnl/);
-  assert.match(route, /LIVE_CACHE_MS = 4_000/);
-  assert.match(route, /buildLivePayload/);
-  assert.match(switcher, /href="\/sk-grid"/);
+  assert.match(await response.text(), /Thesis Mapper/);
+  assert.match(page, /No categories\. No invented tickers/);
+  assert.match(page, /BINANCE.*OKX.*BITGET.*HYPERLIQUID/s);
+  assert.match(route, /fapi\.binance\.com\/fapi\/v1\/exchangeInfo/);
+  assert.match(route, /api\/v5\/public\/instruments\?instType=SWAP/);
+  assert.match(route, /api\/v2\/mix\/market\/contracts\?productType=usdt-futures/);
+  assert.match(route, /metaAndAssetCtxs/);
+  assert.match(route, /resolveProposal/);
+  assert.match(route, /No currently tradeable symbol passed exchange-directory verification/);
+  assert.match(switcher, /href="\/thesis"/);
+  assert.doesNotMatch(switcher, /href="\/sk-grid"/);
 });
 
-test("loads route-scoped styles for the HSI, Shanghai and Pair Grid dashboards", async () => {
-  const [hsiLayout, shanghaiLayout, gridLayout] = await Promise.all([
+test("loads route-scoped styles for the HSI and Shanghai dashboards", async () => {
+  const [hsiLayout, shanghaiLayout] = await Promise.all([
     readFile(new URL("../app/hsi/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/shanghai/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/sk-grid/layout.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(hsiLayout, /import\s+["']\.\/hsi\.css["']/);
   assert.match(shanghaiLayout, /import\s+["']\.\.\/hsi\/hsi\.css["']/);
-  assert.match(gridLayout, /import\s+["']\.\/sk-grid\.css["']/);
 });
