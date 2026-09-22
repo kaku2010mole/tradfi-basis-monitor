@@ -37,7 +37,7 @@ export default function ThesisMapperPage() {
     <header className={styles.topbar}><div><p>WEEKEND THESIS → TRADEABLE SYMBOLS</p><h1>Thesis Mapper</h1><span>No categories. No invented tickers. Only exchange-verified instruments.</span></div><PageSwitcher active="thesis" /></header>
     <section className={styles.hero}>
       <div><span className={styles.kicker}>ASK A DIFFERENT CASE EVERY TIME</span><h2>Tell me what you think happens next.</h2><p>The mapper turns your causal view into a short watchlist, then rejects every symbol that is not currently listed by Binance, OKX, Bitget or Hyperliquid.</p></div>
-      <aside><strong>{status.instruments?.toLocaleString() ?? "—"}</strong><span>live instruments indexed</span><small>{status.aiReady ? "Semantic engine online" : "Verified rule engine · semantic key not configured"}</small></aside>
+      <aside><strong>{status.instruments?.toLocaleString() ?? "—"}</strong><span>live instruments indexed</span><small>{status.aiReady ? "Independent reasoning engine online" : "Reasoning engine needs OPENAI_API_KEY"}</small></aside>
     </section>
     <form className={styles.composer} onSubmit={(event) => void submit(event)}>
       <label htmlFor="thesis">MARKET VIEW</label><textarea id="thesis" value={thesis} onChange={(event) => setThesis(event.target.value)} placeholder="e.g. China policy support will improve risk appetite…" maxLength={1000} />

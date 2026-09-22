@@ -66,40 +66,16 @@ function resolveProposal(proposal: Proposal, universe: Instrument[]) {
   }));
 }
 
-function fallback(thesis: string): Proposal[] {
-  const text = thesis.toLowerCase();
-  const down = /下跌|下降|走弱|利空|bear|fall|drop|lower|down/.test(text);
-  const up = /上涨|上升|走强|利好|刺激|bull|rise|higher|up|positive/.test(text);
-  const proposals: Proposal[] = [];
-  if (/中国|china|政策|政治/.test(text) && up) proposals.push(
-    { direction: "LONG", symbol: "KSTRUSDT", role: "PRIMARY", reason: "China-policy risk-on expression." },
-    { direction: "LONG", symbol: "TENCENTUSDT", role: "RELATED", reason: "Tradeable China technology exposure." },
-    { direction: "LONG", symbol: "MEITUANUSDT", role: "RELATED", reason: "Tradeable China consumer-platform exposure." },
-  );
-  if (/xyz100/.test(text) && down) proposals.push(
-    { direction: "LONG", symbol: "UVXYUSDT", role: "PRIMARY", reason: "Volatility expression for an XYZ100 drawdown." },
-    { direction: "SHORT", symbol: "xyz:XYZ100", venue: "HYPERLIQUID", role: "RELATED", reason: "Direct short expression of the stated index view." },
-  );
-  if (/原油|crude|oil/.test(text) && up) proposals.push(
-    { direction: "LONG", symbol: "CLUSDT", role: "PRIMARY", reason: "Direct crude-oil expression." },
-    { direction: "LONG", symbol: "XLEUSDT", role: "RELATED", reason: "Energy-equity expression." },
-    { direction: "SHORT", symbol: "TLTUSDT", role: "RELATED", reason: "Long-duration bond expression if inflation expectations rise." },
-  );
-  const symbols = thesis.toUpperCase().match(/(?:XYZ:)?[A-Z][A-Z0-9]{2,20}(?:USDT|USDC)?/g) ?? [];
-  symbols.filter((symbol) => !["LONG", "SHORT", "CHINA", "HIGHER", "LOWER"].includes(symbol)).forEach((symbol) => proposals.push({ direction: down && !up ? "SHORT" : "LONG", symbol, role: "PRIMARY", reason: "Symbol explicitly named in the thesis." }));
-  return proposals;
-}
-
 async function modelProposals(thesis: string): Promise<Proposal[]> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) return [];
+  if (!apiKey) throw new Error("Reasoning engine is not configured. Add OPENAI_API_KEY to the server environment.");
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({
       model: process.env.OPENAI_THESIS_MODEL?.trim() || "gpt-5-mini",
       input: [
-        { role: "system", content: "Convert a market thesis into at most 8 concrete exchange-tradeable instruments. Never output categories, prose placeholders, OTC equities, or invented tickers. Use only LONG or SHORT. Prefer direct expressions, then related expressions, then hedges. Return only JSON: {\"items\":[{\"direction\":\"LONG\",\"symbol\":\"...\",\"venue\":\"BINANCE|OKX|BITGET|HYPERLIQUID\",\"role\":\"PRIMARY|RELATED|HEDGE\",\"reason\":\"brief\"}]}" },
+        { role: "system", content: "You are an independent cross-asset trading researcher. For every new thesis, reason from first principles: identify the causal transmission chain, direct beneficiaries/losers, second-order expressions and useful hedges. Do not rely on a fixed scenario table or merely repeat symbols from the user. Search your market knowledge for concrete instruments that may trade on Binance, OKX, Bitget or Hyperliquid, including equity, ETF, commodity, rates, FX, volatility and crypto proxies. Return at most 12 candidate listings. Never output categories, prose placeholders, OTC-only instruments or fabricated tickers. Use only LONG or SHORT. Return only JSON: {\"items\":[{\"direction\":\"LONG\",\"symbol\":\"...\",\"venue\":\"BINANCE|OKX|BITGET|HYPERLIQUID\",\"role\":\"PRIMARY|RELATED|HEDGE\",\"reason\":\"causal link in one sentence\"}]}" },
         { role: "user", content: thesis },
       ],
     }),
@@ -108,8 +84,9 @@ async function modelProposals(thesis: string): Promise<Proposal[]> {
   if (!response.ok) throw new Error(`Thesis model HTTP ${response.status}`);
   const body = await response.json() as { output_text?: string; output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
   const text = body.output_text ?? body.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text ?? "";
-  const parsed = JSON.parse(text) as { items?: Proposal[] };
-  return Array.isArray(parsed.items) ? parsed.items.slice(0, 8) : [];
+  const objectText = text.match(/\{[\s\S]*\}/)?.[0] ?? text;
+  const parsed = JSON.parse(objectText) as { items?: Proposal[] };
+  return Array.isArray(parsed.items) ? parsed.items.slice(0, 12) : [];
 }
 
 export async function GET() {
@@ -128,13 +105,8 @@ export async function POST(request: Request) {
   if (thesis.length < 3 || thesis.length > 1_000) return Response.json({ error: "Enter a thesis between 3 and 1,000 characters." }, { status: 400 });
   try {
     const universe = await loadUniverse();
-    let proposals: Proposal[] = [];
-    let source: "AI + LIVE DIRECTORY" | "RULES + LIVE DIRECTORY" = "RULES + LIVE DIRECTORY";
-    try {
-      proposals = await modelProposals(thesis);
-      if (proposals.length) source = "AI + LIVE DIRECTORY";
-    } catch { /* deterministic fallback still returns only verified symbols */ }
-    if (!proposals.length) proposals = fallback(thesis);
+    const proposals = await modelProposals(thesis);
+    const source = "INDEPENDENT REASONING + LIVE DIRECTORY";
     const items = proposals.flatMap((proposal) => resolveProposal(proposal, universe));
     const unique = [...new Map(items.map((item) => [`${item.direction}:${item.venue}:${item.market}:${item.symbol}`, item])).values()].slice(0, 10);
     return Response.json({ ok: true, thesis, source, items: unique, checked: universe.length, timestamp: Date.now(), message: unique.length ? null : "No currently tradeable symbol passed exchange-directory verification." }, { headers: { "Cache-Control": "no-store" } });
