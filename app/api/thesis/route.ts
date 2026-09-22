@@ -69,22 +69,31 @@ function resolveProposal(proposal: Proposal, universe: Instrument[]) {
 const reasoningPrompt = "You are an independent cross-asset trading researcher. For every new thesis, reason from first principles: identify the causal transmission chain, direct beneficiaries/losers, second-order expressions and useful hedges. Do not rely on a fixed scenario table or merely repeat symbols from the user. Search your market knowledge for concrete instruments that may trade on Binance, OKX, Bitget or Hyperliquid, including equity, ETF, commodity, rates, FX, volatility and crypto proxies. Return at most 12 candidate listings. Never output categories, prose placeholders, OTC-only instruments or fabricated tickers. Use only LONG or SHORT. Return only JSON: {\"items\":[{\"direction\":\"LONG\",\"symbol\":\"...\",\"venue\":\"BINANCE|OKX|BITGET|HYPERLIQUID\",\"role\":\"PRIMARY|RELATED|HEDGE\",\"reason\":\"causal link in one sentence\"}]}";
 
 async function geminiProposals(thesis: string, apiKey: string): Promise<Proposal[]> {
-  const model = process.env.GEMINI_THESIS_MODEL?.trim() || "gemini-3.6-flash";
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: "POST",
-    headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: reasoningPrompt }] },
-      contents: [{ role: "user", parts: [{ text: thesis }] }],
-      generationConfig: { responseMimeType: "application/json", temperature: 0.25 },
-    }),
-    signal: timeout(25_000),
-  });
-  if (!response.ok) throw new Error(`Gemini reasoning HTTP ${response.status}`);
-  const body = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-  const text = body.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
-  const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? text) as { items?: Proposal[] };
-  return Array.isArray(parsed.items) ? parsed.items.slice(0, 12) : [];
+  const configured = process.env.GEMINI_THESIS_MODEL?.trim();
+  const models = configured ? [configured] : ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
+  let lastStatus = 503;
+  for (const model of models) {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: "POST",
+      headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: reasoningPrompt }] },
+        contents: [{ role: "user", parts: [{ text: thesis }] }],
+        generationConfig: { responseMimeType: "application/json", temperature: 0.25 },
+      }),
+      signal: timeout(25_000),
+    });
+    if (!response.ok) {
+      lastStatus = response.status;
+      if ([404, 429, 503].includes(response.status) && models.length > 1) continue;
+      throw new Error(`Gemini reasoning HTTP ${response.status}`);
+    }
+    const body = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+    const text = body.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+    const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? text) as { items?: Proposal[] };
+    return Array.isArray(parsed.items) ? parsed.items.slice(0, 12) : [];
+  }
+  throw new Error(`Gemini reasoning HTTP ${lastStatus}`);
 }
 
 async function openAiProposals(thesis: string, apiKey: string): Promise<Proposal[]> {
