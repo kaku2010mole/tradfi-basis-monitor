@@ -66,16 +66,35 @@ function resolveProposal(proposal: Proposal, universe: Instrument[]) {
   }));
 }
 
-async function modelProposals(thesis: string): Promise<Proposal[]> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) throw new Error("Reasoning engine is not configured. Add OPENAI_API_KEY to the server environment.");
+const reasoningPrompt = "You are an independent cross-asset trading researcher. For every new thesis, reason from first principles: identify the causal transmission chain, direct beneficiaries/losers, second-order expressions and useful hedges. Do not rely on a fixed scenario table or merely repeat symbols from the user. Search your market knowledge for concrete instruments that may trade on Binance, OKX, Bitget or Hyperliquid, including equity, ETF, commodity, rates, FX, volatility and crypto proxies. Return at most 12 candidate listings. Never output categories, prose placeholders, OTC-only instruments or fabricated tickers. Use only LONG or SHORT. Return only JSON: {\"items\":[{\"direction\":\"LONG\",\"symbol\":\"...\",\"venue\":\"BINANCE|OKX|BITGET|HYPERLIQUID\",\"role\":\"PRIMARY|RELATED|HEDGE\",\"reason\":\"causal link in one sentence\"}]}";
+
+async function geminiProposals(thesis: string, apiKey: string): Promise<Proposal[]> {
+  const model = process.env.GEMINI_THESIS_MODEL?.trim() || "gemini-2.5-flash";
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: "POST",
+    headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: reasoningPrompt }] },
+      contents: [{ role: "user", parts: [{ text: thesis }] }],
+      generationConfig: { responseMimeType: "application/json", temperature: 0.25 },
+    }),
+    signal: timeout(25_000),
+  });
+  if (!response.ok) throw new Error(`Gemini reasoning HTTP ${response.status}`);
+  const body = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  const text = body.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+  const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? text) as { items?: Proposal[] };
+  return Array.isArray(parsed.items) ? parsed.items.slice(0, 12) : [];
+}
+
+async function openAiProposals(thesis: string, apiKey: string): Promise<Proposal[]> {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({
       model: process.env.OPENAI_THESIS_MODEL?.trim() || "gpt-5-mini",
       input: [
-        { role: "system", content: "You are an independent cross-asset trading researcher. For every new thesis, reason from first principles: identify the causal transmission chain, direct beneficiaries/losers, second-order expressions and useful hedges. Do not rely on a fixed scenario table or merely repeat symbols from the user. Search your market knowledge for concrete instruments that may trade on Binance, OKX, Bitget or Hyperliquid, including equity, ETF, commodity, rates, FX, volatility and crypto proxies. Return at most 12 candidate listings. Never output categories, prose placeholders, OTC-only instruments or fabricated tickers. Use only LONG or SHORT. Return only JSON: {\"items\":[{\"direction\":\"LONG\",\"symbol\":\"...\",\"venue\":\"BINANCE|OKX|BITGET|HYPERLIQUID\",\"role\":\"PRIMARY|RELATED|HEDGE\",\"reason\":\"causal link in one sentence\"}]}" },
+        { role: "system", content: reasoningPrompt },
         { role: "user", content: thesis },
       ],
     }),
@@ -89,11 +108,20 @@ async function modelProposals(thesis: string): Promise<Proposal[]> {
   return Array.isArray(parsed.items) ? parsed.items.slice(0, 12) : [];
 }
 
+async function modelProposals(thesis: string): Promise<{ items: Proposal[]; provider: "GEMINI" | "OPENAI" }> {
+  const geminiKey = process.env.GEMINI_API_KEY?.trim();
+  if (geminiKey) return { items: await geminiProposals(thesis, geminiKey), provider: "GEMINI" };
+  const openAiKey = process.env.OPENAI_API_KEY?.trim();
+  if (openAiKey) return { items: await openAiProposals(thesis, openAiKey), provider: "OPENAI" };
+  throw new Error("Reasoning engine is not configured. Add GEMINI_API_KEY to the server environment.");
+}
+
 export async function GET() {
   try {
     const universe = await loadUniverse();
     const venues = Object.fromEntries(["BINANCE", "OKX", "BITGET", "HYPERLIQUID"].map((venue) => [venue, universe.filter((item) => item.venue === venue).length]));
-    return Response.json({ ok: true, venues, instruments: universe.length, aiReady: Boolean(process.env.OPENAI_API_KEY) }, { headers: { "Cache-Control": "no-store" } });
+    const provider = process.env.GEMINI_API_KEY ? "GEMINI" : process.env.OPENAI_API_KEY ? "OPENAI" : null;
+    return Response.json({ ok: true, venues, instruments: universe.length, aiReady: Boolean(provider), provider }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ ok: false, error: error instanceof Error ? error.message : "Market directory unavailable." }, { status: 502 });
   }
@@ -105,8 +133,9 @@ export async function POST(request: Request) {
   if (thesis.length < 3 || thesis.length > 1_000) return Response.json({ error: "Enter a thesis between 3 and 1,000 characters." }, { status: 400 });
   try {
     const universe = await loadUniverse();
-    const proposals = await modelProposals(thesis);
-    const source = "INDEPENDENT REASONING + LIVE DIRECTORY";
+    const reasoning = await modelProposals(thesis);
+    const proposals = reasoning.items;
+    const source = `${reasoning.provider} REASONING + LIVE DIRECTORY`;
     const items = proposals.flatMap((proposal) => resolveProposal(proposal, universe));
     const unique = [...new Map(items.map((item) => [`${item.direction}:${item.venue}:${item.market}:${item.symbol}`, item])).values()].slice(0, 10);
     return Response.json({ ok: true, thesis, source, items: unique, checked: universe.length, timestamp: Date.now(), message: unique.length ? null : "No currently tradeable symbol passed exchange-directory verification." }, { headers: { "Cache-Control": "no-store" } });

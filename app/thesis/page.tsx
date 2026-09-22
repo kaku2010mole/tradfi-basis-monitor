@@ -6,7 +6,7 @@ import styles from "./page.module.css";
 
 type Item = { direction: "LONG" | "SHORT"; symbol: string; venue: string; market: "PERP" | "SPOT"; role: "PRIMARY" | "RELATED" | "HEDGE"; reason: string };
 type Result = { thesis: string; source: string; items: Item[]; checked: number; timestamp: number; message: string | null };
-type Status = { venues?: Record<string, number>; instruments?: number; aiReady?: boolean };
+type Status = { venues?: Record<string, number>; instruments?: number; aiReady?: boolean; provider?: "GEMINI" | "OPENAI" | null };
 const examples = ["China political stimulus is positive", "XYZ100 will fall", "Oil prices will rise and inflation expectations will increase"];
 
 export default function ThesisMapperPage() {
@@ -37,7 +37,7 @@ export default function ThesisMapperPage() {
     <header className={styles.topbar}><div><p>WEEKEND THESIS → TRADEABLE SYMBOLS</p><h1>Thesis Mapper</h1><span>No categories. No invented tickers. Only exchange-verified instruments.</span></div><PageSwitcher active="thesis" /></header>
     <section className={styles.hero}>
       <div><span className={styles.kicker}>ASK A DIFFERENT CASE EVERY TIME</span><h2>Tell me what you think happens next.</h2><p>The mapper turns your causal view into a short watchlist, then rejects every symbol that is not currently listed by Binance, OKX, Bitget or Hyperliquid.</p></div>
-      <aside><strong>{status.instruments?.toLocaleString() ?? "—"}</strong><span>live instruments indexed</span><small>{status.aiReady ? "Independent reasoning engine online" : "Reasoning engine needs OPENAI_API_KEY"}</small></aside>
+      <aside><strong>{status.instruments?.toLocaleString() ?? "—"}</strong><span>live instruments indexed</span><small>{status.aiReady ? `${status.provider ?? "AI"} reasoning engine online` : "Reasoning engine needs GEMINI_API_KEY"}</small></aside>
     </section>
     <form className={styles.composer} onSubmit={(event) => void submit(event)}>
       <label htmlFor="thesis">MARKET VIEW</label><textarea id="thesis" value={thesis} onChange={(event) => setThesis(event.target.value)} placeholder="e.g. China policy support will improve risk appetite…" maxLength={1000} />
