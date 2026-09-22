@@ -69,7 +69,7 @@ function resolveProposal(proposal: Proposal, universe: Instrument[]) {
 const reasoningPrompt = "You are an independent cross-asset trading researcher. For every new thesis, reason from first principles: identify the causal transmission chain, direct beneficiaries/losers, second-order expressions and useful hedges. Do not rely on a fixed scenario table or merely repeat symbols from the user. Search your market knowledge for concrete instruments that may trade on Binance, OKX, Bitget or Hyperliquid, including equity, ETF, commodity, rates, FX, volatility and crypto proxies. Return at most 12 candidate listings. Never output categories, prose placeholders, OTC-only instruments or fabricated tickers. Use only LONG or SHORT. Return only JSON: {\"items\":[{\"direction\":\"LONG\",\"symbol\":\"...\",\"venue\":\"BINANCE|OKX|BITGET|HYPERLIQUID\",\"role\":\"PRIMARY|RELATED|HEDGE\",\"reason\":\"causal link in one sentence\"}]}";
 
 async function geminiProposals(thesis: string, apiKey: string): Promise<Proposal[]> {
-  const model = process.env.GEMINI_THESIS_MODEL?.trim() || "gemini-2.5-flash";
+  const model = process.env.GEMINI_THESIS_MODEL?.trim() || "gemini-3.6-flash";
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: "POST",
     headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
