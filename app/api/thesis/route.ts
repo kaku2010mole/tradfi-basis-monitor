@@ -66,7 +66,14 @@ function resolveProposal(proposal: Proposal, universe: Instrument[]) {
   }));
 }
 
-const reasoningPrompt = "You are an independent cross-asset trading researcher. For every new thesis, reason from first principles: identify the causal transmission chain, direct beneficiaries/losers, second-order expressions and useful hedges. Do not rely on a fixed scenario table or merely repeat symbols from the user. Search your market knowledge for concrete instruments that may trade on Binance, OKX, Bitget or Hyperliquid, including equity, ETF, commodity, rates, FX, volatility and crypto proxies. Return at most 12 candidate listings. Never output categories, prose placeholders, OTC-only instruments or fabricated tickers. Use only LONG or SHORT. Return only JSON: {\"items\":[{\"direction\":\"LONG\",\"symbol\":\"...\",\"venue\":\"BINANCE|OKX|BITGET|HYPERLIQUID\",\"role\":\"PRIMARY|RELATED|HEDGE\",\"reason\":\"causal link in one sentence\"}]}";
+const reasoningPrompt = "You are an independent cross-asset trading researcher. First identify the entity, issuer, ticker, commodity or index explicitly named by the user. If that exact exposure is exchange-listed, it MUST be PRIMARY and must appear before every proxy. Never replace a directly tradeable company with generic crypto, AI-compute or blockchain tokens merely because the thesis mentions AI. Use RELATED only for a tight one-hop economic link with a clearly affected cash flow or price driver; omit weak thematic associations. Avoid duplicate underlyings across quote currencies and prefer perpetuals over spot. Then identify useful hedges. Do not rely on a fixed scenario table. Return at most 8 candidate listings. Never output categories, prose placeholders, OTC-only instruments or fabricated tickers. Use only LONG or SHORT. Return only JSON: {\"items\":[{\"direction\":\"LONG\",\"symbol\":\"...\",\"venue\":\"BINANCE|OKX|BITGET|HYPERLIQUID\",\"role\":\"PRIMARY|RELATED|HEDGE\",\"reason\":\"specific causal link in one sentence\"}]}";
+
+function explicitMatches(thesis: string, universe: Instrument[]) {
+  const ignored = new Set(["AI", "USD", "USDT", "USDC", "LONG", "SHORT", "ETF", "ADR"]);
+  const tokens = [...new Set(thesis.match(/\b[A-Z][A-Z0-9.:-]{1,15}\b/g) ?? [])]
+    .map(normalized).filter((token) => token.length >= 2 && !ignored.has(token));
+  return universe.filter((item) => tokens.includes(normalized(item.symbol)));
+}
 
 async function geminiProposals(thesis: string, apiKey: string): Promise<Proposal[]> {
   const configured = process.env.GEMINI_THESIS_MODEL?.trim();
@@ -117,11 +124,15 @@ async function openAiProposals(thesis: string, apiKey: string): Promise<Proposal
   return Array.isArray(parsed.items) ? parsed.items.slice(0, 12) : [];
 }
 
-async function modelProposals(thesis: string): Promise<{ items: Proposal[]; provider: "GEMINI" | "OPENAI" }> {
+async function modelProposals(thesis: string, direct: Instrument[]): Promise<{ items: Proposal[]; provider: "GEMINI" | "OPENAI" }> {
+  const directContext = direct.length
+    ? `\nVerified direct listings explicitly named in the thesis: ${direct.map((item) => `${item.venue}:${item.symbol}:${item.market}`).join(", ")}. These must be PRIMARY; do not substitute thematic proxies.`
+    : "";
+  const enrichedThesis = `${thesis}${directContext}`;
   const geminiKey = process.env.GEMINI_API_KEY?.trim();
-  if (geminiKey) return { items: await geminiProposals(thesis, geminiKey), provider: "GEMINI" };
+  if (geminiKey) return { items: await geminiProposals(enrichedThesis, geminiKey), provider: "GEMINI" };
   const openAiKey = process.env.OPENAI_API_KEY?.trim();
-  if (openAiKey) return { items: await openAiProposals(thesis, openAiKey), provider: "OPENAI" };
+  if (openAiKey) return { items: await openAiProposals(enrichedThesis, openAiKey), provider: "OPENAI" };
   throw new Error("Reasoning engine is not configured. Add GEMINI_API_KEY to the server environment.");
 }
 
@@ -142,11 +153,19 @@ export async function POST(request: Request) {
   if (thesis.length < 3 || thesis.length > 1_000) return Response.json({ error: "Enter a thesis between 3 and 1,000 characters." }, { status: 400 });
   try {
     const universe = await loadUniverse();
-    const reasoning = await modelProposals(thesis);
-    const proposals = reasoning.items;
+    const direct = explicitMatches(thesis, universe);
+    const reasoning = await modelProposals(thesis, direct);
+    const inferredDirection = reasoning.items.find((item) => item.role === "PRIMARY")?.direction ?? reasoning.items[0]?.direction ?? "LONG";
+    const directProposals: Proposal[] = direct.map((item) => ({ direction: inferredDirection, symbol: item.symbol, venue: item.venue, role: "PRIMARY", reason: "Direct exchange-listed exposure explicitly named in the thesis." }));
+    const proposals = direct.length
+      ? [...directProposals, ...reasoning.items.filter((item) => item.role !== "RELATED")]
+      : reasoning.items;
     const source = `${reasoning.provider} REASONING + LIVE DIRECTORY`;
     const items = proposals.flatMap((proposal) => resolveProposal(proposal, universe));
-    const unique = [...new Map(items.map((item) => [`${item.direction}:${item.venue}:${item.market}:${item.symbol}`, item])).values()].slice(0, 10);
+    const roleRank = { PRIMARY: 0, RELATED: 1, HEDGE: 2 } as const;
+    const venueRank = { BINANCE: 0, HYPERLIQUID: 1, BITGET: 2, OKX: 3 } as const;
+    const ranked = items.sort((a, b) => roleRank[a.role] - roleRank[b.role] || Number(b.market === "PERP") - Number(a.market === "PERP") || venueRank[a.venue] - venueRank[b.venue]);
+    const unique = [...new Map(ranked.map((item) => [`${item.direction}:${normalized(item.symbol)}`, item])).values()].slice(0, 8);
     return Response.json({ ok: true, thesis, source, items: unique, checked: universe.length, timestamp: Date.now(), message: unique.length ? null : "No currently tradeable symbol passed exchange-directory verification." }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Thesis mapping unavailable." }, { status: 502 });
