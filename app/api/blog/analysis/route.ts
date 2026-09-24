@@ -11,6 +11,7 @@ import {
   TrainedModel,
 } from "../../../lib/relativeValue";
 import { futuPriceSeries } from "../../../lib/futuMarket";
+import { usdKrwSeries } from "../../../lib/fxMarket";
 
 const BINANCE_HOSTS = [
   "https://fapi.binance.com",
@@ -93,7 +94,8 @@ async function getFixedModel(relationship: Relationship, now: number) {
   const model = Promise.all([
     trainingSeries(relationship.asset1),
     trainingSeries(relationship.asset2),
-  ]).then(([asset1Rows, asset2Rows]) => trainRelationshipModel(asset1Rows, asset2Rows, relationship, trainingStart, trainingEnd));
+    relationship.predictorFx ? usdKrwSeries(trainingStart, trainingEnd, TRAINING_INTERVAL) : Promise.resolve([]),
+  ]).then(([asset1Rows, asset2Rows, fxRows]) => trainRelationshipModel(asset1Rows, asset2Rows, relationship, trainingStart, trainingEnd, fxRows));
   for (const cachedKey of modelCache.keys()) {
     if (!cachedKey.endsWith(`:${trainingEnd}`)) modelCache.delete(cachedKey);
   }
@@ -165,13 +167,14 @@ export async function GET(request: Request) {
   }
   const interval = observationInterval(start, end);
   try {
-    const [model, asset1Rows, asset2Rows, universe] = await Promise.all([
+    const [model, asset1Rows, asset2Rows, fxRows, universe] = await Promise.all([
       getFixedModel(relationship, start),
       getSeries(relationship.asset1, start, end, interval),
       getSeries(relationship.asset2, start, end, interval),
+      relationship.predictorFx ? usdKrwSeries(start, end, interval) : Promise.resolve([]),
       scanUniverse(RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship]).catch(() => null),
     ]);
-    const projection = projectRelationship(asset1Rows, asset2Rows, model);
+    const projection = projectRelationship(asset1Rows, asset2Rows, model, fxRows);
     return Response.json({
       generatedAt: Date.now(),
       interval,

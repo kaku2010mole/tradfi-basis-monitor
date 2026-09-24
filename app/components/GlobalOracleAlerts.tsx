@@ -54,6 +54,7 @@ const loadRelativeSnapshot = () => {
     const snapshot = JSON.parse(window.localStorage.getItem(RELATIVE_VALUE_SNAPSHOT_KEY) || "null") as RelativeValueAlertSnapshot | null;
     if (!snapshot || typeof snapshot.id !== "string" || !Number.isFinite(snapshot.savedAt) || Date.now() - snapshot.savedAt > MAX_RELATIVE_SNAPSHOT_AGE_MS) return null;
     if (![snapshot.start, snapshot.baseAsset1, snapshot.baseAsset2, snapshot.alphaHourly, snapshot.beta].every(Number.isFinite) || snapshot.baseAsset1 <= 0 || snapshot.baseAsset2 <= 0) return null;
+    if (snapshot.fxSymbol && (!Number.isFinite(snapshot.baseFx) || snapshot.baseFx! <= 0)) return null;
     return snapshot;
   } catch {
     return null;
@@ -95,11 +96,21 @@ async function liveRelativeSignal(snapshot: RelativeValueAlertSnapshot): Promise
     if (!Number.isFinite(value) || value <= 0) throw new Error(`${leg.symbol} midpoint unavailable.`);
     return value;
   };
-  const [asset1, asset2] = await Promise.all([midpoint(snapshot.asset1), midpoint(snapshot.asset2)]);
+  const fxPrice = async () => {
+    if (!snapshot.fxSymbol) return 1;
+    const end = Date.now();
+    const params = new URLSearchParams({ start: String(end - 72 * 60 * 60_000), end: String(end), interval: "1m" });
+    const response = await fetch(`/api/blog/fx?${params}`, { cache: "no-store", signal: AbortSignal.timeout(6_000) });
+    const payload = await response.json() as { live?: number; error?: string };
+    if (!response.ok || !Number.isFinite(payload.live) || payload.live! <= 0) throw new Error(payload.error || "USD/KRW unavailable.");
+    return payload.live!;
+  };
+  const [asset1, asset2, currentFx] = await Promise.all([midpoint(snapshot.asset1), midpoint(snapshot.asset2), fxPrice()]);
   const updatedAt = Date.now();
   const elapsedHours = Math.max(0, (updatedAt - snapshot.start) / 60 / 60_000);
   const asset1LogReturn = Math.log(asset1 / snapshot.baseAsset1);
-  const asset2Theoretical = Math.expm1(snapshot.alphaHourly * elapsedHours + snapshot.beta * asset1LogReturn) * 100;
+  const fxLogReturn = snapshot.fxSymbol ? Math.log(currentFx / snapshot.baseFx!) : 0;
+  const asset2Theoretical = Math.expm1(snapshot.alphaHourly * elapsedHours + snapshot.beta * (asset1LogReturn + fxLogReturn)) * 100;
   const asset2Actual = (asset2 / snapshot.baseAsset2 - 1) * 100;
   return { snapshot, predictionError: asset2Actual - asset2Theoretical, asset2Actual, asset2Theoretical, updatedAt };
 }

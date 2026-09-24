@@ -7,8 +7,11 @@ const PUSH_URL = process.env.FUTU_PUSH_URL || "https://tradfi-basis-monitor.onre
 const TOKEN_FILE = process.env.FUTU_PUSH_TOKEN_FILE;
 const SYMBOLS = ["TCEHY", "XIACY", "KSHTY", "MPNGY", "PMRTY", "MMXGY", "LNVGY", "BYDDY"];
 const KEYS = SYMBOLS.map((symbol) => `orderbook:ibkr:STK:${symbol}:SMART:USD`);
-const allowedKeys = new Map(KEYS.map((key, index) => [key, SYMBOLS[index]]));
+const FX_KEY = "orderbook:ibkr:FX:USD:KRW";
+KEYS.push(FX_KEY);
+const allowedKeys = new Map(KEYS.map((key, index) => [key, key === FX_KEY ? "USDKRW" : SYMBOLS[index]]));
 const latest = new Map();
+const fxHistory = new Map();
 
 if (!TOKEN_FILE) throw new Error("FUTU_PUSH_TOKEN_FILE is required.");
 const token = (await readFile(TOKEN_FILE, "utf8")).trim();
@@ -53,10 +56,11 @@ const quoteFromEntry = (message) => {
     .map(timestamp).filter((value) => value !== null);
   const last = positive(fields.last_price ?? fields.last ?? fields.price);
   if (bid.price === null && ask.price === null && last === null) return null;
+  const isFx = message.key === FX_KEY;
   return {
-    symbol: `US.${symbol}`,
+    symbol: isFx ? "FX.USDKRW" : `US.${symbol}`,
     name: symbol,
-    marketState: "US_REFERENCE",
+    marketState: isFx ? "FX_REFERENCE" : "US_REFERENCE",
     auctionPrice: null,
     last,
     previousClose: positive(fields.previous_close ?? fields.prev_close),
@@ -65,7 +69,7 @@ const quoteFromEntry = (message) => {
     bidSize: bid.size,
     askSize: ask.size,
     marketTimestamp: candidates.length ? Math.max(...candidates) : Date.now(),
-    source: "Posley office relay",
+    source: isFx ? "Posley IBKR FX" : "Posley office relay",
   };
 };
 
@@ -90,7 +94,17 @@ const connect = () => {
       const message = JSON.parse(String(event.data));
       if (message.type !== "entry") return;
       const quote = quoteFromEntry(message);
-      if (quote) latest.set(quote.symbol, quote);
+      if (quote) {
+        latest.set(quote.symbol, quote);
+        if (quote.symbol === "FX.USDKRW") {
+          const price = quote.bid && quote.ask ? (quote.bid + quote.ask) / 2 : quote.last;
+          if (price && quote.marketTimestamp) {
+            fxHistory.set(Math.floor(quote.marketTimestamp / 60_000) * 60_000, price);
+            const cutoff = Date.now() - 8 * 24 * 60 * 60_000;
+            for (const timestamp of fxHistory.keys()) if (timestamp < cutoff) fxHistory.delete(timestamp);
+          }
+        }
+      }
     } catch (error) {
       console.error(`Posley ADR message ignored: ${error instanceof Error ? error.message : error}`);
     }
@@ -116,7 +130,11 @@ setInterval(async () => {
     const response = await fetch(PUSH_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "User-Agent": "posley-adr-pusher/1" },
-      body: JSON.stringify({ generatedAt: Date.now(), quotes: [...latest.values()] }),
+      body: JSON.stringify({
+        generatedAt: Date.now(),
+        quotes: [...latest.values()],
+        history: fxHistory.size ? { "FX.USDKRW": [...fxHistory].sort((left, right) => left[0] - right[0]).slice(-2500) } : undefined,
+      }),
       signal: AbortSignal.timeout(8_000),
     });
     if (response.status !== 202) throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 160)}`);

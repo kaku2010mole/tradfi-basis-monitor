@@ -8,6 +8,7 @@ import {
   trainRelationshipModel,
 } from "../../../lib/relativeValue";
 import { futuLivePrice, futuPriceSeries } from "../../../lib/futuMarket";
+import { usdKrwAt, usdKrwSeries } from "../../../lib/fxMarket";
 
 const BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
 const HYPERLIQUID_INFO = "https://api.hyperliquid.xyz/info";
@@ -70,8 +71,9 @@ function rankingModel(relationship: Relationship, start: number): Promise<Rankin
   const promise = Promise.all([
     trainingSeries(relationship.asset1, trainingStart, trainingEnd),
     trainingSeries(relationship.asset2, trainingStart, trainingEnd),
-  ]).then(([first, second]) => {
-    const model = trainRelationshipModel(first, second, relationship, trainingStart, trainingEnd);
+    relationship.predictorFx ? usdKrwSeries(trainingStart, trainingEnd, TRAINING_INTERVAL) : Promise.resolve([]),
+  ]).then(([first, second, fx]) => {
+    const model = trainRelationshipModel(first, second, relationship, trainingStart, trainingEnd, fx);
     return { alphaHourly: model.alphaHourly, beta: model.beta };
   });
   modelCache.set(key, promise);
@@ -163,9 +165,15 @@ export async function POST(request: Request) {
         const relationshipStart = Math.max(start, end - maxObservationMs(relationship));
         const current1 = live(relationship.asset1); const current2 = live(relationship.asset2);
         if (!current1 || !current2) return null;
-        const [base1, base2, model] = await Promise.all([baseline(relationship.asset1, relationshipStart), baseline(relationship.asset2, relationshipStart), rankingModel(relationship, relationshipStart)]);
+        const [base1, base2, model, baseFx, currentFx] = await Promise.all([
+          baseline(relationship.asset1, relationshipStart),
+          baseline(relationship.asset2, relationshipStart),
+          rankingModel(relationship, relationshipStart),
+          relationship.predictorFx ? usdKrwAt(relationshipStart).then((row) => row.value) : Promise.resolve(1),
+          relationship.predictorFx ? usdKrwAt(end).then((row) => row.value) : Promise.resolve(1),
+        ]);
         const elapsedHours = Math.max(0, (end - relationshipStart) / 60 / 60_000);
-        const theoretical = Math.expm1(model.alphaHourly * elapsedHours + model.beta * Math.log(current1 / base1)) * 100;
+        const theoretical = Math.expm1(model.alphaHourly * elapsedHours + model.beta * (Math.log(current1 / base1) + Math.log(currentFx / baseFx))) * 100;
         const actual = (current2 / base2 - 1) * 100;
         return { id: relationship.id, predictionError: actual - theoretical, actual, theoretical, beta: model.beta, updatedAt: now };
       } catch { return null; }

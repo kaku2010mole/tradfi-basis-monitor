@@ -69,7 +69,7 @@ const HKT_OFFSET_MS = 8 * 60 * 60_000;
 const LIVE_REFRESH_MS = 10_000;
 const NEUTRAL_UNIT_SHARES = 100;
 const DIRECT_BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
-const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v6";
+const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v7";
 const CUSTOM_RELATIONSHIPS_KEY = "relative-value-custom-relationships-v1";
 const HIDDEN_RELATIONSHIPS_KEY = "relative-value-hidden-relationships-v1";
 const DIRECT_RANKING_BASELINE_CACHE = new Map<string, Promise<number>>();
@@ -160,13 +160,23 @@ async function directLivePrices(relationship: Relationship) {
     if (!Number.isFinite(value) || value <= 0) throw new Error(`${leg.symbol} live midpoint unavailable.`);
     return value;
   };
-  const [asset1, asset2] = await Promise.all([legPrice(relationship.asset1), legPrice(relationship.asset2)]);
-  return { asset1, asset2 };
+  const fxPrice = async () => {
+    if (!relationship.predictorFx) return null;
+    const end = Date.now();
+    const params = new URLSearchParams({ start: String(end - 72 * 60 * 60_000), end: String(end), interval: "1m" });
+    const response = await fetch(`/api/blog/fx?${params}`, { cache: "no-store", signal: AbortSignal.timeout(8_000) });
+    const payload = await response.json() as { live?: number; error?: string };
+    if (!response.ok || !Number.isFinite(payload.live) || payload.live! <= 0) throw new Error(payload.error || "USD/KRW unavailable.");
+    return payload.live!;
+  };
+  const [asset1, asset2, fx] = await Promise.all([legPrice(relationship.asset1), legPrice(relationship.asset2), fxPrice()]);
+  return { asset1, asset2, fx };
 }
 
 async function rankInBrowser(relationships: Relationship[], start: number, end: number): Promise<RankingRow[]> {
   type Book = { symbol?: string; bidPrice?: string; askPrice?: string };
   const books = await directBinance<Book[]>("/fapi/v1/ticker/bookTicker");
+  const rankingFxRows = relationships.some((item) => item.predictorFx) ? await directFxSeries(start, end, "1m") : [];
   const bookBySymbol = new Map(books.flatMap((book) => book.symbol ? [[book.symbol, book] as const] : []));
   const hyperLegs = relationships.flatMap((item) => [item.asset1, item.asset2]).filter((leg) => leg.venue === "hyperliquid");
   const dexNames = [...new Set(hyperLegs.map((leg) => leg.symbol.includes(":") ? leg.symbol.split(":", 1)[0] : ""))];
@@ -222,7 +232,10 @@ async function rankInBrowser(relationships: Relationship[], start: number, end: 
         ]);
         if (![base1, base2].every((value) => Number.isFinite(value) && value > 0)) continue;
         const elapsedHours = Math.max(0, (end - relationshipStart) / 60 / 60_000);
-        const theoretical = Math.expm1(model.alphaHourly * elapsedHours + model.beta * Math.log(current1 / base1)) * 100;
+        const baseFx = relationship.predictorFx ? rankingFxRows.filter((row) => row.t <= relationshipStart + 60_000).at(-1)?.value : 1;
+        const currentFx = relationship.predictorFx ? rankingFxRows.filter((row) => row.t <= end + 60_000).at(-1)?.value : 1;
+        if (!baseFx || !currentFx) continue;
+        const theoretical = Math.expm1(model.alphaHourly * elapsedHours + model.beta * (Math.log(current1 / base1) + Math.log(currentFx / baseFx))) * 100;
         const actual = (current2 / base2 - 1) * 100;
         output.push({ id: relationship.id, predictionError: actual - theoretical, actual, theoretical, beta: model.beta, updatedAt: Date.now() });
       } catch { /* Leave unavailable relationships at the bottom until the next refresh. */ }
@@ -266,6 +279,14 @@ async function directSeries(leg: Relationship["asset1"], start: number, end: num
   return rows.flatMap((row) => Number(row.c) > 0 ? [{ t: Number(row.t), value: Number(row.c) }] : []);
 }
 
+async function directFxSeries(start: number, end: number, interval: string): Promise<PricePoint[]> {
+  const params = new URLSearchParams({ start: String(start), end: String(end), interval });
+  const response = await fetch(`/api/blog/fx?${params}`, { cache: "no-store", signal: AbortSignal.timeout(9_000) });
+  const payload = await response.json() as { points?: PricePoint[]; error?: string };
+  if (!response.ok || !Array.isArray(payload.points) || !payload.points.length) throw new Error(payload.error || "USD/KRW history unavailable.");
+  return payload.points;
+}
+
 async function directFixedModel(relationship: Relationship, now: number) {
   const { trainingStart, trainingEnd } = fixedTrainingWindow(now);
   const key = `${MODEL_CACHE_PREFIX}:${relationship.id}:${trainingEnd}`;
@@ -277,21 +298,23 @@ async function directFixedModel(relationship: Relationship, now: number) {
     if (relationship.referenceBeta !== null) return [];
     throw error;
   });
-  const [asset1Rows, asset2Rows] = await Promise.all([trainingSeries(relationship.asset1), trainingSeries(relationship.asset2)]);
-  const model = trainRelationshipModel(asset1Rows, asset2Rows, relationship, trainingStart, trainingEnd);
+  const fxSeries = relationship.predictorFx ? directFxSeries(trainingStart, trainingEnd, TRAINING_INTERVAL) : Promise.resolve([]);
+  const [asset1Rows, asset2Rows, fxRows] = await Promise.all([trainingSeries(relationship.asset1), trainingSeries(relationship.asset2), fxSeries]);
+  const model = trainRelationshipModel(asset1Rows, asset2Rows, relationship, trainingStart, trainingEnd, fxRows);
   try { window.localStorage.setItem(key, JSON.stringify(model)); } catch { /* Browser storage is optional. */ }
   return model;
 }
 
 async function analyzeInBrowser(relationship: Relationship, start: number, end: number): Promise<Analysis> {
   const interval = observationInterval(start, end);
-  const [model, asset1Rows, asset2Rows, exchangeInfo] = await Promise.all([
+  const [model, asset1Rows, asset2Rows, fxRows, exchangeInfo] = await Promise.all([
     directFixedModel(relationship, start),
     directSeries(relationship.asset1, start, end, interval),
     directSeries(relationship.asset2, start, end, interval),
+    relationship.predictorFx ? directFxSeries(start, end, interval) : Promise.resolve([]),
     directBinance<{ symbols?: Array<{ symbol?: string; status?: string; underlyingType?: string; underlyingSubType?: string[] }> }>("/fapi/v1/exchangeInfo"),
   ]);
-  const projection = projectRelationship(asset1Rows, asset2Rows, model);
+  const projection = projectRelationship(asset1Rows, asset2Rows, model, fxRows);
   const tradFi = (exchangeInfo.symbols ?? []).filter((item) => item.status === "TRADING" && item.underlyingSubType?.some((tag) => tag.toLowerCase() === "tradfi"));
   const symbols = tradFi.flatMap((item) => item.symbol ? [item.symbol] : []).sort();
   const active = new Set(symbols);
@@ -505,6 +528,8 @@ export default function RelativeValueBlog() {
       baseAsset2: first.asset2,
       alphaHourly: analysis.model.alphaHourly,
       beta: analysis.model.beta,
+      baseFx: first.fxValue,
+      fxSymbol: analysis.relationship.predictorFx?.symbol,
     };
     window.localStorage.setItem(RELATIVE_VALUE_SNAPSHOT_KEY, JSON.stringify(snapshot));
     window.dispatchEvent(new CustomEvent(RELATIVE_VALUE_SNAPSHOT_EVENT, { detail: snapshot }));
@@ -606,6 +631,7 @@ export default function RelativeValueBlog() {
           [{ t: first.t, value: first.asset1 }, { t: now, value: quote.asset1 }],
           [{ t: first.t, value: first.asset2 }, { t: now, value: quote.asset2 }],
           current.model,
+          first.fxValue && quote.fx ? [{ t: first.t, value: first.fxValue }, { t: now, value: quote.fx }] : [],
         );
         const livePoint = liveProjection.points.at(-1)!;
         const snapshot: RelativeValueAlertSnapshot = {
@@ -619,6 +645,8 @@ export default function RelativeValueBlog() {
           baseAsset2: first.asset2,
           alphaHourly: current.model.alphaHourly,
           beta: current.model.beta,
+          baseFx: first.fxValue,
+          fxSymbol: current.relationship.predictorFx?.symbol,
         };
         const signal: RelativeValueAlertSignal = {
           snapshot,

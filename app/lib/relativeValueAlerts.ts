@@ -16,6 +16,8 @@ export type RelativeValueAlertSnapshot = {
   baseAsset2: number;
   alphaHourly: number;
   beta: number;
+  baseFx?: number;
+  fxSymbol?: "KRW=X";
 };
 
 export type RelativeValueAlertSignal = {
@@ -25,4 +27,3 @@ export type RelativeValueAlertSignal = {
   asset2Theoretical: number;
   updatedAt: number;
 };
-

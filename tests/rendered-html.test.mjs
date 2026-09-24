@@ -409,3 +409,22 @@ test("loads route-scoped styles for the HSI and Shanghai dashboards", async () =
   assert.match(hsiLayout, /import\s+["']\.\/hsi\.css["']/);
   assert.match(shanghaiLayout, /import\s+["']\.\.\/hsi\/hsi\.css["']/);
 });
+
+test("FX-adjusts SKHX to CSOP 2L prediction error everywhere", async () => {
+  const [model, analysis, ranking, page, alerts, fx] = await Promise.all([
+    readFile(new URL("../app/lib/relativeValue.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/blog/analysis/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/blog/ranking/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/blog/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/GlobalOracleAlerts.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/fxMarket.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(model, /predictorFx: \{ symbol: "KRW=X"/);
+  assert.match(model, /asset1LogReturn \+ .*Math\.log\(fxValue \/ firstFx\)/s);
+  assert.match(analysis, /usdKrwSeries/);
+  assert.match(ranking, /Math\.log\(currentFx \/ baseFx\)/);
+  assert.match(page, /fxSymbol: current\.relationship\.predictorFx\?\.symbol/);
+  assert.match(alerts, /Math\.log\(currentFx \/ snapshot\.baseFx!/);
+  assert.match(fx, /FX\.USDKRW/);
+  assert.match(fx, /Fresh Posley IBKR USD\/KRW is unavailable/);
+});

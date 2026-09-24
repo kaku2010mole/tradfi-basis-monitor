@@ -1,5 +1,6 @@
 export type Venue = "binance" | "hyperliquid" | "futu";
 export type MarketLeg = { venue: Venue; symbol: string; label: string; usdHkd?: number; sharesPerAdr?: number };
+export type FxAdjustment = { symbol: "KRW=X"; label: string; source: "posley-ibkr" };
 export type RelationshipKind = "same-benchmark" | "leveraged-inverse" | "leveraged-long" | "risk-regime" | "cross-index" | "same-company" | "sector-proxy" | "commodity-proxy" | "custom";
 
 export type Relationship = {
@@ -13,6 +14,7 @@ export type Relationship = {
   leveraged: boolean;
   thesis: string;
   caveat: string;
+  predictorFx?: FxAdjustment;
 };
 
 export type PricePoint = { t: number; value: number };
@@ -47,6 +49,8 @@ export type ProjectionPoint = {
   asset2Theoretical: number;
   predictionError: number;
   z: number;
+  predictorValue?: number;
+  fxValue?: number;
 };
 
 export const TRAINING_DAYS = 45;
@@ -81,8 +85,9 @@ export const RELATIONSHIPS: Relationship[] = [
     id: "skhynix-csop2l", title: "SKHYNIX → CSOP SKHYNIX 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
     asset1: { venue: "binance", symbol: "SKHYNIXUSDT", label: "Binance SKHYNIX" }, asset2: { venue: "binance", symbol: "CSOPSKHYNIX2LUSDT", label: "Binance CSOP SKHYNIX 2L" },
     referenceBeta: 2, leveraged: true,
-    thesis: "Apply the product's explicit +2 daily objective directly to SK Hynix's move.",
-    caveat: "The +2 relationship is a daily objective. Contract liquidity, oracle timing, fees and compounding can create a fillable deviation.",
+    predictorFx: { symbol: "KRW=X", label: "USD/KRW", source: "posley-ibkr" },
+    thesis: "Recover SKHX's KRW-local return from its USDT return with USD/KRW, then apply the product's explicit +2 daily objective.",
+    caveat: "Theory uses 2 × [SKHX USDT log return + USD/KRW log return]. Daily reset, swap costs, oracle timing and liquidity can still create a fillable deviation.",
   },
   {
     id: "samsung-csop2l", title: "SAMSUNG → CSOP SAMSUNG 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
@@ -256,8 +261,20 @@ const modelMetrics = (x: number[], y: number[], alpha: number, beta: number) => 
   };
 };
 
-export function trainRelationshipModel(asset1Rows: PricePoint[], asset2Rows: PricePoint[], relationship: Relationship, trainingStart: number, trainingEnd: number): TrainedModel {
-  const aligned = alignPrices(asset1Rows, asset2Rows);
+export function fxAdjustedPredictor(asset1Rows: PricePoint[], fxRows: PricePoint[] = []) {
+  if (!fxRows.length) return asset1Rows;
+  const sortedFx = [...fxRows].sort((left, right) => left.t - right.t);
+  let fxIndex = 0;
+  let latestFx: PricePoint | null = null;
+  return asset1Rows.flatMap((row) => {
+    while (fxIndex < sortedFx.length && sortedFx[fxIndex].t <= row.t) latestFx = sortedFx[fxIndex++];
+    if (!latestFx || row.t - latestFx.t > 72 * 60 * 60_000) return [];
+    return [{ t: row.t, value: row.value * latestFx.value }];
+  });
+}
+
+export function trainRelationshipModel(asset1Rows: PricePoint[], asset2Rows: PricePoint[], relationship: Relationship, trainingStart: number, trainingEnd: number, fxRows: PricePoint[] = []): TrainedModel {
+  const aligned = alignPrices(relationship.predictorFx ? fxAdjustedPredictor(asset1Rows, fxRows) : asset1Rows, asset2Rows);
   const method = relationship.referenceBeta === null ? "regression" as const : "reference" as const;
   if (aligned.length < 80) {
     const referenceBeta = relationship.referenceBeta;
@@ -325,14 +342,20 @@ export function trainRelationshipModel(asset1Rows: PricePoint[], asset2Rows: Pri
   };
 }
 
-export function projectRelationship(asset1Rows: PricePoint[], asset2Rows: PricePoint[], model: TrainedModel) {
+export function projectRelationship(asset1Rows: PricePoint[], asset2Rows: PricePoint[], model: TrainedModel, fxRows: PricePoint[] = []) {
   const aligned = alignPrices(asset1Rows, asset2Rows);
   if (aligned.length < 2) throw new Error("Not enough overlapping candles in the selected observation window.");
   const first = aligned[0];
+  const normalizedFx = fxRows.length ? fxAdjustedPredictor(aligned.map((row) => ({ t: row.t, value: 1 })), fxRows) : [];
+  const fxByTime = new Map(normalizedFx.map((row) => [row.t, row.value]));
+  const firstFx = normalizedFx.length ? fxByTime.get(first.t) : undefined;
   const points = aligned.map<ProjectionPoint>((row) => {
     const elapsedHours = Math.max(0, (row.t - first.t) / 60 / 60_000);
     const asset1LogReturn = Math.log(row.asset1 / first.asset1);
-    const theoreticalLogReturn = model.alphaHourly * elapsedHours + model.beta * asset1LogReturn;
+    const fxValue = normalizedFx.length ? fxByTime.get(row.t) : undefined;
+    if (fxRows.length && (!firstFx || !fxValue)) throw new Error("Synchronized USD/KRW history is unavailable.");
+    const predictorLogReturn = asset1LogReturn + (firstFx && fxValue ? Math.log(fxValue / firstFx) : 0);
+    const theoreticalLogReturn = model.alphaHourly * elapsedHours + model.beta * predictorLogReturn;
     const actualLogReturn = Math.log(row.asset2 / first.asset2);
     const asset2Theoretical = Math.expm1(theoreticalLogReturn) * 100;
     const asset2Actual = (row.asset2 / first.asset2 - 1) * 100;
@@ -343,6 +366,8 @@ export function projectRelationship(asset1Rows: PricePoint[], asset2Rows: PriceP
       t: row.t,
       asset1: row.asset1,
       asset2: row.asset2,
+      predictorValue: firstFx && fxValue ? row.asset1 * fxValue : undefined,
+      fxValue,
       asset1Return: (row.asset1 / first.asset1 - 1) * 100,
       asset2Actual,
       asset2Theoretical,
