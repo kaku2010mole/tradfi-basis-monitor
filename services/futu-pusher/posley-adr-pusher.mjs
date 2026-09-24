@@ -8,8 +8,9 @@ const TOKEN_FILE = process.env.FUTU_PUSH_TOKEN_FILE;
 const SYMBOLS = ["TCEHY", "XIACY", "KSHTY", "MPNGY", "PMRTY", "MMXGY", "LNVGY", "BYDDY"];
 const KEYS = SYMBOLS.map((symbol) => `orderbook:ibkr:STK:${symbol}:SMART:USD`);
 const FX_KEY = "orderbook:ibkr:FX:USD:KRW";
-KEYS.push(FX_KEY);
-const allowedKeys = new Map(KEYS.map((key, index) => [key, key === FX_KEY ? "USDKRW" : SYMBOLS[index]]));
+const FX_HL_KEY = "index_price:hyperliquid:xyz:KRW";
+KEYS.push(FX_KEY, FX_HL_KEY);
+const allowedKeys = new Map(KEYS.map((key, index) => [key, key === FX_KEY || key === FX_HL_KEY ? "USDKRW" : SYMBOLS[index]]));
 const latest = new Map();
 const fxHistory = new Map();
 
@@ -54,9 +55,9 @@ const quoteFromEntry = (message) => {
     fields.marketTimestamp,
   ]
     .map(timestamp).filter((value) => value !== null);
-  const last = positive(fields.last_price ?? fields.last ?? fields.price);
+  const last = positive(fields.index_price ?? fields.mark_price ?? fields.last_price ?? fields.last ?? fields.price);
   if (bid.price === null && ask.price === null && last === null) return null;
-  const isFx = message.key === FX_KEY;
+  const isFx = message.key === FX_KEY || message.key === FX_HL_KEY;
   return {
     symbol: isFx ? "FX.USDKRW" : `US.${symbol}`,
     name: symbol,
@@ -69,7 +70,7 @@ const quoteFromEntry = (message) => {
     bidSize: bid.size,
     askSize: ask.size,
     marketTimestamp: candidates.length ? Math.max(...candidates) : Date.now(),
-    source: isFx ? "Posley IBKR FX" : "Posley office relay",
+    source: message.key === FX_HL_KEY ? "Posley Hyperliquid KRW index" : isFx ? "Posley IBKR FX" : "Posley office relay",
   };
 };
 
