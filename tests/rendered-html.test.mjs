@@ -378,28 +378,6 @@ test("scans OKX stock spot books against executable Binance perpetual prices", a
   assert.doesNotMatch(recorder, /onchainRecorderLoop|onchain-pools/);
 });
 
-test("maps theses only to live exchange-verified instruments", async () => {
-  const [response, page, route, switcher] = await Promise.all([
-    render("/thesis"),
-    readFile(new URL("../app/thesis/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/thesis/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
-  ]);
-  assert.equal(response.status, 200);
-  assert.match(await response.text(), /Thesis Mapper/);
-  assert.match(page, /No categories\. No invented tickers/);
-  assert.match(page, /BINANCE.*OKX.*BITGET.*HYPERLIQUID/s);
-  assert.match(route, /BINANCE_HOSTS/);
-  assert.match(route, /fapi\/v1\/exchangeInfo/);
-  assert.match(route, /api\/v5\/public\/instruments\?instType=SWAP/);
-  assert.match(route, /api\/v2\/mix\/market\/contracts\?productType=usdt-futures/);
-  assert.match(route, /metaAndAssetCtxs/);
-  assert.match(route, /resolveProposal/);
-  assert.match(route, /No currently tradeable symbol passed exchange-directory verification/);
-  assert.match(switcher, /href="\/thesis"/);
-  assert.doesNotMatch(switcher, /href="\/sk-grid"/);
-});
-
 test("loads route-scoped styles for the HSI and Shanghai dashboards", async () => {
   const [hsiLayout, shanghaiLayout] = await Promise.all([
     readFile(new URL("../app/hsi/layout.tsx", import.meta.url), "utf8"),
