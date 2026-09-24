@@ -93,8 +93,9 @@ export const RELATIONSHIPS: Relationship[] = [
     id: "samsung-csop2l", title: "SAMSUNG → CSOP SAMSUNG 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
     asset1: { venue: "binance", symbol: "SAMSUNGUSDT", label: "Binance SAMSUNG" }, asset2: { venue: "binance", symbol: "CSOPSAMSUNG2LUSDT", label: "Binance CSOP SAMSUNG 2L" },
     referenceBeta: 2, leveraged: true,
-    thesis: "Apply the product's explicit +2 daily objective directly to Samsung Electronics' move.",
-    caveat: "The +2 relationship is a daily objective. Contract liquidity, oracle timing, fees and compounding can create a fillable deviation.",
+    predictorFx: { symbol: "KRW=X", label: "USD/KRW", source: "posley-ibkr" },
+    thesis: "Recover Samsung's KRW-local return from its USDT return with USD/KRW, then apply the product's explicit +2 daily objective.",
+    caveat: "Theory uses 2 × [Samsung USDT log return + USD/KRW log return]. Daily reset, swap costs, oracle timing and liquidity can still create a fillable deviation.",
   },
   {
     id: "qqq-ustech", title: "QQQ → USTECH", short: "Cross-venue Nasdaq technology proxy", kind: "same-benchmark",

@@ -678,12 +678,13 @@ export default function RelativeValueBlog() {
   useEffect(() => {
     let stopped = false;
     let controller: AbortController | null = null;
+    let rankingInFlight = false;
     const refreshRanking = async () => {
-      if (stopped || document.visibilityState === "hidden" || !relationships.length) return;
+      if (stopped || rankingInFlight || document.visibilityState === "hidden" || !relationships.length) return;
       const start = fromHktInput(startInput);
       const end = Date.now();
       if (!Number.isFinite(start) || start >= end || end - start > MAX_STATISTICAL_OBSERVATION_MS + 60_000) return;
-      controller?.abort();
+      rankingInFlight = true;
       controller = new AbortController();
       try {
         const response = await fetch("/api/blog/ranking", {
@@ -708,6 +709,8 @@ export default function RelativeValueBlog() {
             setRankingUpdatedAt(Date.now());
           }
         } finally { if (!stopped) setRankingLoading(false); }
+      } finally {
+        rankingInFlight = false;
       }
     };
     void refreshRanking();

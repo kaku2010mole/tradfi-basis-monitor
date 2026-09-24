@@ -420,6 +420,7 @@ test("FX-adjusts SKHX to CSOP 2L prediction error everywhere", async () => {
     readFile(new URL("../app/lib/fxMarket.ts", import.meta.url), "utf8"),
   ]);
   assert.match(model, /predictorFx: \{ symbol: "KRW=X"/);
+  assert.equal((model.match(/predictorFx: \{ symbol: "KRW=X"/g) ?? []).length, 2, "only the two Korean single-stock models should load USD\/KRW");
   assert.match(model, /asset1LogReturn \+ .*Math\.log\(fxValue \/ firstFx\)/s);
   assert.match(analysis, /usdKrwSeries/);
   assert.match(ranking, /Math\.log\(currentFx \/ baseFx\)/);
