@@ -4,6 +4,7 @@ const BINANCE_FUTURES_APIS = [
   "https://fapi2.binance.com",
   "https://fapi3.binance.com",
 ];
+const BYBIT_API = "https://api.bybit.com";
 const DEFAULT_USD_HKD = 7.83;
 const MAX_PAIRS = 24;
 const FETCH_TIMEOUT_MS = 5_000;
@@ -24,6 +25,7 @@ type PairConfig = {
   stockSymbol: string;
   perpSymbol: string;
   sharesPerContract: number;
+  perpVenue: "binance" | "bybit";
 };
 
 type Level = { price: number; size: number };
@@ -81,20 +83,30 @@ type BinanceQuote = {
   stale: boolean;
 };
 
+type BybitTickerResponse = {
+  retCode?: number;
+  retMsg?: string;
+  time?: number;
+  result?: { list?: Array<{ symbol?: string; bid1Price?: string; bid1Size?: string; ask1Price?: string; ask1Size?: string; fundingRate?: string; nextFundingTime?: string }> };
+};
+
 const DEFAULT_PAIRS: PairConfig[] = [
-  { stockSymbol: "HK.00700", perpSymbol: "TENCENTUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.01024", perpSymbol: "KUAISHOUUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.03690", perpSymbol: "MEITUANUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.09992", perpSymbol: "POPMARTUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.00100", perpSymbol: "MINIMAXUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.02513", perpSymbol: "ZHIPUUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.03308", perpSymbol: "ZHONGJIUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.03986", perpSymbol: "GIGADEVUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.01211", perpSymbol: "BYDUSDT", sharesPerContract: 1 },
-  { stockSymbol: "HK.00992", perpSymbol: "HK0992USDT", sharesPerContract: 7.84 },
-  { stockSymbol: "HK.00625", perpSymbol: "HK0625USDT", sharesPerContract: 7.84 },
-  { stockSymbol: "HK.00700", perpSymbol: "HK0700USDT", sharesPerContract: 7.84 },
-  { stockSymbol: "HK.01810", perpSymbol: "HK1810USDT", sharesPerContract: 7.84 },
+  { stockSymbol: "HK.00700", perpSymbol: "TENCENTUSDT", sharesPerContract: 1, perpVenue: "binance" },
+  { stockSymbol: "HK.01024", perpSymbol: "KUAISHOUUSDT", sharesPerContract: 1, perpVenue: "binance" },
+  { stockSymbol: "HK.03690", perpSymbol: "MEITUANUSDT", sharesPerContract: 1, perpVenue: "binance" },
+  { stockSymbol: "HK.09992", perpSymbol: "POPMARTUSDT", sharesPerContract: 1, perpVenue: "binance" },
+  { stockSymbol: "HK.00100", perpSymbol: "MINIMAXUSDT", sharesPerContract: 1, perpVenue: "binance" },
+  { stockSymbol: "HK.02513", perpSymbol: "ZHIPUUSDT", sharesPerContract: 1, perpVenue: "binance" },
+  { stockSymbol: "HK.03308", perpSymbol: "ZHONGJIUSDT", sharesPerContract: 1, perpVenue: "binance" },
+  { stockSymbol: "HK.03986", perpSymbol: "GIGADEVUSDT", sharesPerContract: 1, perpVenue: "binance" },
+  { stockSymbol: "HK.01211", perpSymbol: "BYDUSDT", sharesPerContract: 1, perpVenue: "binance" },
+  { stockSymbol: "HK.00992", perpSymbol: "HK0992USDT", sharesPerContract: 7.84, perpVenue: "binance" },
+  { stockSymbol: "HK.00625", perpSymbol: "HK0625USDT", sharesPerContract: 7.84, perpVenue: "binance" },
+  { stockSymbol: "HK.00700", perpSymbol: "HK0700USDT", sharesPerContract: 7.84, perpVenue: "binance" },
+  { stockSymbol: "HK.01810", perpSymbol: "HK1810USDT", sharesPerContract: 7.84, perpVenue: "binance" },
+  { stockSymbol: "HK.00981", perpSymbol: "SMICUSDT", sharesPerContract: 1, perpVenue: "bybit" },
+  { stockSymbol: "HK.06181", perpSymbol: "LAOPUUSDT", sharesPerContract: 1, perpVenue: "bybit" },
+  { stockSymbol: "HK.01347", perpSymbol: "HUAHONGUSDT", sharesPerContract: 1, perpVenue: "bybit" },
 ];
 
 const positive = (value: unknown) => {
@@ -157,8 +169,8 @@ const defaultShares = (perpSymbol: string) => /^HK\d+USDT$/.test(perpSymbol) ? 7
 
 const parsePair = (raw: string): PairConfig => {
   const parts = raw.split("|").map((part) => part.trim());
-  if (parts.length < 2 || parts.length > 3) {
-    throw new Error("Each pair must use STOCK|PERP or STOCK|PERP|SHARES format.");
+  if (parts.length < 2 || parts.length > 4) {
+    throw new Error("Each pair must use STOCK|PERP|SHARES|VENUE format.");
   }
   const stockSymbol = normalizeStockSymbol(parts[0]);
   const perpSymbol = normalizePerpSymbol(parts[1]);
@@ -168,7 +180,8 @@ const parsePair = (raw: string): PairConfig => {
   if (!Number.isFinite(sharesPerContract) || sharesPerContract <= 0 || sharesPerContract > 100_000) {
     throw new Error(`Invalid sharesPerContract for ${stockSymbol}.`);
   }
-  return { stockSymbol, perpSymbol, sharesPerContract };
+  const perpVenue = parts[3]?.toLowerCase() === "bybit" ? "bybit" : "binance";
+  return { stockSymbol, perpSymbol, sharesPerContract, perpVenue };
 };
 
 const parsePairs = (params: URLSearchParams) => {
@@ -434,6 +447,40 @@ async function getBinanceQuotes(symbols: string[]) {
   }
 }
 
+async function getBybitQuotes(symbols: string[]) {
+  if (!symbols.length) return new Map<string, BinanceQuote>();
+  const response = await fetch(`${BYBIT_API}/v5/market/tickers?category=linear`, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`Bybit tickers HTTP ${response.status}.`);
+  const payload = await response.json() as BybitTickerResponse;
+  if (payload.retCode !== 0 || !Array.isArray(payload.result?.list)) throw new Error(`Bybit tickers: ${payload.retMsg || "invalid response"}.`);
+  const wanted = new Set(symbols);
+  const receivedAt = Date.now();
+  const marketTimestamp = timestamp(payload.time) ?? receivedAt;
+  return new Map(payload.result.list.flatMap((ticker) => {
+    if (!ticker.symbol || !wanted.has(ticker.symbol)) return [];
+    const bid = positive(ticker.bid1Price);
+    const ask = positive(ticker.ask1Price);
+    if (bid === null || ask === null) return [];
+    const fundingRate = Number(ticker.fundingRate);
+    return [[ticker.symbol, {
+      symbol: ticker.symbol,
+      bid,
+      ask,
+      mid: (bid + ask) / 2,
+      bidSize: positive(ticker.bid1Size),
+      askSize: positive(ticker.ask1Size),
+      fundingRate: Number.isFinite(fundingRate) ? fundingRate : null,
+      nextFundingTime: timestamp(ticker.nextFundingTime),
+      marketTimestamp,
+      receivedAt,
+      stale: stale(marketTimestamp, receivedAt, BINANCE_STALE_MS) ?? false,
+    } satisfies BinanceQuote] as const];
+  }));
+}
+
 const midpoint = (bid: number | null, ask: number | null) =>
   bid !== null && ask !== null ? (bid + ask) / 2 : null;
 
@@ -493,9 +540,12 @@ export async function GET(request: Request) {
   }
 
   const referenceSymbols = FUTU_REFERENCE_SYMBOLS;
-  const [futuResult, binanceResult] = await Promise.allSettled([
+  const binanceSymbols = pairConfigs.filter((pair) => pair.perpVenue === "binance").map((pair) => pair.perpSymbol);
+  const bybitSymbols = pairConfigs.filter((pair) => pair.perpVenue === "bybit").map((pair) => pair.perpSymbol);
+  const [futuResult, binanceResult, bybitResult] = await Promise.allSettled([
     getFutuQuotes([...pairConfigs.map((pair) => pair.stockSymbol), ...referenceSymbols]),
-    getBinanceQuotes(pairConfigs.map((pair) => pair.perpSymbol)),
+    getBinanceQuotes(binanceSymbols),
+    getBybitQuotes(bybitSymbols),
   ]);
   const futuBySymbol = new Map(
     futuResult.status === "fulfilled" ? futuResult.value.map((quote) => [quote.symbol, quote] as const) : [],
@@ -503,7 +553,9 @@ export async function GET(request: Request) {
   const errors: string[] = [];
   if (futuResult.status === "rejected") errors.push(errorMessage(futuResult.reason));
   if (binanceResult.status === "rejected") errors.push(errorMessage(binanceResult.reason));
+  if (bybitResult.status === "rejected") errors.push(errorMessage(bybitResult.reason));
   const binanceBySymbol = binanceResult.status === "fulfilled" ? binanceResult.value : new Map<string, BinanceQuote>();
+  const bybitBySymbol = bybitResult.status === "fulfilled" ? bybitResult.value : new Map<string, BinanceQuote>();
 
   const now = Date.now();
   const references = Object.fromEntries(referenceSymbols.flatMap((symbol) => {
@@ -512,7 +564,7 @@ export async function GET(request: Request) {
   }));
   const quotes = pairConfigs.map((pair) => {
     const futu = futuBySymbol.get(pair.stockSymbol) ?? null;
-    const binance = binanceBySymbol.get(pair.perpSymbol) ?? null;
+    const binance = (pair.perpVenue === "bybit" ? bybitBySymbol : binanceBySymbol).get(pair.perpSymbol) ?? null;
 
     // A missing exchange timestamp is not proof of freshness. Keep the raw
     // record for link diagnostics, but exclude it from every trading metric.
@@ -598,6 +650,7 @@ export async function GET(request: Request) {
     sources: {
       futu: futuResult.status === "fulfilled",
       binance: binanceResult.status === "fulfilled" && binanceBySymbol.size > 0,
+      bybit: bybitResult.status === "fulfilled" && bybitBySymbol.size > 0,
     },
     errors: [...new Set(errors)],
   }, { headers: { "Cache-Control": "no-store, max-age=0" } });

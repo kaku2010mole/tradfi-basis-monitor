@@ -86,7 +86,7 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(auction, /LNVGY/);
   assert.match(auction, /"HK\.00992".*hkSharesPerAdr: 20/);
   assert.match(auction, /Binance-implied ADR/);
-  assert.match(auction, /FUTU ↔ BINANCE/);
+  assert.match(auction, /FUTU ↔ \{perpVenue\}/);
   assert.match(auction, /US references live/);
   assert.match(auction, /HK\.01211.*BYDUSDT.*BYDDY.*hkSharesPerAdr: 1/);
   assert.match(auction, /ASSET_TIERS/);
@@ -111,6 +111,12 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(auction, /HK\.01211.*BYDUSDT/);
   assert.match(auction, /HK\.00992.*HK0992USDT/);
   assert.match(auction, /HK\.00625.*HK0625USDT/);
+  assert.match(auction, /HK\.00981.*SMICUSDT.*perpVenue: "bybit"/);
+  assert.match(auction, /HK\.06181.*LAOPUUSDT.*perpVenue: "bybit"/);
+  assert.match(auction, /HK\.01347.*HUAHONGUSDT.*perpVenue: "bybit"/);
+  assert.match(auction, /styles\.futuVenue/);
+  assert.match(auction, /styles\.binanceVenue/);
+  assert.match(auction, /styles\.bybitVenue/);
   assert.match(auction, /isHkQuotedPerp\(pair\.perpSymbol\).*7\.84/);
   assert.match(auction, /1 Binance perp ↔.*HK shares/);
   assert.match(auction, /useState\("7\.84"\)/);
@@ -119,12 +125,19 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(quotes, /HK\.01211.*BYDUSDT/);
   assert.match(quotes, /HK\.00992.*HK0992USDT/);
   assert.match(quotes, /HK\.00625.*HK0625USDT/);
+  assert.match(quotes, /HK\.00981.*SMICUSDT.*perpVenue: "bybit"/);
+  assert.match(quotes, /HK\.06181.*LAOPUUSDT.*perpVenue: "bybit"/);
+  assert.match(quotes, /HK\.01347.*HUAHONGUSDT.*perpVenue: "bybit"/);
+  assert.match(quotes, /\/v5\/market\/tickers\?category=linear/);
   assert.match(quotes, /\^HK\\d\+USDT\$.*7\.84/);
   assert.match(pusher, /HK\.03308/);
   assert.match(pusher, /HK\.03986/);
   assert.match(pusher, /HK\.01211/);
   assert.match(pusher, /HK\.00992/);
   assert.match(pusher, /HK\.00625/);
+  assert.match(pusher, /HK\.00981/);
+  assert.match(pusher, /HK\.06181/);
+  assert.match(pusher, /HK\.01347/);
   for (const symbol of ["TCEHY", "XIACY", "KSHTY", "MPNGY", "PMRTY", "MMXGY", "LNVGY", "BYDDY"]) {
     assert.match(adrPusher, new RegExp(symbol));
     assert.match(quotes, new RegExp(symbol));
