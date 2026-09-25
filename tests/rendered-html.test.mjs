@@ -129,6 +129,8 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(quotes, /HK\.06181.*LAOPUUSDT.*perpVenue: "bybit"/);
   assert.match(quotes, /HK\.01347.*HUAHONGUSDT.*perpVenue: "bybit"/);
   assert.match(quotes, /\/v5\/market\/tickers\?category=linear/);
+  assert.match(quotes, /const marketTimestamp = timestamp\(payload\.time\) \?\? receivedAt/);
+  assert.doesNotMatch(quotes, /marketTimestamp: timestamp\(payload\.time\).*stale: stale\(marketTimestamp/s);
   assert.match(quotes, /\^HK\\d\+USDT\$.*7\.84/);
   assert.match(pusher, /HK\.03308/);
   assert.match(pusher, /HK\.03986/);

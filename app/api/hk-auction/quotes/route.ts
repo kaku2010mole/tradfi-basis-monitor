@@ -473,6 +473,7 @@ async function getBybitQuotes(symbols: string[]) {
     const ask = positive(ticker.ask1Price);
     if (bid === null || ask === null) return [];
     const fundingRate = Number(ticker.fundingRate);
+    const marketTimestamp = timestamp(payload.time) ?? receivedAt;
     return [[ticker.symbol, {
       symbol: ticker.symbol,
       bid,
@@ -482,7 +483,7 @@ async function getBybitQuotes(symbols: string[]) {
       askSize: positive(ticker.ask1Size),
       fundingRate: Number.isFinite(fundingRate) ? fundingRate : null,
       nextFundingTime: timestamp(ticker.nextFundingTime),
-      marketTimestamp: timestamp(payload.time) ?? receivedAt,
+      marketTimestamp,
       receivedAt,
       stale: stale(marketTimestamp, receivedAt, BINANCE_STALE_MS) ?? false,
     } satisfies BinanceQuote] as const];
