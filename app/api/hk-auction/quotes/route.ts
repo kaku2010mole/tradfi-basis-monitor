@@ -19,6 +19,8 @@ type FutuPushStore = typeof globalThis & {
   __BINANCE_FUNDING_CACHE__?: Map<string, { value: BinanceFunding; receivedAt: number }>;
   __BINANCE_BATCH_CACHE__?: { quotes: Map<string, BinanceQuote>; receivedAt: number };
   __BINANCE_BATCH_PROMISE__?: Promise<Map<string, BinanceQuote>>;
+  __BYBIT_BATCH_CACHE__?: { quotes: Map<string, BinanceQuote>; receivedAt: number };
+  __BYBIT_BATCH_PROMISE__?: Promise<Map<string, BinanceQuote>>;
 };
 
 type PairConfig = {
@@ -449,17 +451,23 @@ async function getBinanceQuotes(symbols: string[]) {
 
 async function getBybitQuotes(symbols: string[]) {
   if (!symbols.length) return new Map<string, BinanceQuote>();
-  const response = await fetch(`${BYBIT_API}/v5/market/tickers?category=linear`, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`Bybit tickers HTTP ${response.status}.`);
-  const payload = await response.json() as BybitTickerResponse;
-  if (payload.retCode !== 0 || !Array.isArray(payload.result?.list)) throw new Error(`Bybit tickers: ${payload.retMsg || "invalid response"}.`);
+  const store = globalThis as FutuPushStore;
+  const cached = store.__BYBIT_BATCH_CACHE__;
+  if (cached && Date.now() - cached.receivedAt < BINANCE_BATCH_CACHE_MS) {
+    return new Map(symbols.flatMap((symbol) => cached.quotes.has(symbol) ? [[symbol, cached.quotes.get(symbol)!] as const] : []));
+  }
+  if (store.__BYBIT_BATCH_PROMISE__) return store.__BYBIT_BATCH_PROMISE__;
+  const promise = (async () => {
   const wanted = new Set(symbols);
   const receivedAt = Date.now();
-  const marketTimestamp = timestamp(payload.time) ?? receivedAt;
-  return new Map(payload.result.list.flatMap((ticker) => {
+    const payloads = await Promise.all(symbols.map(async (symbol) => {
+      const response = await fetch(`${BYBIT_API}/v5/market/tickers?category=linear&symbol=${encodeURIComponent(symbol)}`, { cache: "no-store", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (!response.ok) throw new Error(`${symbol}: Bybit tickers HTTP ${response.status}.`);
+      const payload = await response.json() as BybitTickerResponse;
+      if (payload.retCode !== 0 || !Array.isArray(payload.result?.list)) throw new Error(`${symbol}: ${payload.retMsg || "invalid Bybit response"}.`);
+      return payload;
+    }));
+    const quotes = new Map(payloads.flatMap((payload) => payload.result!.list!.flatMap((ticker) => {
     if (!ticker.symbol || !wanted.has(ticker.symbol)) return [];
     const bid = positive(ticker.bid1Price);
     const ask = positive(ticker.ask1Price);
@@ -474,11 +482,17 @@ async function getBybitQuotes(symbols: string[]) {
       askSize: positive(ticker.ask1Size),
       fundingRate: Number.isFinite(fundingRate) ? fundingRate : null,
       nextFundingTime: timestamp(ticker.nextFundingTime),
-      marketTimestamp,
+      marketTimestamp: timestamp(payload.time) ?? receivedAt,
       receivedAt,
       stale: stale(marketTimestamp, receivedAt, BINANCE_STALE_MS) ?? false,
     } satisfies BinanceQuote] as const];
-  }));
+    })));
+    store.__BYBIT_BATCH_CACHE__ = { quotes, receivedAt };
+    return quotes;
+  })();
+  store.__BYBIT_BATCH_PROMISE__ = promise;
+  try { return await promise; }
+  finally { if (store.__BYBIT_BATCH_PROMISE__ === promise) delete store.__BYBIT_BATCH_PROMISE__; }
 }
 
 const midpoint = (bid: number | null, ask: number | null) =>
