@@ -45,6 +45,10 @@ type Analysis = {
     asset1Return: number;
     asset2Actual: number;
     asset2Theoretical: number;
+    asset2TheoreticalPrice: number;
+    fxStart?: number;
+    fxCurrent?: number;
+    fxReturn?: number;
     predictionError: number;
     zScore: number;
     status: "normal" | "watch" | "dislocation";
@@ -235,7 +239,10 @@ async function rankInBrowser(relationships: Relationship[], start: number, end: 
         const baseFx = relationship.predictorFx ? rankingFxRows.filter((row) => row.t <= relationshipStart + 60_000).at(-1)?.value : 1;
         const currentFx = relationship.predictorFx ? rankingFxRows.filter((row) => row.t <= end + 60_000).at(-1)?.value : 1;
         if (!baseFx || !currentFx) continue;
-        const theoretical = Math.expm1(model.alphaHourly * elapsedHours + model.beta * (Math.log(current1 / base1) + Math.log(currentFx / baseFx))) * 100;
+        const predictorGross = (current1 / base1) * (currentFx / baseFx);
+        const theoretical = relationship.predictorFx && relationship.referenceBeta !== null
+          ? model.beta * (predictorGross - 1) * 100
+          : Math.expm1(model.alphaHourly * elapsedHours + model.beta * Math.log(predictorGross)) * 100;
         const actual = (current2 / base2 - 1) * 100;
         output.push({ id: relationship.id, predictionError: actual - theoretical, actual, theoretical, beta: model.beta, updatedAt: Date.now() });
       } catch { /* Leave unavailable relationships at the bottom until the next refresh. */ }
@@ -454,6 +461,31 @@ function PredictionErrorChart({ points }: { points: ProjectionPoint[] }) {
       ]} />
     </>}
     <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Prediction error time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; prediction error ${formatPct(selectedPoint.predictionError, 3)}` : "Move, tap, or use left and right arrow keys to inspect exact values"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onKeyDown={onKeyDown} />
+  </svg></div>;
+}
+
+function FxChart({ points }: { points: ProjectionPoint[] }) {
+  const fxPoints = points.filter((point) => point.fxValue !== undefined && point.fxReturn !== undefined);
+  if (fxPoints.length < 2) return null;
+  const width = 920;
+  const height = 260;
+  const padding = { left: 58, right: 24, top: 24, bottom: 42 };
+  const values = fxPoints.map((point) => point.fxReturn!);
+  const rawMin = Math.min(0, ...values);
+  const rawMax = Math.max(0, ...values);
+  const extra = Math.max((rawMax - rawMin) * .12, .01);
+  const min = rawMin - extra;
+  const max = rawMax + extra;
+  const { selectedIndex, onPointerMove, onKeyDown } = useChartInspection(fxPoints.length, width, padding);
+  const selectedPoint = selectedIndex === null ? null : fxPoints[selectedIndex];
+  const selectedX = selectedIndex === null ? null : padding.left + (selectedIndex / Math.max(1, fxPoints.length - 1)) * (width - padding.left - padding.right);
+  const y = (value: number) => padding.top + ((max - value) / Math.max(max - min, 1e-8)) * (height - padding.top - padding.bottom);
+  return <div className={styles.chartScroll}><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="USD/KRW change from the selected anchor. Move, tap, or use arrow keys to inspect exact values.">
+    {[0, 1, 2, 3, 4].map((tick) => { const value = max - ((max - min) * tick) / 4; return <g key={tick}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} className={styles.gridLine} /><text x={padding.left - 9} y={y(value) + 4} textAnchor="end" className={styles.axisText}>{formatPct(value, 3)}</text></g>; })}
+    <line x1={padding.left} x2={width - padding.right} y1={y(0)} y2={y(0)} className={styles.zeroLine} />
+    <path d={linePath(values, width, height, padding, min, max)} className={styles.fxLine} />
+    {selectedPoint && selectedX !== null && <><line x1={selectedX} x2={selectedX} y1={padding.top} y2={height - padding.bottom} className={styles.inspectionLine} /><circle cx={selectedX} cy={y(selectedPoint.fxReturn!)} r="4" className={styles.fxDot} /><InspectionTooltip x={selectedX} width={width} lines={[{ label: formatTime(selectedPoint.t, true), value: "HKT" }, { label: "USD/KRW", value: formatNumber(selectedPoint.fxValue!, 3), color: "#b7791f" }, { label: "Change from anchor", value: formatPct(selectedPoint.fxReturn!, 3), color: "#b7791f" }]} /></>}
+    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="USD/KRW chart time selector" aria-valuemin={0} aria-valuemax={Math.max(0, fxPoints.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, fxPoints.length - 1)} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onKeyDown={onKeyDown} />
   </svg></div>;
 }
 
@@ -904,7 +936,16 @@ export default function RelativeValueBlog() {
             <article><span>Prediction error</span><strong className={!formulaOnly && Math.abs(analysis.stats.zScore) >= 2 ? styles.negative : ""}>{formatPct(analysis.stats.predictionError, 3)}</strong><small>{formulaOnly ? "Actual − theoretical · significance unavailable" : `Actual − theoretical · ${formatNumber(analysis.stats.zScore)}σ`}</small></article>
           </section>
 
+          {selected.predictorFx && analysis.stats.fxStart && analysis.stats.fxCurrent && <section className={styles.fxSummary}>
+            <div><span>USD/KRW AT ANCHOR</span><strong>{formatNumber(analysis.stats.fxStart, 3)}</strong></div>
+            <div><span>USD/KRW NOW</span><strong>{formatNumber(analysis.stats.fxCurrent, 3)}</strong></div>
+            <div><span>FX CHANGE USED</span><strong className={(analysis.stats.fxReturn ?? 0) >= 0 ? styles.positive : styles.negative}>{formatPct(analysis.stats.fxReturn ?? 0, 3)}</strong><small>Current ÷ anchor − 1</small></div>
+            <div><span>{selected.asset2.symbol} THEORETICAL PRICE</span><strong>{formatNumber(analysis.stats.asset2TheoreticalPrice, 4)}</strong><small>Anchor price × theoretical gross return</small></div>
+          </section>}
+
           <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>THEORETICAL RETURN ENGINE</span><h3>{selected.asset2.symbol} actual versus model</h3><p>{analysis.points.length.toLocaleString()} aligned points · {analysis.interval} resolution</p></div><div className={styles.legend}><span><i className={styles.legendA} />{selected.asset1.symbol} actual</span><span><i className={styles.legendB} />{selected.asset2.symbol} actual</span><span><i className={styles.legendTheory} />{selected.asset2.symbol} theoretical</span></div></div><PredictionChart points={analysis.points} relationship={selected} /></section>
+
+          {selected.predictorFx && <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>FX INPUT</span><h3>USD/KRW change from the selected anchor</h3><p>Only the relative FX move enters the 7709 theoretical price; the absolute exchange-rate level does not.</p></div><div className={styles.errorSnapshot}><span>LATEST FX MOVE</span><strong>{formatPct(analysis.stats.fxReturn ?? 0, 3)}</strong></div></div><FxChart points={analysis.points} /></section>}
 
           <section className={`${styles.chartPanel} ${styles.errorChartPanel}`}><div className={styles.panelHead}><div><span>PREDICTION ERROR HISTORY</span><h3>Actual {selected.asset2.symbol} minus theoretical return</h3><p>Cumulative percentage-point error from the selected anchor · ±2% broadcast threshold</p></div><div className={styles.errorSnapshot}><span>LATEST ERROR</span><strong className={analysis.stats.predictionError >= 0 ? styles.positive : styles.negative}>{formatPct(analysis.stats.predictionError, 3)}</strong></div></div><PredictionErrorChart points={analysis.points} /></section>
 
@@ -927,7 +968,7 @@ export default function RelativeValueBlog() {
 
           <section className={styles.methodPanel}>
             <div><span>{analysis.model.method === "reference" ? "RULE VALIDATION" : "MODEL TRAINING"}</span><h3>{formulaOnly ? "The supplied beta runs without a minimum history requirement." : "The backtest never refits on its own result."}</h3><p>{formulaOnly ? "This contract is too new for a meaningful holdout test, so the engine skips regression and applies the supplied leverage multiplier directly. Validation metrics will appear automatically once enough aligned hourly history exists." : analysis.model.method === "reference" ? "This relationship has an explicit beta, so the site does not fit a coefficient. The preceding 45-day hourly history and holdout sample only test how reliably the zero-intercept structural formula behaved before the selected backtest." : "The coefficient is estimated from a 45-day hourly history ending three days before the selected backtest. The final 25% is kept out of training and reports correlation, R², error and coefficient drift."}</p></div>
-            <div><span>PREDICTION EQUATION</span><h3>{analysis.model.method === "reference" ? `${selected.asset2.symbol} = locked β × ${selected.asset1.symbol}.` : `${selected.asset2.symbol} = α × time + fitted β × ${selected.asset1.symbol}.`}</h3><p>The engine works in log-return space. It converts {selected.asset1.symbol}&apos;s cumulative move over the selected period into {selected.asset2.symbol}&apos;s theoretical move, then compares that number with {selected.asset2.symbol}&apos;s actual return. Funding, liquidity and oracle timing remain outside the formula.</p></div>
+            <div><span>PREDICTION EQUATION</span><h3>{selected.predictorFx ? `${selected.asset2.symbol} price = P₀ × {1 + β × [(SKHXₜ / SKHX₀) × (USD/KRWₜ / USD/KRW₀) − 1]}.` : analysis.model.method === "reference" ? `${selected.asset2.symbol} = locked β × ${selected.asset1.symbol}.` : `${selected.asset2.symbol} = α × time + fitted β × ${selected.asset1.symbol}.`}</h3><p>{selected.predictorFx ? `Only the FX change between the selected anchor and each observation is used. For 7709, β is 2, so the KRW-local simple return since the anchor is doubled once.` : `The engine works in log-return space. It converts ${selected.asset1.symbol}'s cumulative move over the selected period into ${selected.asset2.symbol}'s theoretical move, then compares that number with ${selected.asset2.symbol}'s actual return. Funding, liquidity and oracle timing remain outside the formula.`}</p></div>
           </section>
 
           <section className={styles.sources}><div><span>RELATIONSHIP RESEARCH</span><h3>Issuer objectives and underlying links</h3></div><div className={styles.sourceGrid}>

@@ -51,6 +51,8 @@ export type ProjectionPoint = {
   z: number;
   predictorValue?: number;
   fxValue?: number;
+  fxReturn?: number;
+  asset2TheoreticalPrice: number;
 };
 
 export const TRAINING_DAYS = 45;
@@ -86,16 +88,16 @@ export const RELATIONSHIPS: Relationship[] = [
     asset1: { venue: "binance", symbol: "SKHYNIXUSDT", label: "Binance SKHYNIX" }, asset2: { venue: "binance", symbol: "CSOPSKHYNIX2LUSDT", label: "Binance CSOP SKHYNIX 2L" },
     referenceBeta: 2, leveraged: true,
     predictorFx: { symbol: "KRW=X", label: "USD/KRW", source: "posley-ibkr" },
-    thesis: "Recover SKHX's KRW-local return from its USDT return with USD/KRW, then apply the product's explicit +2 daily objective.",
-    caveat: "Theory uses 2 × [SKHX USDT log return + USD/KRW log return]. Daily reset, swap costs, oracle timing and liquidity can still create a fillable deviation.",
+    thesis: "Use only the change in USD/KRW from the selected anchor to recover SKHX's KRW-local return, then apply 7709's explicit +2 daily objective.",
+    caveat: "Theory doubles the KRW-local simple return since the anchor: (SKHXₜ/SKHX₀) × (USD/KRWₜ/USD/KRW₀) − 1. The FX level itself is not added. Daily reset, swap costs, oracle timing and liquidity can still create a fillable deviation.",
   },
   {
     id: "samsung-csop2l", title: "SAMSUNG → CSOP SAMSUNG 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
     asset1: { venue: "binance", symbol: "SAMSUNGUSDT", label: "Binance SAMSUNG" }, asset2: { venue: "binance", symbol: "CSOPSAMSUNG2LUSDT", label: "Binance CSOP SAMSUNG 2L" },
     referenceBeta: 2, leveraged: true,
     predictorFx: { symbol: "KRW=X", label: "USD/KRW", source: "posley-ibkr" },
-    thesis: "Recover Samsung's KRW-local return from its USDT return with USD/KRW, then apply the product's explicit +2 daily objective.",
-    caveat: "Theory uses 2 × [Samsung USDT log return + USD/KRW log return]. Daily reset, swap costs, oracle timing and liquidity can still create a fillable deviation.",
+    thesis: "Use only the change in USD/KRW from the selected anchor to recover Samsung's KRW-local return, then apply the product's explicit +2 daily objective.",
+    caveat: "Theory doubles the KRW-local simple return since the anchor: (Samsungₜ/Samsung₀) × (USD/KRWₜ/USD/KRW₀) − 1. The FX level itself is not added. Daily reset, swap costs, oracle timing and liquidity can still create a fillable deviation.",
   },
   {
     id: "qqq-ustech", title: "QQQ → USTECH", short: "Cross-venue Nasdaq technology proxy", kind: "same-benchmark",
@@ -356,7 +358,12 @@ export function projectRelationship(asset1Rows: PricePoint[], asset2Rows: PriceP
     const fxValue = normalizedFx.length ? fxByTime.get(row.t) : undefined;
     if (fxRows.length && (!firstFx || !fxValue)) throw new Error("Synchronized USD/KRW history is unavailable.");
     const predictorLogReturn = asset1LogReturn + (firstFx && fxValue ? Math.log(fxValue / firstFx) : 0);
-    const theoreticalLogReturn = model.alphaHourly * elapsedHours + model.beta * predictorLogReturn;
+    const predictorGrossReturn = Math.exp(predictorLogReturn);
+    const theoreticalGrossReturn = firstFx && fxValue && model.method === "reference"
+      ? 1 + model.beta * (predictorGrossReturn - 1)
+      : Math.exp(model.alphaHourly * elapsedHours + model.beta * predictorLogReturn);
+    if (theoreticalGrossReturn <= 0) throw new Error("The fixed-beta theoretical price is not positive in this window.");
+    const theoreticalLogReturn = Math.log(theoreticalGrossReturn);
     const actualLogReturn = Math.log(row.asset2 / first.asset2);
     const asset2Theoretical = Math.expm1(theoreticalLogReturn) * 100;
     const asset2Actual = (row.asset2 / first.asset2 - 1) * 100;
@@ -369,9 +376,11 @@ export function projectRelationship(asset1Rows: PricePoint[], asset2Rows: PriceP
       asset2: row.asset2,
       predictorValue: firstFx && fxValue ? row.asset1 * fxValue : undefined,
       fxValue,
+      fxReturn: firstFx && fxValue ? (fxValue / firstFx - 1) * 100 : undefined,
       asset1Return: (row.asset1 / first.asset1 - 1) * 100,
       asset2Actual,
       asset2Theoretical,
+      asset2TheoreticalPrice: first.asset2 * theoreticalGrossReturn,
       predictionError: asset2Actual - asset2Theoretical,
       z: expectedError ? errorLog / expectedError : 0,
     };
@@ -384,6 +393,10 @@ export function projectRelationship(asset1Rows: PricePoint[], asset2Rows: PriceP
       asset1Return: latest.asset1Return,
       asset2Actual: latest.asset2Actual,
       asset2Theoretical: latest.asset2Theoretical,
+      asset2TheoreticalPrice: latest.asset2TheoreticalPrice,
+      fxStart: firstFx,
+      fxCurrent: latest.fxValue,
+      fxReturn: latest.fxReturn,
       predictionError: latest.predictionError,
       zScore: latest.z,
       status: magnitude >= 2 ? "dislocation" as const : magnitude >= 1.5 ? "watch" as const : "normal" as const,

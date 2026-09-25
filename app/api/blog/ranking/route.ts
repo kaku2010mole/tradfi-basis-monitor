@@ -173,7 +173,10 @@ export async function POST(request: Request) {
           relationship.predictorFx ? usdKrwAt(end).then((row) => row.value) : Promise.resolve(1),
         ]);
         const elapsedHours = Math.max(0, (end - relationshipStart) / 60 / 60_000);
-        const theoretical = Math.expm1(model.alphaHourly * elapsedHours + model.beta * (Math.log(current1 / base1) + Math.log(currentFx / baseFx))) * 100;
+        const predictorGross = (current1 / base1) * (currentFx / baseFx);
+        const theoretical = relationship.predictorFx && relationship.referenceBeta !== null
+          ? model.beta * (predictorGross - 1) * 100
+          : Math.expm1(model.alphaHourly * elapsedHours + model.beta * Math.log(predictorGross)) * 100;
         const actual = (current2 / base2 - 1) * 100;
         return { id: relationship.id, predictionError: actual - theoretical, actual, theoretical, beta: model.beta, updatedAt: now };
       } catch { return null; }
