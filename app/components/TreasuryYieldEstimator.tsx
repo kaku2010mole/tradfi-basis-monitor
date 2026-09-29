@@ -106,7 +106,7 @@ export default function TreasuryYieldEstimator() {
         })}
       </div>
 
-      <footer><span>基准日 {baseline?.asOf ?? "—"} · U.S. Treasury par curve + Futu OpenD previous close</span><span>每 30 分钟检查新基准 · DV01 线性近似，通常误差约 ±1–2 bp</span></footer>
+      <footer><span>基准日 {baseline?.asOf ?? "—"} · U.S. Treasury par curve + {baseline?.settlementSource ?? "daily futures close"}</span><span>每 30 分钟检查新基准 · DV01 线性近似，通常误差约 ±1–2 bp</span></footer>
     </section>
   );
 }

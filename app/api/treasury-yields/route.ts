@@ -10,15 +10,17 @@ type RawQuote = {
 type PushStore = typeof globalThis & {
   __FUTU_PUSH_SNAPSHOT__?: { payload: { quotes?: RawQuote[] }; receivedAt: number };
   __TREASURY_CURVE_CACHE__?: { value: TreasuryCurve; expiresAt: number };
+  __TREASURY_SETTLEMENT_CACHE__?: { value: Record<string, DailySettlement>; expiresAt: number };
 };
 
 type TreasuryCurve = { asOf: string; yields: Record<"ZT" | "ZF" | "ZN" | "ZB", number> };
+type DailySettlement = { price: number; date: string };
 
 const CONTRACTS = [
-  { symbol: "ZT", futuSymbol: "US.ZTmain", tenor: "2Y", field: "BC_2YEAR", pointValue: 2_000, dv01: 38 },
-  { symbol: "ZF", futuSymbol: "US.ZFmain", tenor: "5Y", field: "BC_5YEAR", pointValue: 1_000, dv01: 45 },
-  { symbol: "ZN", futuSymbol: "US.ZNmain", tenor: "10Y", field: "BC_10YEAR", pointValue: 1_000, dv01: 61 },
-  { symbol: "ZB", futuSymbol: "US.ZBmain", tenor: "30Y", field: "BC_30YEAR", pointValue: 1_000, dv01: 145 },
+  { symbol: "ZT", futuSymbol: "US.ZTmain", fallbackSymbol: "ZT=F", tenor: "2Y", field: "BC_2YEAR", pointValue: 2_000, dv01: 38 },
+  { symbol: "ZF", futuSymbol: "US.ZFmain", fallbackSymbol: "ZF=F", tenor: "5Y", field: "BC_5YEAR", pointValue: 1_000, dv01: 45 },
+  { symbol: "ZN", futuSymbol: "US.ZNmain", fallbackSymbol: "ZN=F", tenor: "10Y", field: "BC_10YEAR", pointValue: 1_000, dv01: 61 },
+  { symbol: "ZB", futuSymbol: "US.ZBmain", fallbackSymbol: "ZB=F", tenor: "30Y", field: "BC_30YEAR", pointValue: 1_000, dv01: 145 },
 ] as const;
 
 const number = (value: unknown) => {
@@ -54,22 +56,53 @@ async function latestTreasuryCurve() {
   throw new Error("Treasury feed returned no complete curve.");
 }
 
+async function dailySettlements(asOf: string) {
+  const store = globalThis as PushStore;
+  const cached = store.__TREASURY_SETTLEMENT_CACHE__;
+  if (cached && cached.expiresAt > Date.now() && CONTRACTS.every((contract) => cached.value[contract.symbol]?.date === asOf)) return cached.value;
+
+  const rows = await Promise.all(CONTRACTS.map(async (contract) => {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(contract.fallbackSymbol)}?range=10d&interval=1d`;
+    const response = await fetch(url, { cache: "no-store", headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(8_000) });
+    if (!response.ok) throw new Error(`${contract.symbol} settlement feed HTTP ${response.status}`);
+    const payload = await response.json() as { chart?: { result?: Array<{ timestamp?: number[]; indicators?: { quote?: Array<{ close?: Array<number | null> }> } }> } };
+    const result = payload.chart?.result?.[0];
+    const closes = result?.indicators?.quote?.[0]?.close ?? [];
+    const candidates = (result?.timestamp ?? []).flatMap((timestamp, index) => {
+      const price = number(closes[index]);
+      const date = new Date(timestamp * 1_000).toISOString().slice(0, 10);
+      return price !== null && date <= asOf ? [{ price, date }] : [];
+    });
+    const selected = candidates.at(-1);
+    if (!selected) throw new Error(`${contract.symbol} settlement is unavailable for ${asOf}.`);
+    return [contract.symbol, selected] as const;
+  }));
+  const value = Object.fromEntries(rows);
+  store.__TREASURY_SETTLEMENT_CACHE__ = { value, expiresAt: Date.now() + 60 * 60_000 };
+  return value;
+}
+
 export async function GET() {
   try {
     const curve = await latestTreasuryCurve();
+    const fallbackSettlements = await dailySettlements(curve.asOf);
     const pushed = (globalThis as PushStore).__FUTU_PUSH_SNAPSHOT__;
     const quotes = new Map((pushed?.payload.quotes ?? []).flatMap((quote) => quote.symbol ? [[quote.symbol.toUpperCase(), quote] as const] : []));
     const contracts = CONTRACTS.map((contract) => {
       const quote = quotes.get(contract.futuSymbol.toUpperCase());
+      const openDPrice = number(quote?.previousClose);
+      const fallback = fallbackSettlements[contract.symbol];
       return {
         symbol: contract.symbol,
         futuSymbol: contract.futuSymbol,
         tenor: contract.tenor,
-        referencePrice: number(quote?.previousClose),
+        referencePrice: openDPrice ?? fallback.price,
         referenceYield: curve.yields[contract.symbol],
         pointValue: contract.pointValue,
         dv01: contract.dv01,
         quoteAt: number(quote?.exchangeTimestamp) ?? number(quote?.marketTimestamp),
+        settlementDate: fallback.date,
+        settlementSource: openDPrice === null ? "Public daily futures close" : "Futu OpenD previous close",
       };
     });
     const missing = contracts.filter((contract) => contract.referencePrice === null).map((contract) => contract.symbol);
@@ -77,7 +110,7 @@ export async function GET() {
       ok: missing.length === 0,
       asOf: curve.asOf,
       curveSource: "U.S. Treasury Daily Par Yield Curve",
-      settlementSource: "Futu OpenD previous close",
+      settlementSource: contracts.every((contract) => contract.settlementSource === "Futu OpenD previous close") ? "Futu OpenD previous close" : "OpenD with public daily-close fallback",
       relayAt: pushed?.receivedAt ?? null,
       missing,
       contracts,

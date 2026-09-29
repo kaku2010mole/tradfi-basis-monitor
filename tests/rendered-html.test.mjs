@@ -40,6 +40,8 @@ test("adds a daily OpenD-backed Treasury futures yield estimator", async () => {
   assert.match(estimator, /30 \* 60_000/);
   assert.match(route, /daily_treasury_yield_curve/);
   assert.match(route, /Futu OpenD previous close/);
+  assert.match(route, /OpenD with public daily-close fallback/);
+  assert.match(route, /query1\.finance\.yahoo\.com/);
   for (const symbol of ["ZT", "ZF", "ZN", "ZB"]) {
     assert.match(route, new RegExp(`US\\.${symbol}main`));
     assert.match(pusher, new RegExp(`US\\.${symbol}main`));
