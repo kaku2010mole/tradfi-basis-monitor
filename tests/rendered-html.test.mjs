@@ -28,6 +28,24 @@ test("server-renders the TradFi dashboard shell", async () => {
   assert.doesNotMatch(html, /href="\/trade"/);
 });
 
+test("adds a daily OpenD-backed Treasury futures yield estimator", async () => {
+  const [response, estimator, route, pusher] = await Promise.all([
+    render(),
+    readFile(new URL("../app/components/TreasuryYieldEstimator.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/treasury-yields/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
+  ]);
+  assert.match(await response.text(), /美债期货收益率估算/);
+  assert.match(estimator, /\/api\/treasury-yields/);
+  assert.match(estimator, /30 \* 60_000/);
+  assert.match(route, /daily_treasury_yield_curve/);
+  assert.match(route, /Futu OpenD previous close/);
+  for (const symbol of ["ZT", "ZF", "ZN", "ZB"]) {
+    assert.match(route, new RegExp(`US\\.${symbol}main`));
+    assert.match(pusher, new RegExp(`US\\.${symbol}main`));
+  }
+});
+
 test("restores the Relative Value Monitor and its global prediction-error broadcast", async () => {
   const [response, alerts, config, relativeValue] = await Promise.all([
     render("/blog"),

@@ -28,7 +28,7 @@ SYMBOLS = [
     item.strip()
     for item in os.getenv(
         "FUTU_SYMBOLS",
-        "HK.00388,HK.00625,HK.00700,HK.00981,HK.00992,HK.01024,HK.01211,HK.01347,HK.01810,HK.02097,HK.03690,HK.06181,HK.09988,HK.09992,HK.00100,HK.02513,HK.03308,HK.03986,HK.800000,HK.HSImain,US.LITE,US.NVDA",
+        "HK.00388,HK.00625,HK.00700,HK.00981,HK.00992,HK.01024,HK.01211,HK.01347,HK.01810,HK.02097,HK.03690,HK.06181,HK.09988,HK.09992,HK.00100,HK.02513,HK.03308,HK.03986,HK.800000,HK.HSImain,US.LITE,US.NVDA,US.ZTmain,US.ZFmain,US.ZNmain,US.ZBmain",
     ).split(",")
     if item.strip()
 ]
@@ -39,7 +39,8 @@ HSI_HISTORY_LIMIT = 1500
 RUNNING = True
 HKT = timezone(timedelta(hours=8))
 LIVE_BOOK_STATES = {"AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"}
-SNAPSHOT_ONLY_SYMBOLS = {"HK.800000"}
+SNAPSHOT_ONLY_SYMBOLS = {"HK.800000", "US.ZTmain", "US.ZFmain", "US.ZNmain", "US.ZBmain"}
+HISTORY_SKIP_SYMBOLS = {"US.ZTmain", "US.ZFmain", "US.ZNmain", "US.ZBmain"}
 
 
 def stop(*_: object) -> None:
@@ -82,6 +83,8 @@ def build_history(context: OpenQuoteContext, symbols: list[str]) -> dict[str, li
     end = today.isoformat()
     result: dict[str, list[list[float | int]]] = {}
     for symbol in symbols:
+        if symbol in HISTORY_SKIP_SYMBOLS:
+            continue
         frames = []
         page_key = None
         failed = False

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BroadcastAlert from "./components/BroadcastAlert";
 import PageSwitcher from "./components/PageSwitcher";
+import TreasuryYieldEstimator from "./components/TreasuryYieldEstimator";
 
 type Venue = "Hyperliquid" | "Binance";
 type Market = {
@@ -509,6 +510,8 @@ export default function Home() {
           <small>{started ? "Changing the anchor reloads every reference price" : "Preset to the latest Saturday at 09:00 BJT"}</small>
         </div>
       </section>
+
+      <TreasuryYieldEstimator />
 
       {!started && (
         <section className="preflight">
