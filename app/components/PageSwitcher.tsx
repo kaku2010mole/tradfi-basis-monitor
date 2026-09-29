@@ -4,7 +4,7 @@ import Link from "next/link";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
-  active: "basis" | "pairs" | "oracle" | "blog" | "taker" | "polymarket" | "auction" | "onchain" | "hsi" | "shanghai" | "dividends";
+  active: "basis" | "pairs" | "oracle" | "blog" | "taker" | "polymarket" | "auction" | "dividends";
 };
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
@@ -44,21 +44,9 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
           <span>HK auction basis</span>
           <small>Futu auction versus Binance perps and Posley ADRs</small>
         </Link>
-        <Link href="/onchain" aria-current={active === "onchain" ? "page" : undefined}>
-          <span>xStock–Perp</span>
-          <small>OKX spot versus Binance perpetuals</small>
-        </Link>
         <Link href="/dividends" aria-current={active === "dividends" ? "page" : undefined}>
           <span>Dividend calendar</span>
           <small>Binance + Bitget stock and ETF ex-dates</small>
-        </Link>
-        <Link href="/hsi" aria-current={active === "hsi" ? "page" : undefined}>
-          <span>HSI close probability</span>
-          <small>Next cash close · index and active futures</small>
-        </Link>
-        <Link href="/shanghai" aria-current={active === "shanghai" ? "page" : undefined}>
-          <span>Shanghai close probability</span>
-          <small>Next 15:00 close · Shanghai index and A50 futures</small>
         </Link>
       </nav>
     </details>

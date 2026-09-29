@@ -437,40 +437,15 @@ test("removes the SKHX close desk and its unused background recorder", async () 
   assert.doesNotMatch(recorder, /HYPERTRACKER|liquidationRecorderLoop|captureLiquidations/);
 });
 
-test("scans OKX stock spot books against executable Binance perpetual prices", async () => {
-  const [response, page, monitor, route, switcher, recorder] = await Promise.all([
-    render("/onchain"),
-    readFile(new URL("../app/onchain/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/components/XstockPerpMonitor.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/xstock-perp/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../scripts/start-render.mjs", import.meta.url), "utf8"),
-  ]);
-  assert.equal(response.status, 200);
-  assert.match(await response.text(), /xStock–Perp/);
-  assert.match(page, /centralized-exchange xStock spot/);
-  assert.match(monitor, /OKX SPOT · BINANCE FUTURES/);
-  assert.match(monitor, /MAX BINANCE 24H VOLUME/);
-  assert.match(monitor, /Add exchange pair/);
-  assert.match(route, /instCategory === "3"/);
-  assert.match(route, /XSHEIN-USDT/);
-  assert.match(route, /XPOPMART-USDT/);
-  assert.match(route, /XXIAOMI-USDT.*HK1810USDT.*7\.84/s);
-  assert.match(route, /TRADIFI_PERPETUAL/);
-  assert.match(route, /exchangeInfo/);
-  assert.match(route, /scale < 0\.5 \|\| scale > 2/);
-  assert.match(switcher, /href="\/onchain"/);
-  assert.doesNotMatch(recorder, /onchainRecorderLoop|onchain-pools/);
-});
-
-test("loads route-scoped styles for the HSI and Shanghai dashboards", async () => {
-  const [hsiLayout, shanghaiLayout] = await Promise.all([
-    readFile(new URL("../app/hsi/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/shanghai/layout.tsx", import.meta.url), "utf8"),
-  ]);
-
-  assert.match(hsiLayout, /import\s+["']\.\/hsi\.css["']/);
-  assert.match(shanghaiLayout, /import\s+["']\.\.\/hsi\/hsi\.css["']/);
+test("removes the HSI, Shanghai and xStock dashboards and their navigation labels", async () => {
+  const switcher = await readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(switcher, /href="\/(?:hsi|shanghai|onchain)"|HSI close probability|Shanghai close probability|xStock–Perp/);
+  for (const path of ["/hsi", "/shanghai", "/onchain", "/api/hsi", "/api/shanghai", "/api/xstock-perp", "/hsi-models.json", "/shanghai-models.json"]) {
+    const response = await render(path);
+    assert.equal(response.status, 404, `${path} should no longer be available`);
+  }
+  const oracle = await render("/oracle");
+  assert.doesNotMatch(await oracle.text(), /xStock ↔ Perp/);
 });
 
 test("FX-adjusts SKHX to CSOP 2L prediction error everywhere", async () => {
