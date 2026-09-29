@@ -13,6 +13,32 @@ type Payload = { rows?: Row[]; fx?: { bid: number | null; ask: number | null; up
 const fmt = (value: number | null, digits = 2) => value === null ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const pct = (value: number | null) => value === null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(3)}%`;
 const time = (value: number | null) => value === null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(value);
+const POLL_MS = 2_000;
+const EDGE_MAX_AGE_MS = 60_000;
+
+function mergeRows(previous: Row[] = [], incoming: Row[] = []) {
+  const priorByCode = new Map(previous.map((row) => [row.code, row]));
+  return incoming.map((row) => {
+    const prior = priorByCode.get(row.code);
+    if (!prior) return row;
+    const cash = row.cashBidKrw !== null && row.cashAskKrw !== null && (row.cashUpdatedAt ?? 0) >= (prior.cashUpdatedAt ?? 0) ? row : prior;
+    const priorVenues = new Map(prior.venues.map((quote) => [quote.venue, quote]));
+    return {
+      ...row,
+      cashBidKrw: cash.cashBidKrw, cashAskKrw: cash.cashAskKrw,
+      cashBidQty: cash.cashBidQty, cashAskQty: cash.cashAskQty,
+      cashBidUsd: row.cashBidUsd ?? prior.cashBidUsd,
+      cashAskUsd: row.cashAskUsd ?? prior.cashAskUsd,
+      cashUpdatedAt: cash.cashUpdatedAt,
+      venues: row.venues.map((quote) => {
+        const older = priorVenues.get(quote.venue);
+        if (!older) return quote;
+        const book = quote.bid !== null && quote.ask !== null && (quote.updatedAt ?? 0) >= (older.updatedAt ?? 0) ? quote : older;
+        return { ...book, buyKoreaSellPerp: quote.buyKoreaSellPerp ?? older.buyKoreaSellPerp, buyPerpSellKorea: quote.buyPerpSellKorea ?? older.buyPerpSellKorea };
+      }),
+    };
+  });
+}
 const base64Url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
 async function beginPosleyLogin() {
@@ -45,6 +71,7 @@ async function browserIdToken() {
 
 export default function KoreanPerpMonitor() {
   const [payload, setPayload] = useState<Payload>({});
+  const [clock, setClock] = useState(0);
   const [error, setError] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
@@ -57,11 +84,16 @@ export default function KoreanPerpMonitor() {
       const response = await fetch("/api/oracle-monitor/korean-bitget", { cache: "no-store", headers: token ? { Authorization: `Bearer ${token}` } : undefined });
       const next = await response.json() as Payload;
       if (!response.ok) throw new Error(next.error || "Korean stock feed unavailable.");
-      setPayload(next); setError("");
+      setPayload((previous) => ({
+        ...next,
+        fx: next.fx && next.fx.bid !== null && next.fx.ask !== null ? next.fx : previous.fx,
+        rows: mergeRows(previous.rows, next.rows),
+      }));
+      setError("");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Feeds reconnecting."); }
-    finally { inFlight.current = false; }
+    finally { setClock(Date.now()); inFlight.current = false; }
   }, []);
-  useEffect(() => { const first = window.setTimeout(() => void load(), 0); const timer = window.setInterval(load, 2_000); return () => { clearTimeout(first); clearInterval(timer); }; }, [load]);
+  useEffect(() => { const first = window.setTimeout(() => void load(), 0); const timer = window.setInterval(load, POLL_MS); return () => { clearTimeout(first); clearInterval(timer); }; }, [load]);
 
   const connect = async () => {
     setLoginBusy(true); setLoginError("");
@@ -75,11 +107,14 @@ export default function KoreanPerpMonitor() {
     {(loginError || error || payload.posley?.error) && <div className={styles.notice}><span>{loginError || error || payload.posley?.error}</span><button disabled={loginBusy} onClick={() => void connect()}>{loginBusy ? "Checking…" : "Connect Posley"}</button></div>}
     <div className={styles.rows}>{payload.rows?.map((row) => <article key={row.code}>
       <div className={styles.identity}><small>KRX {row.code}</small><strong>{row.name}</strong><span>KRW {fmt(row.cashBidKrw, 0)} / {fmt(row.cashAskKrw, 0)}</span><em>≈ USD {fmt(row.cashBidUsd)} / {fmt(row.cashAskUsd)} · {time(row.cashUpdatedAt)}</em></div>
-      <div className={styles.venues}>{row.venues.map((quote) => <div key={quote.venue} className={styles.venue}>
+      <div className={styles.venues}>{row.venues.map((quote) => {
+        const oldestLeg = Math.min(row.cashUpdatedAt ?? 0, payload.fx?.updatedAt ?? 0, quote.updatedAt ?? 0);
+        const stale = !oldestLeg || clock - oldestLeg > EDGE_MAX_AGE_MS;
+        return <div key={quote.venue} className={styles.venue}>
         <div><b>{quote.venue}</b><code>{quote.symbol}</code><time>{time(quote.updatedAt)}</time></div>
         <div className={styles.bbo}><span>PERP BID / ASK<strong>{fmt(quote.bid)} / {fmt(quote.ask)}</strong></span><span>SIZE<strong>{fmt(quote.bidQty)} / {fmt(quote.askQty)}</strong></span></div>
-        <div className={styles.edges}><span className={(quote.buyKoreaSellPerp ?? -1) > 0 ? styles.positive : ""}>BUY KRX · SELL PERP<b>{pct(quote.buyKoreaSellPerp)}</b></span><span className={(quote.buyPerpSellKorea ?? -1) > 0 ? styles.positive : ""}>BUY PERP · SELL KRX<b>{pct(quote.buyPerpSellKorea)}</b></span></div>
-      </div>)}</div>
+        <div className={styles.edges}><span className={!stale && (quote.buyKoreaSellPerp ?? -1) > 0 ? styles.positive : ""}>BUY KRX · SELL PERP<b>{stale ? "STALE" : pct(quote.buyKoreaSellPerp)}</b></span><span className={!stale && (quote.buyPerpSellKorea ?? -1) > 0 ? styles.positive : ""}>BUY PERP · SELL KRX<b>{stale ? "STALE" : pct(quote.buyPerpSellKorea)}</b></span></div>
+      </div>; })}</div>
       {row.mappingNote && <p className={styles.mapping}>{row.mappingNote}</p>}
     </article>)}</div>
     <footer>Raw executable spread before fees, funding, borrow, tax, FX execution and latency. A positive number is only a price discrepancy, not guaranteed profit.</footer>
