@@ -70,6 +70,8 @@ test("scans Binance and Bitget TradFi stock and ETF contracts into an English di
   assert.match(page, /Stocks and ETFs included/);
   assert.match(page, /Dividend treatment/);
   assert.match(page, /No special dividend settlement/);
+  assert.match(page, /aria-expanded=\{expanded\}/);
+  assert.match(page, /Show less/);
   assert.match(switcher, /href="\/dividends"/);
 });
 

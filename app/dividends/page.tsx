@@ -28,6 +28,7 @@ export default function DividendCalendarPage() {
   const [query, setQuery] = useState("");
   const [exchange, setExchange] = useState<"All" | Exchange>("All");
   const [selected, setSelected] = useState<DividendEvent | null>(null);
+  const [expandedDays, setExpandedDays] = useState<Set<number>>(() => new Set());
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -55,7 +56,7 @@ export default function DividendCalendarPage() {
     <section className={styles.panel}>
       <header className={styles.panelHead}><div><span>MONTHLY EX-DIVIDEND VIEW</span><h2>{monthLabel(month)}</h2></div><div className={styles.monthNav}><button onClick={() => setMonth(moveMonth(month, -1))}>← Previous</button><button onClick={() => setMonth(new Date().toISOString().slice(0, 7))}>Current</button><button onClick={() => setMonth(moveMonth(month, 1))}>Next →</button><button onClick={() => void load()}>Refresh</button></div></header>
       <div className={styles.weekdays}>{["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((day) => <span key={day}>{day}</span>)}</div>
-      <div className={styles.calendar}>{Array.from({ length: firstWeekday }, (_, index) => <div className={styles.blank} key={`blank-${index}`} />)}{Array.from({ length: dayCount }, (_, index) => { const day = index + 1; const events = byDay.get(day) ?? []; return <div className={`${styles.day} ${events.length ? styles.hasEvent : ""}`} key={day}><b>{day}</b><div>{events.slice(0, 3).map((event) => <button onClick={() => setSelected(event)} key={event.id}><strong>{event.contract.replace(/USDT$/, "")} <em>{event.exchange === "Binance" ? "BN" : "BG"}</em></strong><span>{event.currency} {fmt(event.amount, 4)} · {fmt(event.percent)}%</span></button>)}{events.length > 3 && <small>+{events.length - 3} more</small>}</div></div>; })}</div>
+      <div className={styles.calendar}>{Array.from({ length: firstWeekday }, (_, index) => <div className={styles.blank} key={`blank-${index}`} />)}{Array.from({ length: dayCount }, (_, index) => { const day = index + 1; const events = byDay.get(day) ?? []; const expanded = expandedDays.has(day); return <div className={`${styles.day} ${events.length ? styles.hasEvent : ""}`} key={day}><b>{day}</b><div>{events.slice(0, expanded ? events.length : 3).map((event) => <button onClick={() => setSelected(event)} key={event.id}><strong>{event.contract.replace(/USDT$/, "")} <em>{event.exchange === "Binance" ? "BN" : "BG"}</em></strong><span>{event.currency} {fmt(event.amount, 4)} · {fmt(event.percent)}%</span></button>)}{events.length > 3 && <button className={styles.moreButton} aria-expanded={expanded} onClick={() => setExpandedDays((current) => { const next = new Set(current); if (expanded) next.delete(day); else next.add(day); return next; })}>{expanded ? "Show less" : `+${events.length - 3} more`}</button>}</div></div>; })}</div>
       <footer><span><i className={styles.announcedDot} /> Exchange-announced</span><span><i className={styles.calendarDot} /> Corporate-action calendar</span><span>Estimated and final special funding may differ</span></footer>
     </section>
     <section className={styles.eventsPanel}>
