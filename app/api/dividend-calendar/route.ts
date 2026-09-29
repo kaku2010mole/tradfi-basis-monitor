@@ -14,7 +14,8 @@ type Funding = { fundingTime?: number; fundingRate?: string; rateType?: string }
 type NasdaqRow = { companyName: string; symbol: string; dividend_Ex_Date: string; payment_Date?: string; record_Date?: string; dividend_Rate: number | string; announcement_Date?: string };
 type Article = { code: string; title: string; releaseDate: number };
 type Exchange = "Binance" | "Bitget";
-type Event = { id: string; exchange: Exchange; contract: string; underlying: string; company: string; exDate: string; paymentDate: string | null; amount: number; currency: string; markPrice: number | null; percent: number | null; status: "announced" | "calendar"; eligible: boolean; sourceUrl: string; sourceLabel: string; announcedAt: number | null };
+type RuleType = "special_funding" | "no_adjustment";
+type Event = { id: string; exchange: Exchange; contract: string; underlying: string; company: string; exDate: string; paymentDate: string | null; amount: number; currency: string; markPrice: number | null; percent: number | null; status: "announced" | "calendar"; eligible: boolean; ruleType: RuleType; ruleUrl: string; sourceUrl: string; sourceLabel: string; announcedAt: number | null };
 type Cache = typeof globalThis & { __DIVIDEND_MONTH_CACHE__?: Map<string, { expires: number; value: unknown }> };
 
 const ALIASES: Record<string, string> = { BRKB: "BRK-B", GOOGL: "GOOGL", FBTC: "FBTC", SAMSUNG: "005930", SKHYNIX: "000660", HYUNDAI: "005380" };
@@ -104,7 +105,8 @@ async function officialAdjustments(prices: Map<string, number | null>, underlyin
     const special = funding.filter((row) => row.rateType === "Special" && kstDate(row.fundingTime ?? 0) === date).at(-1);
     const specialRate = Math.abs(finite(special?.fundingRate) ?? 0);
     if (specialRate > 0) { percent = specialRate * 100; markPrice = amount / specialRate; }
-    return { id: `binance-${article.code}`, exchange: "Binance", contract, underlying, company: underlying, exDate: date, paymentDate: null, amount, currency, markPrice, percent, status: "announced", eligible: !EXCLUDED_LEVERAGED_ETFS.has(contract), sourceUrl: `https://www.binance.com/en/support/announcement/${article.code}`, sourceLabel: specialRate > 0 ? "Binance special funding" : "Binance announcement", announcedAt: article.releaseDate } satisfies Event;
+    const eligible = !EXCLUDED_LEVERAGED_ETFS.has(contract);
+    return { id: `binance-${article.code}`, exchange: "Binance", contract, underlying, company: underlying, exDate: date, paymentDate: null, amount, currency, markPrice, percent, status: "announced", eligible, ruleType: eligible ? "special_funding" : "no_adjustment", ruleUrl: "https://www.binance.com/en-PH/support/faq/detail/7ced719b5e9a4859a1864c2fe657309f", sourceUrl: `https://www.binance.com/en/support/announcement/${article.code}`, sourceLabel: specialRate > 0 ? "Binance special funding" : "Binance announcement", announcedAt: article.releaseDate } satisfies Event;
   }));
   return details.filter((event): event is Event => event !== null);
 }
@@ -134,7 +136,10 @@ export async function GET(request: Request) {
       const exchange = (instrument as Instrument & { exchange: Exchange }).exchange;
       const exDate = parseUsDate(row.dividend_Ex_Date); const amount = finite(row.dividend_Rate); const markPrice = (exchange === "Binance" ? prices : bitget.prices).get(instrument.symbol) ?? null;
       if (!exDate || amount === null || amount <= 0) return [];
-      return [{ id: `nasdaq-${exchange.toLowerCase()}-${instrument.symbol}-${exDate}`, exchange, contract: instrument.symbol, underlying: row.symbol, company: row.companyName, exDate, paymentDate: row.payment_Date && row.payment_Date !== "N/A" ? parseUsDate(row.payment_Date) : null, amount, currency: "USD", markPrice, percent: markPrice && markPrice > 0 ? amount / markPrice * 100 : null, status: "calendar", eligible: exchange === "Bitget" || !EXCLUDED_LEVERAGED_ETFS.has(instrument.symbol), sourceUrl: `https://www.nasdaq.com/market-activity/${/ETF/i.test(row.companyName) ? "etf" : "stocks"}/${row.symbol.toLowerCase()}/dividend-history`, sourceLabel: `${exchange} pair · Nasdaq calendar`, announcedAt: row.announcement_Date ? Date.parse(row.announcement_Date) : null } satisfies Event];
+      const noAdjustment = exchange === "Bitget" ? instrument.symbol === "STRCUSDT" : EXCLUDED_LEVERAGED_ETFS.has(instrument.symbol);
+      const calendarUrl = `https://www.nasdaq.com/market-activity/${/ETF/i.test(row.companyName) ? "etf" : "stocks"}/${row.symbol.toLowerCase()}/dividend-history`;
+      const ruleUrl = exchange === "Bitget" ? (instrument.symbol === "STRCUSDT" ? "https://www.bitget.com/support/articles/12560603887627" : "https://www.bitget.com/support/articles/12560603884782") : "https://www.binance.com/en-PH/support/faq/detail/7ced719b5e9a4859a1864c2fe657309f";
+      return [{ id: `nasdaq-${exchange.toLowerCase()}-${instrument.symbol}-${exDate}`, exchange, contract: instrument.symbol, underlying: row.symbol, company: row.companyName, exDate, paymentDate: row.payment_Date && row.payment_Date !== "N/A" ? parseUsDate(row.payment_Date) : null, amount, currency: "USD", markPrice, percent: markPrice && markPrice > 0 ? amount / markPrice * 100 : null, status: "calendar", eligible: !noAdjustment, ruleType: noAdjustment ? "no_adjustment" : "special_funding", ruleUrl, sourceUrl: calendarUrl, sourceLabel: noAdjustment ? `${exchange}: no dividend adjustment` : `${exchange} pair · Nasdaq calendar`, announcedAt: row.announcement_Date ? Date.parse(row.announcement_Date) : null } satisfies Event];
     }));
     const eventMap = new Map(calendarEvents.map((event) => [`${event.exchange}:${event.contract}:${event.exDate}`, event]));
     official.forEach((event) => { if (event.exDate.startsWith(requested)) eventMap.set(`${event.exchange}:${event.contract}:${event.exDate}`, event); });

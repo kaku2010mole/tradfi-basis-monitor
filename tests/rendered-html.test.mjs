@@ -60,12 +60,16 @@ test("scans Binance and Bitget TradFi stock and ETF contracts into an English di
   assert.match(route, /contractType === "TRADIFI_PERPETUAL"/);
   assert.match(route, /isRwa === "YES"/);
   assert.match(route, /api\.bitget\.com\/api\/v2\/mix\/market/);
+  assert.match(route, /instrument\.symbol === "STRCUSDT"/);
+  assert.match(route, /12560603887627/);
   assert.match(route, /api\.nasdaq\.com\/api\/calendar\/dividends/);
   assert.match(route, /dividend adjustment process/i);
   assert.match(route, /amount \/ markPrice \* 100/);
   assert.match(page, /MONTHLY EX-DIVIDEND VIEW/);
   assert.match(page, /BINANCE \+ BITGET TRADFI CORPORATE ACTIONS/);
   assert.match(page, /Stocks and ETFs included/);
+  assert.match(page, /Dividend treatment/);
+  assert.match(page, /No special dividend settlement/);
   assert.match(switcher, /href="\/dividends"/);
 });
 
