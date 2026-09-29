@@ -7,10 +7,16 @@ const PUSH_URL = process.env.FUTU_PUSH_URL || "https://tradfi-basis-monitor.onre
 const TOKEN_FILE = process.env.FUTU_PUSH_TOKEN_FILE;
 const SYMBOLS = ["TCEHY", "XIACY", "KSHTY", "MPNGY", "PMRTY", "MMXGY", "LNVGY", "BYDDY"];
 const KEYS = SYMBOLS.map((symbol) => `orderbook:ibkr:STK:${symbol}:SMART:USD`);
+const KOREAN_CODES = ["034020", "035420", "042700", "066570", "454910"];
+const KOREAN_KEYS = KOREAN_CODES.map((code) => `orderbook:ibkr:STK:${code}:KRX:KRW`);
 const FX_KEY = "orderbook:ibkr:FX:USD:KRW";
 const FX_HL_KEY = "index_price:hyperliquid:xyz:KRW";
-KEYS.push(FX_KEY, FX_HL_KEY);
-const allowedKeys = new Map(KEYS.map((key, index) => [key, key === FX_KEY || key === FX_HL_KEY ? "USDKRW" : SYMBOLS[index]]));
+KEYS.push(FX_KEY, FX_HL_KEY, ...KOREAN_KEYS);
+const allowedKeys = new Map([
+  ...SYMBOLS.map((symbol) => [`orderbook:ibkr:STK:${symbol}:SMART:USD`, `US.${symbol}`]),
+  [FX_KEY, "FX.USDKRW"], [FX_HL_KEY, "FX.USDKRW"],
+  ...KOREAN_CODES.map((code) => [`orderbook:ibkr:STK:${code}:KRX:KRW`, `KRX.${code}`]),
+]);
 const latest = new Map();
 const fxHistory = new Map();
 
@@ -57,11 +63,11 @@ const quoteFromEntry = (message) => {
     .map(timestamp).filter((value) => value !== null);
   const last = positive(fields.index_price ?? fields.mark_price ?? fields.last_price ?? fields.last ?? fields.price);
   if (bid.price === null && ask.price === null && last === null) return null;
-  const isFx = message.key === FX_KEY || message.key === FX_HL_KEY;
+  const isFx = symbol === "FX.USDKRW";
   return {
-    symbol: isFx ? "FX.USDKRW" : `US.${symbol}`,
+    symbol,
     name: symbol,
-    marketState: isFx ? "FX_REFERENCE" : "US_REFERENCE",
+    marketState: isFx ? "FX_REFERENCE" : symbol.startsWith("KRX.") ? "KRX_REFERENCE" : "US_REFERENCE",
     auctionPrice: null,
     last,
     previousClose: positive(fields.previous_close ?? fields.prev_close),
@@ -96,7 +102,8 @@ const connect = () => {
       if (message.type !== "entry") return;
       const quote = quoteFromEntry(message);
       if (quote) {
-        latest.set(quote.symbol, quote);
+        const existing = latest.get(quote.symbol);
+        if (message.key !== FX_HL_KEY || !existing?.bid || !existing?.ask) latest.set(quote.symbol, quote);
         if (quote.symbol === "FX.USDKRW") {
           const price = quote.bid && quote.ask ? (quote.bid + quote.ask) / 2 : quote.last;
           if (price && quote.marketTimestamp) {

@@ -22,12 +22,33 @@ const positive = (value: unknown) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
+type PushedQuote = { symbol?: string; bid?: number; ask?: number; bidSize?: number; askSize?: number; marketTimestamp?: number };
+type PushStore = typeof globalThis & { __FUTU_PUSH_SNAPSHOT__?: { payload: { quotes?: PushedQuote[] }; receivedAt: number } };
+const PUSH_MAX_AGE_MS = 15_000;
+const QUOTE_MAX_AGE_MS = 60_000;
+
+function officeRelaySnapshot() {
+  const stored = (globalThis as PushStore).__FUTU_PUSH_SNAPSHOT__;
+  if (!stored || Date.now() - stored.receivedAt > PUSH_MAX_AGE_MS) return null;
+  const books = (stored.payload.quotes ?? []).flatMap((quote) => {
+    const code = quote.symbol?.startsWith("KRX.") ? quote.symbol.slice(4) : quote.symbol === "FX.USDKRW" ? "USDKRW" : null;
+    const timestamp = Number(quote.marketTimestamp);
+    if (!code || !Number.isFinite(timestamp) || Date.now() - timestamp > QUOTE_MAX_AGE_MS) return [];
+    return [{ symbol: code, streamKey: `office:${quote.symbol}`, bid: positive(quote.bid), ask: positive(quote.ask), last: null, bidSize: positive(quote.bidSize), askSize: positive(quote.askSize), timestamp }];
+  });
+  if (!books.some((book) => book.symbol !== "USDKRW")) return null;
+  const wanted = [...KOREAN_STOCKS.map((stock) => stock.code), "USDKRW"];
+  const found = new Set(books.map((book) => book.symbol));
+  return { configured: true, state: found.size === wanted.length ? "live" : "partial", error: "", books, missing: wanted.filter((symbol) => !found.has(symbol)), timestamp: Date.now(), source: "office relay" };
+}
+
 export async function GET(request: Request) {
   try {
     const authorization = request.headers.get("authorization") ?? "";
     const suppliedIdToken = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : undefined;
+    const office = officeRelaySnapshot();
     const [posley, bitgetResponse, binanceResponse] = await Promise.all([
-      posleyAdrSnapshot([...KOREAN_STOCKS.map((stock) => stock.code), "USDKRW"], suppliedIdToken),
+      office ?? posleyAdrSnapshot([...KOREAN_STOCKS.map((stock) => stock.code), "USDKRW"], suppliedIdToken),
       fetch(BITGET_TICKERS, { cache: "no-store", signal: AbortSignal.timeout(7_000) }),
       fetch(BINANCE_BOOKS, { cache: "no-store", signal: AbortSignal.timeout(7_000) }),
     ]);
@@ -69,7 +90,7 @@ export async function GET(request: Request) {
     return Response.json({
       rows,
       fx: { symbol: "USD/KRW", bid: fxBid, ask: fxAsk, updatedAt: fx?.timestamp ?? null },
-      posley: { configured: posley.configured, state: posley.state, error: posley.error, missing: posley.missing },
+      posley: { configured: posley.configured, state: posley.state, error: posley.error, missing: posley.missing, source: "source" in posley ? posley.source : "remote gateway" },
       timestamp: Date.now(),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

@@ -8,7 +8,7 @@ const COGNITO_DOMAIN = process.env.NEXT_PUBLIC_COGNITO_DOMAIN ?? "posley.auth.us
 
 type VenueQuote = { venue: string; symbol: string; bid: number | null; ask: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null; buyKoreaSellPerp: number | null; buyPerpSellKorea: number | null };
 type Row = { code: string; name: string; cashBidKrw: number | null; cashAskKrw: number | null; cashBidQty: number | null; cashAskQty: number | null; cashUpdatedAt: number | null; cashBidUsd: number | null; cashAskUsd: number | null; venues: VenueQuote[]; mappingNote: string | null };
-type Payload = { rows?: Row[]; fx?: { bid: number | null; ask: number | null; updatedAt: number | null }; posley?: { state: string; error: string; missing: string[] }; timestamp?: number; error?: string };
+type Payload = { rows?: Row[]; fx?: { bid: number | null; ask: number | null; updatedAt: number | null }; posley?: { state: string; error: string; missing: string[]; source?: string }; timestamp?: number; error?: string };
 
 const fmt = (value: number | null, digits = 2) => value === null ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const pct = (value: number | null) => value === null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(3)}%`;
@@ -70,7 +70,7 @@ export default function KoreanPerpMonitor() {
   };
 
   return <section className={styles.monitor} aria-label="Korean stock perpetual basis">
-    <header><div><p>POSLEY KRX · EXCHANGE PERPETUALS</p><h2>Korean stock cross-venue basis</h2><span>Executable BBO comparison · one perp unit per share-equivalent · USDT treated as USD</span></div><div className={styles.status}><i />{payload.timestamp ? `LIVE · ${time(payload.timestamp)}` : "CONNECTING"}</div></header>
+    <header><div><p>POSLEY KRX · EXCHANGE PERPETUALS</p><h2>Korean stock cross-venue basis</h2><span>Executable BBO comparison · one perp unit per share-equivalent · USDT treated as USD</span></div><div className={styles.status}><i />{payload.posley?.state === "live" ? `LIVE · ${payload.posley.source ?? "Posley"} · ${time(payload.timestamp ?? null)}` : payload.posley?.state === "partial" ? "PARTIAL · waiting for KRX / FX" : "CONNECTING"}</div></header>
     <div className={styles.fx}><span>USD/KRW POSLEY BBO</span><strong>{fmt(payload.fx?.bid ?? null, 2)} / {fmt(payload.fx?.ask ?? null, 2)}</strong><small>Cash bid converts at FX ask; cash ask converts at FX bid.</small></div>
     {(loginError || error || payload.posley?.error) && <div className={styles.notice}><span>{loginError || error || payload.posley?.error}</span><button disabled={loginBusy} onClick={() => void connect()}>{loginBusy ? "Checking…" : "Connect Posley"}</button></div>}
     <div className={styles.rows}>{payload.rows?.map((row) => <article key={row.code}>
