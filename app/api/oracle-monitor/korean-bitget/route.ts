@@ -22,10 +22,12 @@ const positive = (value: unknown) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const authorization = request.headers.get("authorization") ?? "";
+    const suppliedIdToken = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : undefined;
     const [posley, bitgetResponse, binanceResponse] = await Promise.all([
-      posleyAdrSnapshot([...KOREAN_STOCKS.map((stock) => stock.code), "USDKRW"]),
+      posleyAdrSnapshot([...KOREAN_STOCKS.map((stock) => stock.code), "USDKRW"], suppliedIdToken),
       fetch(BITGET_TICKERS, { cache: "no-store", signal: AbortSignal.timeout(7_000) }),
       fetch(BINANCE_BOOKS, { cache: "no-store", signal: AbortSignal.timeout(7_000) }),
     ]);

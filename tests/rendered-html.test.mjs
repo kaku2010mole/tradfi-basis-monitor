@@ -84,6 +84,8 @@ test("adds exact Korean stock cross-venue basis rows to Oracle Monitor", async (
   ]);
   assert.match(page, /<KoreanPerpMonitor/);
   assert.match(component, /Korean stock cross-venue basis/);
+  assert.match(component, /Connect Posley/);
+  assert.match(component, /equity_monitor_id_token/);
   assert.doesNotMatch(component, /005935/);
   for (const code of ["034020", "035420", "042700", "066570", "454910"]) assert.match(route, new RegExp(code));
   assert.doesNotMatch(route, /005935/);
@@ -93,6 +95,7 @@ test("adds exact Korean stock cross-venue basis rows to Oracle Monitor", async (
   assert.match(route, /bitgetSymbol: null, binanceSymbol: "HANMIUSDT"/);
   assert.match(route, /BUY KRX|buyKoreaSellPerp/);
   assert.match(posley, /FX:USD:KRW/);
+  assert.match(posley, /saved Posley login has expired/);
 });
 
 test("restores the Relative Value Monitor and its global prediction-error broadcast", async () => {

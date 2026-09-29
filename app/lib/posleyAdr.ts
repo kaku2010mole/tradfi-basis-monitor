@@ -103,7 +103,11 @@ async function freshIdToken(state: SharedState) {
     cache: "no-store",
     signal: AbortSignal.timeout(8_000),
   });
-  if (!response.ok) throw new Error(`Posley token refresh HTTP ${response.status}`);
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null) as { error?: string; error_description?: string } | null;
+    const reason = detail?.error === "invalid_grant" ? "The saved Posley login has expired. Connect Posley again." : detail?.error_description || detail?.error;
+    throw new Error(reason || `Posley token refresh HTTP ${response.status}`);
+  }
   const payload = await response.json() as { id_token?: string; expires_in?: number };
   if (!payload.id_token) throw new Error("Posley token refresh returned no ID token.");
   state.token = payload.id_token;
@@ -207,12 +211,19 @@ async function connect(state: SharedState) {
   socket.onclose = disconnected;
 }
 
-async function ensureConnection(state: SharedState, symbols: string[]) {
+async function ensureConnection(state: SharedState, symbols: string[], suppliedIdToken?: string) {
+  const suppliedExpiry = suppliedIdToken ? jwtExpiry(suppliedIdToken) : 0;
+  if (suppliedIdToken && suppliedExpiry <= Date.now() + 30_000) throw new Error("The browser Posley session has expired. Connect Posley again.");
+  const tokenChanged = Boolean(suppliedIdToken && state.token !== suppliedIdToken);
+  if (suppliedIdToken) {
+    state.token = suppliedIdToken;
+    state.tokenExpiresAt = suppliedExpiry;
+  }
   const before = [...state.wanted].sort().join(",");
   symbols.forEach((symbol) => state.wanted.add(symbol));
   const after = [...state.wanted].sort().join(",");
-  const needsFreshConnection = before !== after || !state.socket || state.tokenExpiresAt <= Date.now() + TOKEN_REFRESH_MARGIN_MS;
-  if (!needsFreshConnection || state.connectPromise || Date.now() < state.retryAfter) return;
+  const needsFreshConnection = tokenChanged || before !== after || !state.socket || state.tokenExpiresAt <= Date.now() + TOKEN_REFRESH_MARGIN_MS;
+  if (!needsFreshConnection || state.connectPromise || (!tokenChanged && Date.now() < state.retryAfter)) return;
   if (state.socket) closeSocket(state);
   state.connectPromise = connect(state).catch((error) => {
     state.state = "reconnecting";
@@ -222,15 +233,15 @@ async function ensureConnection(state: SharedState, symbols: string[]) {
   await state.connectPromise;
 }
 
-export async function posleyAdrSnapshot(requestedSymbols: string[]) {
+export async function posleyAdrSnapshot(requestedSymbols: string[], suppliedIdToken?: string) {
   const symbols = normalizeSymbols(requestedSymbols);
   const refreshToken = process.env.POSLEY_REFRESH_TOKEN?.trim();
   const state = shared();
-  if (!refreshToken) {
+  if (!refreshToken && !suppliedIdToken) {
     state.state = "unconfigured";
     return { configured: false, state: state.state, error: "Server-side Posley ADR access is not configured.", books: [], missing: symbols, timestamp: Date.now() };
   }
-  await ensureConnection(state, symbols);
+  await ensureConnection(state, symbols, suppliedIdToken);
   const books = symbols.flatMap((symbol) => {
     const book = state.books.get(symbol);
     return book ? [book] : [];
