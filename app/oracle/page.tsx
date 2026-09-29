@@ -11,6 +11,7 @@ import {
   ORACLE_THRESHOLD_KEY,
 } from "../lib/oracleAlerts";
 import XstockPerpMonitor from "../components/XstockPerpMonitor";
+import KoreanPerpMonitor from "../components/KoreanPerpMonitor";
 import styles from "./page.module.css";
 
 type OracleQuote = {
@@ -826,6 +827,7 @@ export default function OracleMonitor() {
           </footer>
         </section>
 
+        <KoreanPerpMonitor />
         <XstockPerpMonitor compact />
 
         <footer className={styles.footer}>Executable deviation uses best bid only when it can be sold above Oracle, and best ask only when it can be bought below Oracle. If Oracle sits inside the spread, the executable edge is zero. Funding is shown in each venue&apos;s native interval.</footer>

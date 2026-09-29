@@ -77,6 +77,7 @@ const normalizeSymbols = (symbols: string[]) => [...new Set(symbols.map((symbol)
 const symbolForStream = (streamKey: string, symbols: Set<string>) => {
   const [category, venue, ...codeParts] = streamKey.toUpperCase().split(":");
   if (category !== "ORDERBOOK" || !["IBKR", "FUTU"].includes(venue)) return null;
+  if (symbols.has("USDKRW") && codeParts.join(":") === "FX:USD:KRW") return "USDKRW";
   const code = codeParts.join(":");
   return [...symbols].find((symbol) => codeParts.includes(symbol) || code === symbol || code === `US.${symbol}` || code.endsWith(`.${symbol}`)) ?? null;
 };
@@ -160,7 +161,7 @@ async function connect(state: SharedState) {
   const keys = await streamDirectory(token);
   const wanted = new Set(state.wanted);
   state.streamBySymbol.clear();
-  for (const key of keys) {
+  for (const key of keys.sort((left, right) => Number(right === "orderbook:ibkr:FX:USD:KRW") - Number(left === "orderbook:ibkr:FX:USD:KRW"))) {
     const symbol = symbolForStream(key, wanted);
     if (symbol && !state.streamBySymbol.has(symbol)) state.streamBySymbol.set(symbol, key);
   }
