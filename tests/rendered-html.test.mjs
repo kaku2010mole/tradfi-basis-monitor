@@ -48,6 +48,24 @@ test("adds a daily OpenD-backed Treasury futures yield estimator", async () => {
   }
 });
 
+test("scans every Binance TradFi equity contract into a dividend calendar dashboard", async () => {
+  const [response, page, route, switcher] = await Promise.all([
+    render("/dividends"),
+    readFile(new URL("../app/dividends/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/dividend-calendar/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Dividend Calendar/);
+  assert.match(route, /contractType === "TRADIFI_PERPETUAL"/);
+  assert.match(route, /api\.nasdaq\.com\/api\/calendar\/dividends/);
+  assert.match(route, /dividend adjustment process/i);
+  assert.match(route, /amount \/ markPrice \* 100/);
+  assert.match(page, /MONTHLY EX-DIVIDEND VIEW/);
+  assert.match(page, /BINANCE 已公告/);
+  assert.match(switcher, /href="\/dividends"/);
+});
+
 test("restores the Relative Value Monitor and its global prediction-error broadcast", async () => {
   const [response, alerts, config, relativeValue] = await Promise.all([
     render("/blog"),
