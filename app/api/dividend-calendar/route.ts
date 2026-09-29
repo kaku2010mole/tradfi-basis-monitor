@@ -59,11 +59,26 @@ async function bitgetSnapshot() {
 
 async function nasdaqMonth(year: number, month: number) {
   const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const dates = Array.from({ length: days }, (_, index) => isoDate(year, month, index + 1))
+    .filter((date) => { const weekday = new Date(`${date}T00:00:00Z`).getUTCDay(); return weekday !== 0 && weekday !== 6; });
   const rows: NasdaqRow[] = [];
-  for (let start = 1; start <= days; start += 8) {
-    const batch = Array.from({ length: Math.min(8, days - start + 1) }, (_, offset) => start + offset);
-    const payloads = await Promise.all(batch.map((day) => json<{ data?: { calendar?: { rows?: NasdaqRow[] } } }>(`${NASDAQ_CALENDAR}?date=${isoDate(year, month, day)}`, { ...HEADERS, Origin: "https://www.nasdaq.com", Referer: "https://www.nasdaq.com/" }).catch(() => null)));
-    payloads.forEach((payload) => rows.push(...(payload?.data?.calendar?.rows ?? [])));
+  for (let start = 0; start < dates.length; start += 4) {
+    const batch = await Promise.all(dates.slice(start, start + 4).map(async (date) => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const payload = await json<{ status?: { rCode?: number }; data?: { calendar?: { rows?: NasdaqRow[] | null } } }>(`${NASDAQ_CALENDAR}?date=${date}`, { ...HEADERS, Origin: "https://www.nasdaq.com", Referer: "https://www.nasdaq.com/" });
+          const dayRows = payload.data?.calendar?.rows;
+          if (payload.status?.rCode !== 200 || (dayRows !== null && !Array.isArray(dayRows))) throw new Error(`Nasdaq calendar returned incomplete data for ${date}.`);
+          return dayRows ?? [];
+        } catch (error) {
+          lastError = error;
+          if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+      }
+      throw new Error(`Nasdaq calendar failed on ${date}: ${lastError instanceof Error ? lastError.message : "unknown error"}`);
+    }));
+    batch.forEach((dayRows) => rows.push(...dayRows));
   }
   return rows;
 }
@@ -148,6 +163,7 @@ export async function GET(request: Request) {
     store.__DIVIDEND_MONTH_CACHE__.set(requested, { expires: Date.now() + 60 * 60_000, value });
     return Response.json(value, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
+    if (cached) return Response.json({ ...(cached.value as Record<string, unknown>), warning: "The latest dividend scan was incomplete. Showing the last complete result." }, { headers: { "Cache-Control": "no-store" } });
     return Response.json({ error: error instanceof Error ? error.message : "Dividend calendar scan failed." }, { status: 502 });
   }
 }

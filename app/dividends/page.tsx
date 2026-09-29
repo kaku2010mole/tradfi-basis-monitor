@@ -1,12 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
 import styles from "./page.module.css";
 
 type Exchange = "Binance" | "Bitget";
 type DividendEvent = { id: string; exchange: Exchange; contract: string; underlying: string; company: string; exDate: string; paymentDate: string | null; amount: number; currency: string; markPrice: number | null; percent: number | null; status: "announced" | "calendar"; eligible: boolean; ruleType: "special_funding" | "no_adjustment"; ruleUrl: string; sourceUrl: string; sourceLabel: string };
-type Payload = { month: string; generatedAt: number; scannedContracts: number; equityContracts: number; coveredContracts: number; exchangeCounts: Record<Exchange, { scanned: number; candidates: number }>; events: DividendEvent[] };
+type Payload = { month: string; generatedAt: number; scannedContracts: number; equityContracts: number; coveredContracts: number; exchangeCounts: Record<Exchange, { scanned: number; candidates: number }>; events: DividendEvent[]; warning?: string };
+const validMonth = (value: string | null): value is string => !!value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+const snapshotKey = (month: string) => `dividend-calendar:${month}`;
+const readSnapshot = (month: string): Payload | null => {
+  try { const stored = localStorage.getItem(snapshotKey(month)); const value = stored ? JSON.parse(stored) : null; return value?.month === month && Array.isArray(value.events) ? value : null; }
+  catch { return null; }
+};
 
 const fmt = (value: number | null, digits = 2) => value === null ? "—" : value.toLocaleString("en-US", { maximumFractionDigits: digits });
 const monthLabel = (month: string) => new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", timeZone: "UTC" }).format(new Date(`${month}-01T00:00:00Z`));
@@ -29,32 +35,72 @@ export default function DividendCalendarPage() {
   const [exchange, setExchange] = useState<"All" | Exchange>("All");
   const [selected, setSelected] = useState<DividendEvent | null>(null);
   const [expandedDays, setExpandedDays] = useState<Set<number>>(() => new Set());
+  const [ready, setReady] = useState(false);
+  const requestId = useRef(0);
+
+  useEffect(() => { const timer = window.setTimeout(() => {
+    let saved: string | null = null;
+    try { saved = localStorage.getItem("dividend-calendar:month"); } catch { /* Storage may be disabled. */ }
+    const fromUrl = new URLSearchParams(window.location.search).get("month");
+    const initial = validMonth(fromUrl) ? fromUrl : validMonth(saved) ? saved : new Date().toISOString().slice(0, 7);
+    setMonth(initial);
+    setPayload(readSnapshot(initial));
+    setReady(true);
+  }, 0); return () => window.clearTimeout(timer); }, []);
+
+  const chooseMonth = (next: string) => {
+    requestId.current += 1;
+    setMonth(next);
+    setPayload(readSnapshot(next));
+    setSelected(null);
+    setExpandedDays(new Set());
+    try { localStorage.setItem("dividend-calendar:month", next); } catch { /* Storage may be disabled. */ }
+    const url = new URL(window.location.href);
+    url.searchParams.set("month", next);
+    window.history.replaceState(window.history.state, "", url);
+  };
 
   const load = useCallback(async () => {
+    const id = ++requestId.current;
     setLoading(true); setError(null);
-    try { const response = await fetch(`/api/dividend-calendar?month=${month}`, { cache: "no-store" }); const next = await response.json(); if (!response.ok) throw new Error(next.error || "Dividend calendar unavailable"); setPayload(next); }
-    catch (loadError) { setError(loadError instanceof Error ? loadError.message : "Dividend calendar unavailable"); }
-    finally { setLoading(false); }
+    try {
+      const response = await fetch(`/api/dividend-calendar?month=${month}`, { cache: "no-store" });
+      const next = await response.json() as Payload & { error?: string };
+      if (!response.ok) throw new Error(next.error || "Dividend calendar unavailable");
+      if (next.month !== month || !Array.isArray(next.events)) throw new Error("Invalid dividend calendar response");
+      if (id !== requestId.current) return;
+      const saved = readSnapshot(month);
+      if (!next.events.length && saved?.events.length) {
+        setPayload(saved);
+        setError("Live scan returned no events; showing the last complete calendar.");
+      } else {
+        setPayload(next);
+        setError(next.warning ?? null);
+        if (next.events.length) try { localStorage.setItem(snapshotKey(month), JSON.stringify(next)); } catch { /* Storage may be disabled. */ }
+      }
+    } catch (loadError) { if (id === requestId.current) setError(loadError instanceof Error ? loadError.message : "Dividend calendar unavailable"); }
+    finally { if (id === requestId.current) setLoading(false); }
   }, [month]);
 
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+  useEffect(() => { if (!ready) return; const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load, ready]);
+  const visible = payload?.month === month ? payload : null;
   const firstWeekday = new Date(`${month}-01T00:00:00Z`).getUTCDay();
   const dayCount = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
-  const byDay = useMemo(() => new Map(Array.from({ length: dayCount }, (_, index) => [index + 1, (payload?.events ?? []).filter((event) => Number(event.exDate.slice(8, 10)) === index + 1)])), [dayCount, payload]);
-  const filtered = (payload?.events ?? []).filter((event) => (exchange === "All" || event.exchange === exchange) && `${event.exchange} ${event.contract} ${event.company}`.toLowerCase().includes(query.trim().toLowerCase()));
-  const highest = Math.max(0, ...(payload?.events ?? []).map((event) => event.percent ?? 0));
+  const byDay = useMemo(() => new Map(Array.from({ length: dayCount }, (_, index) => [index + 1, (visible?.events ?? []).filter((event) => event.exDate.startsWith(month) && Number(event.exDate.slice(8, 10)) === index + 1)])), [dayCount, month, visible]);
+  const filtered = (visible?.events ?? []).filter((event) => (exchange === "All" || event.exchange === exchange) && `${event.exchange} ${event.contract} ${event.company}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const highest = Math.max(0, ...(visible?.events ?? []).map((event) => event.percent ?? 0));
 
   return <main className={styles.shell}>
     <header className={styles.topbar}><div><p>BINANCE + BITGET TRADFI CORPORATE ACTIONS</p><h1>Dividend Calendar</h1><span>Ex-dividend dates, per-share payouts and one-time funding impact</span></div><div className={styles.topActions}><span className={loading ? styles.scanning : styles.live}><i />{loading ? "SCANNING" : "UPDATED"}</span><PageSwitcher active="dividends" /></div></header>
     <section className={styles.hero}>
-      <article><span>BINANCE TRADFI CONTRACTS</span><strong>{payload?.exchangeCounts?.Binance.scanned ?? "—"}</strong><small>{payload?.exchangeCounts?.Binance.candidates ?? "—"} stock / ETF candidates</small></article>
-      <article><span>BITGET RWA CONTRACTS</span><strong>{payload?.exchangeCounts?.Bitget.scanned ?? "—"}</strong><small>Stocks and ETFs included</small></article>
-      <article><span>EVENTS THIS MONTH</span><strong>{payload?.events.length ?? "—"}</strong><small>{payload?.coveredContracts ?? 0} exchange-listed pairs</small></article>
+      <article><span>BINANCE TRADFI CONTRACTS</span><strong>{visible?.exchangeCounts?.Binance.scanned ?? "—"}</strong><small>{visible?.exchangeCounts?.Binance.candidates ?? "—"} stock / ETF candidates</small></article>
+      <article><span>BITGET RWA CONTRACTS</span><strong>{visible?.exchangeCounts?.Bitget.scanned ?? "—"}</strong><small>Stocks and ETFs included</small></article>
+      <article><span>EVENTS THIS MONTH</span><strong>{visible?.events.length ?? "—"}</strong><small>{visible?.coveredContracts ?? 0} exchange-listed pairs</small></article>
       <article><span>HIGHEST SINGLE DIVIDEND</span><strong>{highest ? `${highest.toFixed(2)}%` : "—"}</strong><small>Dividend ÷ underlying price</small></article>
     </section>
     {error && <div className={styles.error}>{error}</div>}
     <section className={styles.panel}>
-      <header className={styles.panelHead}><div><span>MONTHLY EX-DIVIDEND VIEW</span><h2>{monthLabel(month)}</h2></div><div className={styles.monthNav}><button onClick={() => setMonth(moveMonth(month, -1))}>← Previous</button><button onClick={() => setMonth(new Date().toISOString().slice(0, 7))}>Current</button><button onClick={() => setMonth(moveMonth(month, 1))}>Next →</button><button onClick={() => void load()}>Refresh</button></div></header>
+      <header className={styles.panelHead}><div><span>MONTHLY EX-DIVIDEND VIEW</span><h2>{monthLabel(month)}</h2></div><div className={styles.monthNav}><button onClick={() => chooseMonth(moveMonth(month, -1))}>← Previous</button><button onClick={() => chooseMonth(new Date().toISOString().slice(0, 7))}>Current</button><button onClick={() => chooseMonth(moveMonth(month, 1))}>Next →</button><button onClick={() => void load()}>Refresh</button></div></header>
       <div className={styles.weekdays}>{["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((day) => <span key={day}>{day}</span>)}</div>
       <div className={styles.calendar}>{Array.from({ length: firstWeekday }, (_, index) => <div className={styles.blank} key={`blank-${index}`} />)}{Array.from({ length: dayCount }, (_, index) => { const day = index + 1; const events = byDay.get(day) ?? []; const expanded = expandedDays.has(day); return <div className={`${styles.day} ${events.length ? styles.hasEvent : ""}`} key={day}><b>{day}</b><div>{events.slice(0, expanded ? events.length : 3).map((event) => <button onClick={() => setSelected(event)} key={event.id}><strong>{event.contract.replace(/USDT$/, "")} <em>{event.exchange === "Binance" ? "BN" : "BG"}</em></strong><span>{event.currency} {fmt(event.amount, 4)} · {fmt(event.percent)}%</span></button>)}{events.length > 3 && <button className={styles.moreButton} aria-expanded={expanded} onClick={() => setExpandedDays((current) => { const next = new Set(current); if (expanded) next.delete(day); else next.add(day); return next; })}>{expanded ? "Show less" : `+${events.length - 3} more`}</button>}</div></div>; })}</div>
       <footer><span><i className={styles.announcedDot} /> Exchange-announced</span><span><i className={styles.calendarDot} /> Corporate-action calendar</span><span>Estimated and final special funding may differ</span></footer>
