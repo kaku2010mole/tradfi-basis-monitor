@@ -50,7 +50,7 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         </Link>
         <Link href="/dividends" aria-current={active === "dividends" ? "page" : undefined}>
           <span>Dividend calendar</span>
-          <small>Binance TradFi ex-dates and special funding</small>
+          <small>Binance + Bitget stock and ETF ex-dates</small>
         </Link>
         <Link href="/hsi" aria-current={active === "hsi" ? "page" : undefined}>
           <span>HSI close probability</span>

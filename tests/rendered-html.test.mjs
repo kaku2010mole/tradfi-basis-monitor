@@ -48,7 +48,7 @@ test("adds a daily OpenD-backed Treasury futures yield estimator", async () => {
   }
 });
 
-test("scans every Binance TradFi equity contract into a dividend calendar dashboard", async () => {
+test("scans Binance and Bitget TradFi stock and ETF contracts into an English dividend calendar", async () => {
   const [response, page, route, switcher] = await Promise.all([
     render("/dividends"),
     readFile(new URL("../app/dividends/page.tsx", import.meta.url), "utf8"),
@@ -58,11 +58,14 @@ test("scans every Binance TradFi equity contract into a dividend calendar dashbo
   assert.equal(response.status, 200);
   assert.match(await response.text(), /Dividend Calendar/);
   assert.match(route, /contractType === "TRADIFI_PERPETUAL"/);
+  assert.match(route, /isRwa === "YES"/);
+  assert.match(route, /api\.bitget\.com\/api\/v2\/mix\/market/);
   assert.match(route, /api\.nasdaq\.com\/api\/calendar\/dividends/);
   assert.match(route, /dividend adjustment process/i);
   assert.match(route, /amount \/ markPrice \* 100/);
   assert.match(page, /MONTHLY EX-DIVIDEND VIEW/);
-  assert.match(page, /BINANCE 已公告/);
+  assert.match(page, /BINANCE \+ BITGET TRADFI CORPORATE ACTIONS/);
+  assert.match(page, /Stocks and ETFs included/);
   assert.match(switcher, /href="\/dividends"/);
 });
 

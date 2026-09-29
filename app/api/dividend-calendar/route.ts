@@ -2,15 +2,19 @@ export const dynamic = "force-dynamic";
 
 const BINANCE_FUTURES = "https://fapi.binance.com/fapi/v1";
 const BINANCE_CMS = "https://www.binance.com/bapi";
+const BITGET_FUTURES = "https://api.bitget.com/api/v2/mix/market";
 const NASDAQ_CALENDAR = "https://api.nasdaq.com/api/calendar/dividends";
 const HEADERS = { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36", Accept: "application/json, text/plain, */*" };
 
 type Instrument = { symbol: string; status?: string; contractType?: string; underlyingType?: string; underlyingSubType?: string[] };
 type Premium = { symbol: string; markPrice?: string; indexPrice?: string };
+type BitgetInstrument = { symbol: string; baseCoin: string; symbolStatus?: string; symbolType?: string; isRwa?: string };
+type BitgetTicker = { symbol: string; markPrice?: string; indexPrice?: string; lastPr?: string };
 type Funding = { fundingTime?: number; fundingRate?: string; rateType?: string };
 type NasdaqRow = { companyName: string; symbol: string; dividend_Ex_Date: string; payment_Date?: string; record_Date?: string; dividend_Rate: number | string; announcement_Date?: string };
 type Article = { code: string; title: string; releaseDate: number };
-type Event = { id: string; contract: string; underlying: string; company: string; exDate: string; paymentDate: string | null; amount: number; currency: string; markPrice: number | null; percent: number | null; status: "announced" | "calendar"; eligible: boolean; sourceUrl: string; sourceLabel: string; announcedAt: number | null };
+type Exchange = "Binance" | "Bitget";
+type Event = { id: string; exchange: Exchange; contract: string; underlying: string; company: string; exDate: string; paymentDate: string | null; amount: number; currency: string; markPrice: number | null; percent: number | null; status: "announced" | "calendar"; eligible: boolean; sourceUrl: string; sourceLabel: string; announcedAt: number | null };
 type Cache = typeof globalThis & { __DIVIDEND_MONTH_CACHE__?: Map<string, { expires: number; value: unknown }> };
 
 const ALIASES: Record<string, string> = { BRKB: "BRK-B", GOOGL: "GOOGL", FBTC: "FBTC", SAMSUNG: "005930", SKHYNIX: "000660", HYUNDAI: "005380" };
@@ -21,6 +25,10 @@ const pad = (value: number) => String(value).padStart(2, "0");
 const isoDate = (year: number, month: number, day: number) => `${year}-${pad(month)}-${pad(day)}`;
 const parseUsDate = (value: string) => { const [month, day, year] = value.split("/").map(Number); return year && month && day ? isoDate(year, month, day) : null; };
 const kstDate = (timestamp: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(timestamp));
+const normalizedUnderlying = (symbol: string) => {
+  const base = symbol.replace(/USDT$/, "");
+  return ALIASES[base] ?? base.replace(/STOCK$/, "");
+};
 
 async function json<T>(url: string, headers: Record<string, string> = HEADERS) {
   const response = await fetch(url, { cache: "no-store", headers, signal: AbortSignal.timeout(9_000) });
@@ -36,6 +44,16 @@ async function binanceSnapshot() {
   const instruments = exchange.symbols.filter((item) => item.status === "TRADING" && item.contractType === "TRADIFI_PERPETUAL");
   const equities = instruments.filter((item) => /EQUITY/.test(item.underlyingType ?? ""));
   return { instruments, equities, prices: new Map(premiums.map((item) => [item.symbol, finite(item.markPrice) ?? finite(item.indexPrice)])) };
+}
+
+async function bitgetSnapshot() {
+  const [contracts, tickers] = await Promise.all([
+    json<{ data?: BitgetInstrument[] }>(`${BITGET_FUTURES}/contracts?productType=usdt-futures`),
+    json<{ data?: BitgetTicker[] }>(`${BITGET_FUTURES}/tickers?productType=usdt-futures`),
+  ]);
+  const instruments = (contracts.data ?? []).filter((item) => item.symbolStatus === "normal" && item.symbolType === "perpetual" && item.isRwa === "YES");
+  const prices = new Map((tickers.data ?? []).map((item) => [item.symbol, finite(item.markPrice) ?? finite(item.indexPrice) ?? finite(item.lastPr)]));
+  return { instruments, prices };
 }
 
 async function nasdaqMonth(year: number, month: number) {
@@ -86,7 +104,7 @@ async function officialAdjustments(prices: Map<string, number | null>, underlyin
     const special = funding.filter((row) => row.rateType === "Special" && kstDate(row.fundingTime ?? 0) === date).at(-1);
     const specialRate = Math.abs(finite(special?.fundingRate) ?? 0);
     if (specialRate > 0) { percent = specialRate * 100; markPrice = amount / specialRate; }
-    return { id: `binance-${article.code}`, contract, underlying, company: underlying, exDate: date, paymentDate: null, amount, currency, markPrice, percent, status: "announced", eligible: !EXCLUDED_LEVERAGED_ETFS.has(contract), sourceUrl: `https://www.binance.com/en/support/announcement/${article.code}`, sourceLabel: specialRate > 0 ? "Binance special funding" : "Binance announcement", announcedAt: article.releaseDate } satisfies Event;
+    return { id: `binance-${article.code}`, exchange: "Binance", contract, underlying, company: underlying, exDate: date, paymentDate: null, amount, currency, markPrice, percent, status: "announced", eligible: !EXCLUDED_LEVERAGED_ETFS.has(contract), sourceUrl: `https://www.binance.com/en/support/announcement/${article.code}`, sourceLabel: specialRate > 0 ? "Binance special funding" : "Binance announcement", announcedAt: article.releaseDate } satisfies Event;
   }));
   return details.filter((event): event is Event => event !== null);
 }
@@ -100,23 +118,28 @@ export async function GET(request: Request) {
   const cached = store.__DIVIDEND_MONTH_CACHE__.get(requested);
   if (cached && cached.expires > Date.now()) return Response.json(cached.value, { headers: { "Cache-Control": "no-store" } });
   try {
-    const { instruments, equities, prices } = await binanceSnapshot();
+    const [{ instruments, equities, prices }, bitget] = await Promise.all([binanceSnapshot(), bitgetSnapshot()]);
     const underlyingPrices = await foreignUnderlyingPrices();
     const [rows, official] = await Promise.all([nasdaqMonth(year, month), officialAdjustments(prices, underlyingPrices)]);
     const byUnderlying = new Map<string, Instrument[]>();
     equities.forEach((instrument) => {
-      const underlying = ALIASES[instrument.symbol.replace(/USDT$/, "")] ?? instrument.symbol.replace(/USDT$/, "");
-      byUnderlying.set(underlying, [...(byUnderlying.get(underlying) ?? []), instrument]);
+      const underlying = normalizedUnderlying(instrument.symbol);
+      byUnderlying.set(underlying, [...(byUnderlying.get(underlying) ?? []), { ...instrument, exchange: "Binance" }]);
+    });
+    bitget.instruments.forEach((instrument) => {
+      const underlying = normalizedUnderlying(instrument.symbol);
+      byUnderlying.set(underlying, [...(byUnderlying.get(underlying) ?? []), { ...instrument, exchange: "Bitget" }]);
     });
     const calendarEvents = rows.flatMap((row) => (byUnderlying.get(row.symbol.toUpperCase()) ?? []).flatMap((instrument) => {
-      const exDate = parseUsDate(row.dividend_Ex_Date); const amount = finite(row.dividend_Rate); const markPrice = prices.get(instrument.symbol) ?? null;
+      const exchange = (instrument as Instrument & { exchange: Exchange }).exchange;
+      const exDate = parseUsDate(row.dividend_Ex_Date); const amount = finite(row.dividend_Rate); const markPrice = (exchange === "Binance" ? prices : bitget.prices).get(instrument.symbol) ?? null;
       if (!exDate || amount === null || amount <= 0) return [];
-      return [{ id: `nasdaq-${instrument.symbol}-${exDate}`, contract: instrument.symbol, underlying: row.symbol, company: row.companyName, exDate, paymentDate: row.payment_Date && row.payment_Date !== "N/A" ? parseUsDate(row.payment_Date) : null, amount, currency: "USD", markPrice, percent: markPrice && markPrice > 0 ? amount / markPrice * 100 : null, status: "calendar", eligible: !EXCLUDED_LEVERAGED_ETFS.has(instrument.symbol), sourceUrl: `https://www.nasdaq.com/market-activity/stocks/${row.symbol.toLowerCase()}/dividend-history`, sourceLabel: "Nasdaq dividend calendar", announcedAt: row.announcement_Date ? Date.parse(row.announcement_Date) : null } satisfies Event];
+      return [{ id: `nasdaq-${exchange.toLowerCase()}-${instrument.symbol}-${exDate}`, exchange, contract: instrument.symbol, underlying: row.symbol, company: row.companyName, exDate, paymentDate: row.payment_Date && row.payment_Date !== "N/A" ? parseUsDate(row.payment_Date) : null, amount, currency: "USD", markPrice, percent: markPrice && markPrice > 0 ? amount / markPrice * 100 : null, status: "calendar", eligible: exchange === "Bitget" || !EXCLUDED_LEVERAGED_ETFS.has(instrument.symbol), sourceUrl: `https://www.nasdaq.com/market-activity/${/ETF/i.test(row.companyName) ? "etf" : "stocks"}/${row.symbol.toLowerCase()}/dividend-history`, sourceLabel: `${exchange} pair · Nasdaq calendar`, announcedAt: row.announcement_Date ? Date.parse(row.announcement_Date) : null } satisfies Event];
     }));
-    const eventMap = new Map(calendarEvents.map((event) => [`${event.contract}:${event.exDate}`, event]));
-    official.forEach((event) => { if (event.exDate.startsWith(requested)) eventMap.set(`${event.contract}:${event.exDate}`, event); });
+    const eventMap = new Map(calendarEvents.map((event) => [`${event.exchange}:${event.contract}:${event.exDate}`, event]));
+    official.forEach((event) => { if (event.exDate.startsWith(requested)) eventMap.set(`${event.exchange}:${event.contract}:${event.exDate}`, event); });
     const events = [...eventMap.values()].sort((left, right) => left.exDate.localeCompare(right.exDate) || (right.percent ?? -1) - (left.percent ?? -1));
-    const value = { month: requested, generatedAt: Date.now(), scannedContracts: instruments.length, equityContracts: equities.length, coveredContracts: new Set(events.map((event) => event.contract)).size, events };
+    const value = { month: requested, generatedAt: Date.now(), scannedContracts: instruments.length + bitget.instruments.length, equityContracts: equities.length + bitget.instruments.length, coveredContracts: new Set(events.map((event) => `${event.exchange}:${event.contract}`)).size, exchangeCounts: { Binance: { scanned: instruments.length, candidates: equities.length }, Bitget: { scanned: bitget.instruments.length, candidates: bitget.instruments.length } }, events };
     store.__DIVIDEND_MONTH_CACHE__.set(requested, { expires: Date.now() + 60 * 60_000, value });
     return Response.json(value, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
