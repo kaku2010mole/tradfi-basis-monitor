@@ -16,6 +16,10 @@ const time = (value: number | null) => value === null ? "—" : new Intl.DateTim
 const base64Url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
 async function beginPosleyLogin() {
+  const check = await fetch(`/api/posley-auth-check?origin=${encodeURIComponent(location.origin)}`, { cache: "no-store" });
+  const status = await check.json() as { registered?: boolean; callbackUrl?: string; error?: string };
+  if (!check.ok) throw new Error(status.error || "Could not verify Posley login configuration.");
+  if (!status.registered) throw new Error(`Posley Cognito has not registered ${status.callbackUrl}. Ask the Posley administrator to add this exact callback URL to client ${COGNITO_CLIENT_ID}.`);
   const verifier = base64Url(crypto.getRandomValues(new Uint8Array(48)));
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
   sessionStorage.setItem("equity_monitor_pkce", verifier);
@@ -42,6 +46,8 @@ async function browserIdToken() {
 export default function KoreanPerpMonitor() {
   const [payload, setPayload] = useState<Payload>({});
   const [error, setError] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
   const inFlight = useRef(false);
   const load = useCallback(async () => {
     if (inFlight.current) return;
@@ -57,10 +63,16 @@ export default function KoreanPerpMonitor() {
   }, []);
   useEffect(() => { const first = window.setTimeout(() => void load(), 0); const timer = window.setInterval(load, 2_000); return () => { clearTimeout(first); clearInterval(timer); }; }, [load]);
 
+  const connect = async () => {
+    setLoginBusy(true); setLoginError("");
+    try { await beginPosleyLogin(); }
+    catch (reason) { setLoginError(reason instanceof Error ? reason.message : "Posley login is unavailable."); setLoginBusy(false); }
+  };
+
   return <section className={styles.monitor} aria-label="Korean stock perpetual basis">
     <header><div><p>POSLEY KRX · EXCHANGE PERPETUALS</p><h2>Korean stock cross-venue basis</h2><span>Executable BBO comparison · one perp unit per share-equivalent · USDT treated as USD</span></div><div className={styles.status}><i />{payload.timestamp ? `LIVE · ${time(payload.timestamp)}` : "CONNECTING"}</div></header>
     <div className={styles.fx}><span>USD/KRW POSLEY BBO</span><strong>{fmt(payload.fx?.bid ?? null, 2)} / {fmt(payload.fx?.ask ?? null, 2)}</strong><small>Cash bid converts at FX ask; cash ask converts at FX bid.</small></div>
-    {(error || payload.posley?.error) && <div className={styles.notice}><span>{error || payload.posley?.error}</span><button onClick={() => void beginPosleyLogin()}>Connect Posley</button></div>}
+    {(loginError || error || payload.posley?.error) && <div className={styles.notice}><span>{loginError || error || payload.posley?.error}</span><button disabled={loginBusy} onClick={() => void connect()}>{loginBusy ? "Checking…" : "Connect Posley"}</button></div>}
     <div className={styles.rows}>{payload.rows?.map((row) => <article key={row.code}>
       <div className={styles.identity}><small>KRX {row.code}</small><strong>{row.name}</strong><span>KRW {fmt(row.cashBidKrw, 0)} / {fmt(row.cashAskKrw, 0)}</span><em>≈ USD {fmt(row.cashBidUsd)} / {fmt(row.cashAskUsd)} · {time(row.cashUpdatedAt)}</em></div>
       <div className={styles.venues}>{row.venues.map((quote) => <div key={quote.venue} className={styles.venue}>
