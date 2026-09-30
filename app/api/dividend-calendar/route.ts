@@ -4,6 +4,8 @@ const BINANCE_FUTURES = "https://fapi.binance.com/fapi/v1";
 const BINANCE_CMS = "https://www.binance.com/bapi";
 const BITGET_FUTURES = "https://api.bitget.com/api/v2/mix/market";
 const NASDAQ_CALENDAR = "https://api.nasdaq.com/api/calendar/dividends";
+const HKEX_ENTITLEMENTS = "https://www3.hkexnews.hk/reports/doe/eent.htm";
+const JPM_2026_SCHEDULE = "https://am.jpmorgan.com/content/dam/jpm-am-aem/americas/us/en/supplemental/income-distribution-rates/jpmorgan-etfs-2026-distribution-notice.pdf";
 const HEADERS = { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36", Accept: "application/json, text/plain, */*" };
 
 type Instrument = { symbol: string; status?: string; contractType?: string; underlyingType?: string; underlyingSubType?: string[] };
@@ -15,11 +17,12 @@ type NasdaqRow = { companyName: string; symbol: string; dividend_Ex_Date: string
 type Article = { code: string; title: string; releaseDate: number };
 type Exchange = "Binance" | "Bitget";
 type RuleType = "special_funding" | "no_adjustment";
-type Event = { id: string; exchange: Exchange; contract: string; underlying: string; company: string; exDate: string; paymentDate: string | null; amount: number; currency: string; markPrice: number | null; percent: number | null; status: "announced" | "calendar"; eligible: boolean; ruleType: RuleType; ruleUrl: string; sourceUrl: string; sourceLabel: string; announcedAt: number | null };
+type Event = { id: string; exchange: Exchange; contract: string; underlying: string; company: string; exDate: string; paymentDate: string | null; amount: number | null; currency: string; markPrice: number | null; percent: number | null; status: "announced" | "calendar" | "scheduled"; eligible: boolean; ruleType: RuleType; ruleUrl: string; sourceUrl: string; sourceLabel: string; announcedAt: number | null };
 type Cache = typeof globalThis & { __DIVIDEND_MONTH_CACHE__?: Map<string, { expires: number; value: unknown }> };
 
 const ALIASES: Record<string, string> = { BRKB: "BRK-B", GOOGL: "GOOGL", FBTC: "FBTC", SAMSUNG: "005930", SKHYNIX: "000660", HYUNDAI: "005380" };
 const UNDERLYING_QUOTES: Record<string, string> = { SAMSUNG: "005930.KS", SKHYNIX: "000660.KS", HYUNDAI: "005380.KS" };
+const HK_CODES: Record<string, string> = { TENCENT: "0700", TENCENTHKD: "0700", HK0700: "0700", HK1810: "1810", POPMART: "9992", KUAISHOU: "1024", MEITUAN: "3690", BYD: "1211", HK0992: "0992" };
 const EXCLUDED_LEVERAGED_ETFS = new Set(["MUUUSDT", "TSLLUSDT", "SOXLUSDT", "KORUUSDT", "TMFUSDT", "TQQQUSDT", "SOXSUSDT", "TZAUSDT", "SQQQUSDT", "TBTUSDT"]);
 const finite = (value: unknown) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; };
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -83,6 +86,32 @@ async function nasdaqMonth(year: number, month: number) {
   return rows;
 }
 
+const plain = (html: string) => html.replace(/<br\s*\/?\s*>/gi, " ").replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ").trim();
+async function hkexMonth(year: number, month: number) {
+  const response = await fetch(HKEX_ENTITLEMENTS, { cache: "no-store", headers: HEADERS, signal: AbortSignal.timeout(9_000) });
+  if (!response.ok) throw new Error(`HKEX entitlements HTTP ${response.status}`);
+  const html = await response.text();
+  if (!html.includes("Dividends & Other Entitlements")) throw new Error("HKEX entitlements response changed format");
+  const results: Array<{ code: string; company: string; exDate: string; amount: number; currency: string }> = [];
+  let lastCode = ""; let lastName = "";
+  for (const row of html.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) ?? []) {
+    const cells = row.split(/<td\b[^>]*>/i).slice(1).map(plain);
+    if (cells.length < 6) continue;
+    const companyMatch = cells[1].match(/^(.*?)\s*\((\d{1,5})\)/);
+    if (companyMatch) { lastName = companyMatch[1]; lastCode = companyMatch[2].padStart(4, "0"); }
+    const description = cells[3]; const dateMatch = cells[4].match(/^(\d{1,2})\/(\d{1,2})$/);
+    const yearMatch = cells[5].match(/\b(20\d{2})\b/);
+    if (!lastCode || !dateMatch || !yearMatch || Number(yearMatch[1]) !== year || Number(dateMatch[2]) !== month || /\bNIL\b|BONUS ISSUE|RIGHTS ISSUE/i.test(description)) continue;
+    if (!/DIVIDEND|DISTRIBUTION/i.test(description)) continue;
+    const amountMatch = description.match(/\b(HKD|RMB|USD)\s*([\d,.]+)\s+PER\s+(\d+\s+)?(?:SHARES?|UNITS?)/i);
+    if (!amountMatch) continue;
+    const amount = Number(amountMatch[2].replaceAll(",", "")) / Number(amountMatch[3]?.trim() || 1);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    results.push({ code: lastCode, company: lastName, exDate: isoDate(year, month, Number(dateMatch[1])), amount, currency: amountMatch[1].toUpperCase() });
+  }
+  return results;
+}
+
 function bodyText(value: unknown): string {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object") return "";
@@ -137,7 +166,7 @@ export async function GET(request: Request) {
   try {
     const [{ instruments, equities, prices }, bitget] = await Promise.all([binanceSnapshot(), bitgetSnapshot()]);
     const underlyingPrices = await foreignUnderlyingPrices();
-    const [rows, official] = await Promise.all([nasdaqMonth(year, month), officialAdjustments(prices, underlyingPrices)]);
+    const [rows, official, hkexResult] = await Promise.all([nasdaqMonth(year, month), officialAdjustments(prices, underlyingPrices), hkexMonth(year, month).then((events) => ({ events, error: null as string | null })).catch((error) => ({ events: [], error: error instanceof Error ? error.message : "HKEX scan failed" }))]);
     const byUnderlying = new Map<string, Instrument[]>();
     equities.forEach((instrument) => {
       const underlying = normalizedUnderlying(instrument.symbol);
@@ -156,10 +185,23 @@ export async function GET(request: Request) {
       const ruleUrl = exchange === "Bitget" ? (instrument.symbol === "STRCUSDT" ? "https://www.bitget.com/support/articles/12560603887627" : "https://www.bitget.com/support/articles/12560603884782") : "https://www.binance.com/en-PH/support/faq/detail/7ced719b5e9a4859a1864c2fe657309f";
       return [{ id: `nasdaq-${exchange.toLowerCase()}-${instrument.symbol}-${exDate}`, exchange, contract: instrument.symbol, underlying: row.symbol, company: row.companyName, exDate, paymentDate: row.payment_Date && row.payment_Date !== "N/A" ? parseUsDate(row.payment_Date) : null, amount, currency: "USD", markPrice, percent: markPrice && markPrice > 0 ? amount / markPrice * 100 : null, status: "calendar", eligible: !noAdjustment, ruleType: noAdjustment ? "no_adjustment" : "special_funding", ruleUrl, sourceUrl: calendarUrl, sourceLabel: noAdjustment ? `${exchange}: no dividend adjustment` : `${exchange} pair · Nasdaq calendar`, announcedAt: row.announcement_Date ? Date.parse(row.announcement_Date) : null } satisfies Event];
     }));
-    const eventMap = new Map(calendarEvents.map((event) => [`${event.exchange}:${event.contract}:${event.exDate}`, event]));
+    const hkContracts = [...equities.map((instrument) => ({ ...instrument, exchange: "Binance" as const })), ...bitget.instruments.map((instrument) => ({ ...instrument, exchange: "Bitget" as const }))].filter((instrument) => HK_CODES[instrument.symbol.replace(/USDT$/, "")]);
+    const hkEvents = hkexResult.events.flatMap((row) => hkContracts.filter((instrument) => HK_CODES[instrument.symbol.replace(/USDT$/, "")] === row.code).map((instrument) => {
+      const eligible = !EXCLUDED_LEVERAGED_ETFS.has(instrument.symbol);
+      return { id: `hkex-${instrument.exchange.toLowerCase()}-${instrument.symbol}-${row.exDate}`, exchange: instrument.exchange, contract: instrument.symbol, underlying: row.code, company: row.company, exDate: row.exDate, paymentDate: null, amount: row.amount, currency: row.currency, markPrice: null, percent: null, status: "calendar", eligible, ruleType: eligible ? "special_funding" : "no_adjustment", ruleUrl: instrument.exchange === "Binance" ? "https://www.binance.com/en-PH/support/faq/detail/7ced719b5e9a4859a1864c2fe657309f" : "https://www.bitget.com/support/articles/12560603884782", sourceUrl: HKEX_ENTITLEMENTS, sourceLabel: "HKEX entitlement report", announcedAt: null } satisfies Event;
+    }));
+    // The issuer publishes ex-dates before the cash amount appears in Nasdaq's calendar.
+    const issuerDates = year === 2026 && month === 10 ? [{ symbol: "JEPQ", exDate: "2026-10-01", paymentDate: "2026-10-05", company: "JPMorgan Nasdaq Equity Premium Income ETF" }] : [];
+    const scheduled = issuerDates.flatMap((date) => (byUnderlying.get(date.symbol) ?? []).map((instrument) => {
+      const venue = (instrument as Instrument & { exchange: Exchange }).exchange;
+      const price = (venue === "Binance" ? prices : bitget.prices).get(instrument.symbol) ?? null;
+      return { id: `issuer-${venue.toLowerCase()}-${instrument.symbol}-${date.exDate}`, exchange: venue, contract: instrument.symbol, underlying: date.symbol, company: date.company, exDate: date.exDate, paymentDate: date.paymentDate, amount: null, currency: "USD", markPrice: price, percent: null, status: "scheduled", eligible: true, ruleType: "special_funding", ruleUrl: venue === "Binance" ? "https://www.binance.com/en-PH/support/faq/detail/7ced719b5e9a4859a1864c2fe657309f" : "https://www.bitget.com/support/articles/12560603884782", sourceUrl: JPM_2026_SCHEDULE, sourceLabel: "JPMorgan issuer schedule · amount pending", announcedAt: null } satisfies Event;
+    }));
+    const eventMap = new Map(scheduled.map((event) => [`${event.exchange}:${event.contract}:${event.exDate}`, event]));
+    [...calendarEvents, ...hkEvents].forEach((event) => eventMap.set(`${event.exchange}:${event.contract}:${event.exDate}`, event));
     official.forEach((event) => { if (event.exDate.startsWith(requested)) eventMap.set(`${event.exchange}:${event.contract}:${event.exDate}`, event); });
     const events = [...eventMap.values()].sort((left, right) => left.exDate.localeCompare(right.exDate) || (right.percent ?? -1) - (left.percent ?? -1));
-    const value = { month: requested, generatedAt: Date.now(), scannedContracts: instruments.length + bitget.instruments.length, equityContracts: equities.length + bitget.instruments.length, coveredContracts: new Set(events.map((event) => `${event.exchange}:${event.contract}`)).size, exchangeCounts: { Binance: { scanned: instruments.length, candidates: equities.length }, Bitget: { scanned: bitget.instruments.length, candidates: bitget.instruments.length } }, events };
+    const value = { month: requested, generatedAt: Date.now(), scannedContracts: instruments.length + bitget.instruments.length, equityContracts: equities.length + bitget.instruments.length, coveredContracts: new Set(events.map((event) => `${event.exchange}:${event.contract}`)).size, exchangeCounts: { Binance: { scanned: instruments.length, candidates: equities.length }, Bitget: { scanned: bitget.instruments.length, candidates: bitget.instruments.length } }, coverage: { us: "Nasdaq calendar + verified issuer dates", hk: hkexResult.error ? `HKEX scan unavailable: ${hkexResult.error}` : "HKEX announced entitlements (not exhaustive)", kr: "Binance official adjustments only; Korean issuer schedules not yet covered" }, events };
     store.__DIVIDEND_MONTH_CACHE__.set(requested, { expires: Date.now() + 60 * 60_000, value });
     return Response.json(value, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
