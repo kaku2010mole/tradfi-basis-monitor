@@ -75,7 +75,7 @@ test("scans Binance and Bitget TradFi stock and ETF contracts into an English di
   assert.match(switcher, /href="\/dividends"/);
 });
 
-test("adds exact Korean stock cross-venue basis rows to Oracle Monitor", async () => {
+test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Monitor", async () => {
   const [page, component, route, posley] = await Promise.all([
     readFile(new URL("../app/oracle/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/KoreanPerpMonitor.tsx", import.meta.url), "utf8"),
@@ -83,11 +83,12 @@ test("adds exact Korean stock cross-venue basis rows to Oracle Monitor", async (
     readFile(new URL("../app/lib/posleyAdr.ts", import.meta.url), "utf8"),
   ]);
   assert.match(page, /<KoreanPerpMonitor/);
-  assert.match(component, /Korean stock cross-venue basis/);
+  assert.match(component, /Korean &amp; Japanese stock cross-venue basis/);
   assert.match(component, /Connect Posley/);
   assert.match(component, /equity_monitor_id_token/);
   assert.doesNotMatch(component, /005935/);
   for (const code of ["034020", "035420", "042700", "066570", "454910"]) assert.match(route, new RegExp(code));
+  for (const code of ["285A", "5802", "6758", "6857", "6920", "7203", "8035", "8306", "9984"]) assert.match(route, new RegExp(`code: "${code}"`));
   assert.doesNotMatch(route, /005935/);
   assert.match(route, /DOOSENERUSDT/);
   assert.match(route, /DOOSBOTUSDT/);
@@ -95,6 +96,9 @@ test("adds exact Korean stock cross-venue basis rows to Oracle Monitor", async (
   assert.match(route, /bitgetSymbol: null, binanceSymbol: "HANMIUSDT"/);
   assert.match(route, /BUY KRX|buyKoreaSellPerp/);
   assert.match(posley, /FX:USD:KRW/);
+  assert.match(posley, /FX:USD:JPY/);
+  assert.match(route, /code: "7203"[^\n]*sharesPerPerp: 10/);
+  assert.match(route, /fresh\(yenFx\?\.timestamp\)/);
   assert.match(posley, /saved Posley login has expired/);
 });
 

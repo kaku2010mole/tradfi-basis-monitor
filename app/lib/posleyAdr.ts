@@ -65,10 +65,12 @@ const parseLevels = (value?: string) => !value ? [] : value.split("|").flatMap((
 });
 
 const marketTimestamp = (data: Record<string, string>) => {
-  const values = [data.last_tick_ts_ms, data.bids_receive_ts_ms, data.asks_receive_ts_ms, data.event_emit_ts_ms]
-    .map(Number)
-    .filter((value) => Number.isFinite(value) && value > 0);
-  return values.length ? Math.max(...values) : Date.now();
+  const lastTick = Number(data.last_tick_ts_ms);
+  if (Number.isFinite(lastTick) && lastTick > 0) return lastTick;
+  const received = [data.bids_receive_ts_ms, data.asks_receive_ts_ms].map(Number).filter((value) => Number.isFinite(value) && value > 0);
+  if (received.length) return Math.max(...received);
+  const emitted = Number(data.event_emit_ts_ms);
+  return Number.isFinite(emitted) && emitted > 0 ? emitted : 0;
 };
 
 const normalizeSymbols = (symbols: string[]) => [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase())
@@ -78,6 +80,7 @@ const symbolForStream = (streamKey: string, symbols: Set<string>) => {
   const [category, venue, ...codeParts] = streamKey.toUpperCase().split(":");
   if (category !== "ORDERBOOK" || !["IBKR", "FUTU"].includes(venue)) return null;
   if (symbols.has("USDKRW") && codeParts.join(":") === "FX:USD:KRW") return "USDKRW";
+  if (symbols.has("USDJPY") && codeParts.join(":") === "FX:USD:JPY") return "USDJPY";
   const code = codeParts.join(":");
   return [...symbols].find((symbol) => codeParts.includes(symbol) || code === symbol || code === `US.${symbol}` || code.endsWith(`.${symbol}`)) ?? null;
 };
@@ -169,6 +172,7 @@ async function connect(state: SharedState) {
     const symbol = symbolForStream(key, wanted);
     if (symbol && !state.streamBySymbol.has(symbol)) state.streamBySymbol.set(symbol, key);
   }
+  if (state.streamBySymbol.size < wanted.size) state.retryAfter = Date.now() + 15_000;
   if (!state.streamBySymbol.size) {
     state.state = "partial";
     state.error = "No matching live ADR stream is currently published by Posley.";
@@ -195,6 +199,13 @@ async function connect(state: SharedState) {
     if (!frame.startsWith("42")) return;
     try {
       const [eventName, event] = JSON.parse(frame.slice(2)) as [string, { streamKey?: string; entries?: Array<{ data?: Record<string, string> }> }];
+      if (eventName === "stream:subscribed" && event.streamKey && (event as { ok?: boolean }).ok === false) {
+        for (const [symbol, key] of state.streamBySymbol) if (key === event.streamKey) state.streamBySymbol.delete(symbol);
+        state.state = "partial";
+        state.error = `Posley rejected subscription to ${event.streamKey}.`;
+        state.retryAfter = Date.now() + RECONNECT_BACKOFF_MS;
+        return;
+      }
       if (eventName !== "stream:data" || !event.streamKey) return;
       const data = event.entries?.at(-1)?.data;
       if (data) acceptBook(state, event.streamKey, data);
@@ -222,7 +233,8 @@ async function ensureConnection(state: SharedState, symbols: string[], suppliedI
   const before = [...state.wanted].sort().join(",");
   symbols.forEach((symbol) => state.wanted.add(symbol));
   const after = [...state.wanted].sort().join(",");
-  const needsFreshConnection = tokenChanged || before !== after || !state.socket || state.tokenExpiresAt <= Date.now() + TOKEN_REFRESH_MARGIN_MS;
+  const unregisteredWanted = [...state.wanted].some((symbol) => !state.streamBySymbol.has(symbol));
+  const needsFreshConnection = tokenChanged || before !== after || !state.socket || state.tokenExpiresAt <= Date.now() + TOKEN_REFRESH_MARGIN_MS || unregisteredWanted;
   if (!needsFreshConnection || state.connectPromise || (!tokenChanged && Date.now() < state.retryAfter)) return;
   if (state.socket) closeSocket(state);
   state.connectPromise = connect(state).catch((error) => {
