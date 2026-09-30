@@ -434,6 +434,13 @@ export default function HkAuctionPage() {
         const cheapEdge = buyPerpBasis === null ? (basisValue === null ? null : -basisValue) : -buyPerpBasis;
         const shortPerp = richEdge !== null && (cheapEdge === null || richEdge >= cheapEdge);
         const signalReady = basisValue !== null;
+        const waitingReason = !quote ? "Waiting for quote response"
+          : !quote.futu ? "Futu quote missing"
+          : quote.futu.stale !== false ? "Futu quote is stale"
+          : quote.metrics.stockReferenceHkd === null ? "Futu auction price / BBO unavailable"
+          : !quote.binance ? `${perpVenue} quote missing`
+          : quote.binance.stale !== false ? `${perpVenue} quote is stale`
+          : "Waiting for valid prices";
         const shortVenue = shortPerp ? perpVenue : "FUTU";
         const longVenue = shortPerp ? "FUTU" : perpVenue;
         const shortSymbol = shortPerp ? pair.perpSymbol : pair.stockSymbol;
@@ -469,13 +476,18 @@ export default function HkAuctionPage() {
         const nvdaMove = pair.perpSymbol === "GIGADEVUSDT" && nvdaPrice !== null && nvdaAnchor !== null
           ? (nvdaPrice / nvdaAnchor - 1) * 100 : null;
         const adrRich = adrBasisPct !== null && adrBasisPct >= 0;
+        const adrWaitingReason = !openDAdr ? `${pair.adrSymbol} reference missing`
+          : !adrUsable ? `${pair.adrSymbol} reference expired`
+          : adrMid === null ? `${pair.adrSymbol} price unavailable`
+          : binanceImpliedAdrUsd === null ? "Binance perp price unavailable"
+          : "Waiting for valid prices";
         const cardHot = hot || (adrBasisPct !== null && Math.abs(adrBasisPct) >= alert);
         return <article key={id} className={`${styles.card} ${cardHot ? styles.hotCard : ""}`}>
           <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{isHkQuotedPerp(pair.perpSymbol) ? `1 Binance perp ↔ ${pair.sharesPerContract.toLocaleString()} HK shares` : `${pair.sharesPerContract.toLocaleString()} shares / perp`}{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={styles.headerMeta}><label className={`${styles.tierControl} ${styles[`tier${tier}`]}`} title={`Suggested: Tier ${suggestedTier.grade} · ${suggestedTier.reason}`}><span>TAG</span><select aria-label={`Tier for ${pair.perpSymbol}`} value={tier} onChange={(event) => updateTier(pair, event.target.value as AssetTier)}><option value="S">S · Top</option><option value="A">A · High quality</option><option value="B">B · Selective</option><option value="C">C · Tactical</option></select><small>{TIER_LABELS[tier]}</small></label><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></div></header>
           <div className={styles.cardSignals}>
             <section className={`${styles.signalRow} ${styles.hkSignal} ${!signalReady ? styles.signalWaiting : ""}`}>
               <div className={styles.signalBasis}><span>PRIMARY · FUTU ↔ {perpVenue}</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>MID BASIS · {quote?.metrics.stockReferenceSource === "close-price" ? "official close" : quote?.metrics.stockReferenceSource === "auction-price" ? "auction / IEP" : quote?.metrics.stockReferenceSource === "book-mid" ? "live BBO" : "waiting"}</small></div>
-              <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{signalReady ? <VenueDirection shortVenue={shortVenue} longVenue={longVenue} /> : "WAITING FOR BOTH VENUES"}</strong><small>{signalReady ? `${shortSymbol} → ${longSymbol} · executable edge ${pct(signalEdge)}` : "No stale price is used for a trading signal"}</small></div>
+              <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{signalReady ? <VenueDirection shortVenue={shortVenue} longVenue={longVenue} /> : "SIGNAL UNAVAILABLE"}</strong><small>{signalReady ? `${shortSymbol} → ${longSymbol} · executable edge ${pct(signalEdge)}` : `${waitingReason} · stale prices excluded`}</small></div>
               <dl className={styles.signalMetrics}>
                 <div><dt className={styles.futuMetric}>Futu · HKD</dt><dd>{number(quote?.metrics.stockReferenceHkd)}</dd></div>
                 <div><dt className={perpVenue === "BINANCE" ? styles.binanceMetric : styles.bybitMetric}>Fair perp · USDT</dt><dd>{number(quote?.metrics.fairUsdt)}</dd></div>
@@ -499,7 +511,7 @@ export default function HkAuctionPage() {
             </section> : null}
             {pair.adrSymbol ? <section className={`${styles.signalRow} ${styles.adrSignal} ${adrBasisPct === null ? styles.signalWaiting : ""} ${adrBasisPct !== null && Math.abs(adrBasisPct) >= alert ? styles.signalRowHot : ""}`}>
               <div className={styles.signalBasis}><span>OVERNIGHT · {(openDAdr?.source ?? "US REFERENCE").toUpperCase()} ↔ BINANCE</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small>{adrFresh ? `LIVE ADR · ${time(adrTimestamp)}` : adrUsable ? `US BENCHMARK · ${time(adrTimestamp)}` : adrTimestamp ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
-              <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{adrBasisPct === null ? "WAITING FOR BOTH VENUES" : adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}`}</strong><small>{adrBasisPct === null ? "Unavailable or expired data is excluded" : `${adrFresh ? "Live" : "Latest US benchmark"} ADR versus Binance · gap ${pct(Math.abs(adrBasisPct))}`}</small></div>
+              <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{adrBasisPct === null ? "SIGNAL UNAVAILABLE" : adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}`}</strong><small>{adrBasisPct === null ? `${adrWaitingReason} · expired data excluded` : `${adrFresh ? "Live" : "Latest US benchmark"} ADR versus Binance · gap ${pct(Math.abs(adrBasisPct))}`}</small></div>
               <dl className={`${styles.signalMetrics} ${styles.adrMetrics}`}>
                 <div><dt>{pair.adrSymbol} · USD</dt><dd>{number(adrMid, 4)}</dd></div>
                 <div><dt>Binance-implied ADR</dt><dd>{number(binanceImpliedAdrUsd, 4)}</dd></div>
