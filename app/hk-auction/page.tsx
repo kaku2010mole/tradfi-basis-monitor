@@ -375,6 +375,8 @@ export default function HkAuctionPage() {
   const wantedReferences = [...new Set([LITE_REFERENCE_SYMBOL, "NVDA", ...pairs.flatMap((pair) => pair.adrSymbol ? [pair.adrSymbol] : [])])];
   const availableReferences = wantedReferences.filter((symbol) => payload?.references?.[symbol]);
   const missingReferences = wantedReferences.filter((symbol) => !payload?.references?.[symbol]);
+  const missingFutuReferences = missingReferences.filter((symbol) => symbol === "LITE" || symbol === "NVDA");
+  const missingPosleyReferences = missingReferences.filter((symbol) => symbol !== "LITE" && symbol !== "NVDA");
 
   return <main className={styles.shell}>
     <header className={styles.topbar}>
@@ -412,7 +414,7 @@ export default function HkAuctionPage() {
     </section>}
 
     {payload?.errors?.length ? <div className={styles.notice}><strong>Partial data</strong><span>{payload.errors.join(" · ")}</span></div> : null}
-    {payload && missingReferences.length ? <div className={styles.notice}><strong>US references</strong><span>Unavailable in the latest push: {missingReferences.join(", ")}.</span></div> : null}
+    {payload && missingReferences.length ? <div className={styles.notice}><strong>US references</strong><span>{[missingFutuReferences.length ? `Futu OpenD: ${missingFutuReferences.join(", ")}` : "", missingPosleyReferences.length ? `Posley office feed: ${missingPosleyReferences.join(", ")}` : ""].filter(Boolean).join(" · ")} unavailable in the latest push.</span></div> : null}
 
     <AdrPerpNightPanel pairs={nightBasisPairs} />
 
