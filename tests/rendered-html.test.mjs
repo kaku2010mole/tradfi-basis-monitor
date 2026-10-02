@@ -86,6 +86,8 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   ]);
   assert.match(page, /<KoreanPerpMonitor/);
   assert.match(component, /Korean &amp; Japanese stock cross-venue basis/);
+  assert.match(component, /CLOSED · last cash quotes/);
+  assert.match(component, /Last cash quote · no live basis/);
   assert.match(component, /Connect Posley/);
   assert.match(component, /equity_monitor_id_token/);
   assert.doesNotMatch(component, /005935/);
@@ -105,6 +107,10 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(officePusher, /specific_data/);
   assert.match(route, /quote\.symbol\?\.startsWith\("TSE\."\)/);
   assert.match(route, /quote\.symbol === "FX\.USDJPY"/);
+  assert.match(route, /DISPLAY_MAX_AGE_MS/);
+  assert.match(route, /scheduledCashClosed/);
+  assert.match(route, /cashLast: positive\(cash\?\.last\)/);
+  assert.match(route, /positive\(cash\?\.bidSize\) !== null/);
   assert.match(worker, /TSE/);
   assert.match(worker, /285A/);
   assert.match(route, /code: "7203"[^\n]*sharesPerPerp: 10/);
@@ -152,9 +158,10 @@ test("uses Futu history and the 1 ADR to 8 HK share mapping for Alibaba", async 
 });
 
 test("normalizes Futu OpenD US references for HK auction basis", async () => {
-  const [auction, quotes, pusher, adrPusher, worker] = await Promise.all([
+  const [auction, quotes, history, pusher, adrPusher, worker] = await Promise.all([
     readFile(new URL("../app/hk-auction/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/hk-auction/quotes/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/hk-auction/history/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
     readFile(new URL("../services/futu-pusher/posley-adr-pusher.mjs", import.meta.url), "utf8"),
     readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
@@ -201,6 +208,9 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(auction, /HK\.00981.*SMICUSDT.*perpVenue: "bybit"/);
   assert.match(auction, /HK\.06181.*LAOPUUSDT.*perpVenue: "bybit"/);
   assert.match(auction, /HK\.01347.*HUAHONGUSDT.*perpVenue: "bybit"/);
+  assert.match(auction, /HK\.09999.*NETEASEUSDT.*perpVenue: "bitget"/);
+  assert.match(auction, /hk-auction-pairs-v7/);
+  assert.match(auction, /styles\.bitgetVenue/);
   assert.match(auction, /styles\.futuVenue/);
   assert.match(auction, /styles\.binanceVenue/);
   assert.match(auction, /styles\.bybitVenue/);
@@ -215,6 +225,12 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(quotes, /HK\.00981.*SMICUSDT.*perpVenue: "bybit"/);
   assert.match(quotes, /HK\.06181.*LAOPUUSDT.*perpVenue: "bybit"/);
   assert.match(quotes, /HK\.01347.*HUAHONGUSDT.*perpVenue: "bybit"/);
+  assert.match(quotes, /HK\.09999.*NETEASEUSDT.*perpVenue: "bitget"/);
+  assert.match(quotes, /getBitgetQuotes/);
+  assert.match(quotes, /api\/v2\/mix\/market\/tickers\?productType=usdt-futures/);
+  assert.match(history, /getBitgetKlines/);
+  assert.match(history, /api\/v2\/mix\/market\/candles/);
+  assert.match(pusher, /HK\.09999/);
   assert.match(quotes, /\/v5\/market\/tickers\?category=linear/);
   assert.match(quotes, /const marketTimestamp = timestamp\(payload\.time\) \?\? receivedAt/);
   assert.doesNotMatch(quotes, /marketTimestamp: timestamp\(payload\.time\).*stale: stale\(marketTimestamp/s);

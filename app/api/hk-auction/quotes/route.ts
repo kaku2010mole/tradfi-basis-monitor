@@ -5,6 +5,7 @@ const BINANCE_FUTURES_APIS = [
   "https://fapi3.binance.com",
 ];
 const BYBIT_API = "https://api.bybit.com";
+const BITGET_TICKERS = "https://api.bitget.com/api/v2/mix/market/tickers?productType=usdt-futures";
 const DEFAULT_USD_HKD = 7.83;
 const MAX_PAIRS = 24;
 const FETCH_TIMEOUT_MS = 5_000;
@@ -21,13 +22,15 @@ type FutuPushStore = typeof globalThis & {
   __BINANCE_BATCH_PROMISE__?: Promise<Map<string, BinanceQuote>>;
   __BYBIT_BATCH_CACHE__?: { quotes: Map<string, BinanceQuote>; receivedAt: number };
   __BYBIT_BATCH_PROMISE__?: Promise<Map<string, BinanceQuote>>;
+  __BITGET_BATCH_CACHE__?: { quotes: Map<string, BinanceQuote>; receivedAt: number };
+  __BITGET_BATCH_PROMISE__?: Promise<Map<string, BinanceQuote>>;
 };
 
 type PairConfig = {
   stockSymbol: string;
   perpSymbol: string;
   sharesPerContract: number;
-  perpVenue: "binance" | "bybit";
+  perpVenue: "binance" | "bybit" | "bitget";
 };
 
 type Level = { price: number; size: number };
@@ -91,6 +94,7 @@ type BybitTickerResponse = {
   time?: number;
   result?: { list?: Array<{ symbol?: string; bid1Price?: string; bid1Size?: string; ask1Price?: string; ask1Size?: string; fundingRate?: string; nextFundingTime?: string }> };
 };
+type BitgetTickerResponse = { code?: string; data?: Array<{ symbol?: string; bidPr?: string; askPr?: string; bidSz?: string; askSz?: string; fundingRate?: string; ts?: string }> };
 
 const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.00700", perpSymbol: "TENCENTUSDT", sharesPerContract: 1, perpVenue: "binance" },
@@ -109,6 +113,7 @@ const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.00981", perpSymbol: "SMICUSDT", sharesPerContract: 1, perpVenue: "bybit" },
   { stockSymbol: "HK.06181", perpSymbol: "LAOPUUSDT", sharesPerContract: 1, perpVenue: "bybit" },
   { stockSymbol: "HK.01347", perpSymbol: "HUAHONGUSDT", sharesPerContract: 1, perpVenue: "bybit" },
+  { stockSymbol: "HK.09999", perpSymbol: "NETEASEUSDT", sharesPerContract: 1, perpVenue: "bitget" },
 ];
 
 const positive = (value: unknown) => {
@@ -182,7 +187,7 @@ const parsePair = (raw: string): PairConfig => {
   if (!Number.isFinite(sharesPerContract) || sharesPerContract <= 0 || sharesPerContract > 100_000) {
     throw new Error(`Invalid sharesPerContract for ${stockSymbol}.`);
   }
-  const perpVenue = parts[3]?.toLowerCase() === "bybit" ? "bybit" : "binance";
+  const perpVenue = parts[3]?.toLowerCase() === "bybit" ? "bybit" : parts[3]?.toLowerCase() === "bitget" ? "bitget" : "binance";
   return { stockSymbol, perpSymbol, sharesPerContract, perpVenue };
 };
 
@@ -496,6 +501,43 @@ async function getBybitQuotes(symbols: string[]) {
   finally { if (store.__BYBIT_BATCH_PROMISE__ === promise) delete store.__BYBIT_BATCH_PROMISE__; }
 }
 
+async function getBitgetQuotes(symbols: string[]) {
+  if (!symbols.length) return new Map<string, BinanceQuote>();
+  const store = globalThis as FutuPushStore;
+  const cached = store.__BITGET_BATCH_CACHE__;
+  if (cached && Date.now() - cached.receivedAt < BINANCE_BATCH_CACHE_MS) {
+    return cached.quotes;
+  }
+  if (store.__BITGET_BATCH_PROMISE__) return store.__BITGET_BATCH_PROMISE__;
+  const promise = (async () => {
+    const response = await fetch(BITGET_TICKERS, { cache: "no-store", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!response.ok) throw new Error(`Bitget tickers HTTP ${response.status}.`);
+    const payload = await response.json() as BitgetTickerResponse;
+    if (payload.code !== "00000" || !Array.isArray(payload.data)) throw new Error("Bitget returned an invalid ticker payload.");
+    const receivedAt = Date.now();
+    const quotes = new Map(payload.data.flatMap((ticker) => {
+      if (!ticker.symbol) return [];
+      const bid = positive(ticker.bidPr);
+      const ask = positive(ticker.askPr);
+      if (bid === null || ask === null) return [];
+      const marketTimestamp = timestamp(ticker.ts);
+      if (marketTimestamp === null) return [];
+      const rate = Number(ticker.fundingRate);
+      return [[ticker.symbol, {
+        symbol: ticker.symbol, bid, ask, mid: (bid + ask) / 2,
+        bidSize: positive(ticker.bidSz), askSize: positive(ticker.askSz),
+        fundingRate: Number.isFinite(rate) ? rate : null, nextFundingTime: null,
+        marketTimestamp, receivedAt, stale: stale(marketTimestamp, receivedAt, BINANCE_STALE_MS) ?? true,
+      } satisfies BinanceQuote] as const];
+    }));
+    store.__BITGET_BATCH_CACHE__ = { quotes, receivedAt };
+    return quotes;
+  })();
+  store.__BITGET_BATCH_PROMISE__ = promise;
+  try { return await promise; }
+  finally { if (store.__BITGET_BATCH_PROMISE__ === promise) delete store.__BITGET_BATCH_PROMISE__; }
+}
+
 const midpoint = (bid: number | null, ask: number | null) =>
   bid !== null && ask !== null ? (bid + ask) / 2 : null;
 
@@ -557,10 +599,12 @@ export async function GET(request: Request) {
   const referenceSymbols = FUTU_REFERENCE_SYMBOLS;
   const binanceSymbols = pairConfigs.filter((pair) => pair.perpVenue === "binance").map((pair) => pair.perpSymbol);
   const bybitSymbols = pairConfigs.filter((pair) => pair.perpVenue === "bybit").map((pair) => pair.perpSymbol);
-  const [futuResult, binanceResult, bybitResult] = await Promise.allSettled([
+  const bitgetSymbols = pairConfigs.filter((pair) => pair.perpVenue === "bitget").map((pair) => pair.perpSymbol);
+  const [futuResult, binanceResult, bybitResult, bitgetResult] = await Promise.allSettled([
     getFutuQuotes([...pairConfigs.map((pair) => pair.stockSymbol), ...referenceSymbols]),
     getBinanceQuotes(binanceSymbols),
     getBybitQuotes(bybitSymbols),
+    getBitgetQuotes(bitgetSymbols),
   ]);
   const futuBySymbol = new Map(
     futuResult.status === "fulfilled" ? futuResult.value.map((quote) => [quote.symbol, quote] as const) : [],
@@ -569,8 +613,10 @@ export async function GET(request: Request) {
   if (futuResult.status === "rejected") errors.push(errorMessage(futuResult.reason));
   if (binanceResult.status === "rejected") errors.push(errorMessage(binanceResult.reason));
   if (bybitResult.status === "rejected") errors.push(errorMessage(bybitResult.reason));
+  if (bitgetResult.status === "rejected") errors.push(errorMessage(bitgetResult.reason));
   const binanceBySymbol = binanceResult.status === "fulfilled" ? binanceResult.value : new Map<string, BinanceQuote>();
   const bybitBySymbol = bybitResult.status === "fulfilled" ? bybitResult.value : new Map<string, BinanceQuote>();
+  const bitgetBySymbol = bitgetResult.status === "fulfilled" ? bitgetResult.value : new Map<string, BinanceQuote>();
 
   const now = Date.now();
   const references = Object.fromEntries(referenceSymbols.flatMap((symbol) => {
@@ -579,7 +625,7 @@ export async function GET(request: Request) {
   }));
   const quotes = pairConfigs.map((pair) => {
     const futu = futuBySymbol.get(pair.stockSymbol) ?? null;
-    const binance = (pair.perpVenue === "bybit" ? bybitBySymbol : binanceBySymbol).get(pair.perpSymbol) ?? null;
+    const binance = (pair.perpVenue === "bybit" ? bybitBySymbol : pair.perpVenue === "bitget" ? bitgetBySymbol : binanceBySymbol).get(pair.perpSymbol) ?? null;
 
     // A missing exchange timestamp is not proof of freshness. Keep the raw
     // record for link diagnostics, but exclude it from every trading metric.
@@ -666,6 +712,7 @@ export async function GET(request: Request) {
       futu: futuResult.status === "fulfilled",
       binance: binanceResult.status === "fulfilled" && binanceBySymbol.size > 0,
       bybit: bybitResult.status === "fulfilled" && bybitBySymbol.size > 0,
+      bitget: bitgetResult.status === "fulfilled" && bitgetBySymbol.size > 0,
     },
     errors: [...new Set(errors)],
   }, { headers: { "Cache-Control": "no-store, max-age=0" } });

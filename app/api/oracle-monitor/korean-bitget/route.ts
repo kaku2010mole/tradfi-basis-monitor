@@ -33,21 +33,30 @@ const positive = (value: unknown) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
-type PushedQuote = { symbol?: string; bid?: number; ask?: number; bidSize?: number; askSize?: number; marketTimestamp?: number };
+type PushedQuote = { symbol?: string; bid?: number | null; ask?: number | null; last?: number | null; bidSize?: number | null; askSize?: number | null; marketTimestamp?: number };
 type PushStore = typeof globalThis & { __FUTU_PUSH_SNAPSHOT__?: { payload: { quotes?: PushedQuote[] }; receivedAt: number } };
-const PUSH_MAX_AGE_MS = 15_000;
 const QUOTE_MAX_AGE_MS = 60_000;
+const DISPLAY_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+
+function scheduledCashClosed(now: number) {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(now);
+  const weekday = parts.find((part) => part.type === "weekday")?.value;
+  const hour = Number(parts.find((part) => part.type === "hour")?.value);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value);
+  const clock = hour * 60 + minute;
+  return weekday === "Sat" || weekday === "Sun" || clock < 8 * 60 || clock >= 14 * 60 + 30;
+}
 
 function officeRelaySnapshot() {
   const stored = (globalThis as PushStore).__FUTU_PUSH_SNAPSHOT__;
-  if (!stored || Date.now() - stored.receivedAt > PUSH_MAX_AGE_MS) return null;
+  if (!stored) return null;
   const books = (stored.payload.quotes ?? []).flatMap((quote) => {
     const code = quote.symbol?.startsWith("KRX.") || quote.symbol?.startsWith("TSE.") ? quote.symbol.slice(4) : quote.symbol === "FX.USDKRW" ? "USDKRW" : quote.symbol === "FX.USDJPY" ? "USDJPY" : null;
     const timestamp = Number(quote.marketTimestamp);
-    if (!code || !Number.isFinite(timestamp) || Date.now() - timestamp > QUOTE_MAX_AGE_MS) return [];
-    return [{ symbol: code, streamKey: `office:${quote.symbol}`, bid: positive(quote.bid), ask: positive(quote.ask), last: null, bidSize: positive(quote.bidSize), askSize: positive(quote.askSize), timestamp }];
+    if (!code || !Number.isFinite(timestamp) || timestamp > Date.now() + 5_000 || Date.now() - timestamp > DISPLAY_MAX_AGE_MS) return [];
+    return [{ symbol: code, streamKey: `office:${quote.symbol}`, bid: positive(quote.bid), ask: positive(quote.ask), last: positive(quote.last), bidSize: positive(quote.bidSize), askSize: positive(quote.askSize), timestamp }];
   });
-  if (!books.some((book) => book.symbol !== "USDKRW")) return null;
+  if (!books.length) return null;
   const wanted = [...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), "USDKRW", "USDJPY"];
   const found = new Set(books.map((book) => book.symbol));
   return { configured: true, state: found.size === wanted.length ? "live" : "partial", error: "", books, missing: wanted.filter((symbol) => !found.has(symbol)), timestamp: Date.now(), source: "office relay" };
@@ -58,8 +67,11 @@ export async function GET(request: Request) {
     const authorization = request.headers.get("authorization") ?? "";
     const suppliedIdToken = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : undefined;
     const office = officeRelaySnapshot();
+    const remoteRequest = office && scheduledCashClosed(Date.now()) && !suppliedIdToken
+      ? Promise.resolve({ configured: false, state: "idle", error: "", books: [], missing: [], timestamp: Date.now() })
+      : posleyAdrSnapshot([...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), "USDKRW", "USDJPY"], suppliedIdToken);
     const [remote, bitgetResponse, binanceResponse] = await Promise.all([
-      posleyAdrSnapshot([...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), "USDKRW", "USDJPY"], suppliedIdToken),
+      remoteRequest,
       fetch(BITGET_TICKERS, { cache: "no-store", signal: AbortSignal.timeout(7_000) }),
       fetch(BINANCE_BOOKS, { cache: "no-store", signal: AbortSignal.timeout(7_000) }),
     ]);
@@ -78,8 +90,10 @@ export async function GET(request: Request) {
       const book = mergedBooks.get(symbol);
       return !book || !Number.isFinite(book.timestamp) || Date.now() - book.timestamp > QUOTE_MAX_AGE_MS;
     });
+    const closed = scheduledCashClosed(Date.now());
+    const hasCashQuote = [...KOREAN_STOCKS, ...JAPANESE_STOCKS].some((stock) => mergedBooks.has(stock.code));
     const posley = { ...remote, books: [...mergedBooks.values()], configured: remote.configured || Boolean(office), missing: unavailable,
-      state: !remote.configured && !office ? "unconfigured" : unavailable.length ? "partial" : "live", error: unavailable.length && !office ? remote.error : "",
+      state: !remote.configured && !office ? "unconfigured" : closed && hasCashQuote ? "closed" : unavailable.length ? "partial" : "live", error: unavailable.length && !office ? remote.error : "",
       source: office && !remote.books.length ? "office relay" : remote.configured && office ? "Posley + office relay" : remote.configured ? "remote gateway" : office ? "office relay" : "unavailable" };
 
     const books = new Map(posley.books.map((book) => [book.symbol, book]));
@@ -98,7 +112,7 @@ export async function GET(request: Request) {
       const cash = books.get(stock.code);
       const cashBidKrw = positive(cash?.bid);
       const cashAskKrw = positive(cash?.ask);
-      const usable = fresh(cash?.timestamp) && fresh(fx?.timestamp);
+      const usable = !closed && fresh(cash?.timestamp) && fresh(fx?.timestamp) && positive(cash?.bidSize) !== null && positive(cash?.askSize) !== null;
       const cashBidUsd = usable && cashBidKrw !== null && fxAsk !== null ? cashBidKrw / fxAsk : null;
       const cashAskUsd = usable && cashAskKrw !== null && fxBid !== null ? cashAskKrw / fxBid : null;
       const venues = [
@@ -113,6 +127,7 @@ export async function GET(request: Request) {
         code: stock.code, name: stock.name, market: "KRX", currency: "KRW", sharesPerPerp: 1, venues,
         mappingNote: stock.code === "042700" ? "Binance HANMIUSDT is the exact 042700 contract. Bitget HANMIUSDT is Hanmi Pharm, so it is deliberately excluded." : null,
         cashBidKrw, cashAskKrw, cashBidQty: positive(cash?.bidSize), cashAskQty: positive(cash?.askSize), cashUpdatedAt: cash?.timestamp ?? null,
+        cashLast: positive(cash?.last),
         cashBidUsd, cashAskUsd,
       };
     });
@@ -121,7 +136,7 @@ export async function GET(request: Request) {
       const cash = books.get(stock.code);
       const cashBidKrw = positive(cash?.bid);
       const cashAskKrw = positive(cash?.ask);
-      const usable = fresh(cash?.timestamp) && fresh(yenFx?.timestamp);
+      const usable = !closed && fresh(cash?.timestamp) && fresh(yenFx?.timestamp) && positive(cash?.bidSize) !== null && positive(cash?.askSize) !== null;
       const cashBidUsd = usable && cashBidKrw !== null && yenFxAsk !== null ? cashBidKrw * stock.sharesPerPerp / yenFxAsk : null;
       const cashAskUsd = usable && cashAskKrw !== null && yenFxBid !== null ? cashAskKrw * stock.sharesPerPerp / yenFxBid : null;
       const quote = tickers.get(stock.bitgetSymbol);
@@ -131,6 +146,7 @@ export async function GET(request: Request) {
         code: stock.code, name: stock.name, market: "TSE", currency: "JPY", sharesPerPerp: stock.sharesPerPerp,
         mappingNote: stock.code === "7203" ? "TM is Toyota's U.S. ADR; one ADS represents 10 ordinary shares." : null,
         cashBidKrw, cashAskKrw, cashBidQty: positive(cash?.bidSize), cashAskQty: positive(cash?.askSize), cashUpdatedAt: cash?.timestamp ?? null,
+        cashLast: positive(cash?.last),
         cashBidUsd, cashAskUsd,
         venues: [{ venue: "Bitget", symbol: stock.bitgetSymbol, bid, ask, bidQty: positive(quote?.bidSz), askQty: positive(quote?.askSz), updatedAt,
           buyKoreaSellPerp: venueFresh && cashAskUsd !== null && bid !== null ? (bid / cashAskUsd - 1) * 100 : null,
@@ -140,8 +156,8 @@ export async function GET(request: Request) {
 
     return Response.json({
       rows: [...rows, ...japanRows],
-      fx: { symbol: "USD/KRW", bid: fxBid, ask: fxAsk, updatedAt: fx?.timestamp ?? null },
-      yenFx: { symbol: "USD/JPY", bid: yenFxBid, ask: yenFxAsk, updatedAt: yenFx?.timestamp ?? null },
+      fx: { symbol: "USD/KRW", bid: fxBid, ask: fxAsk, last: positive(fx?.last), updatedAt: fx?.timestamp ?? null },
+      yenFx: { symbol: "USD/JPY", bid: yenFxBid, ask: yenFxAsk, last: positive(yenFx?.last), updatedAt: yenFx?.timestamp ?? null },
       posley: { configured: posley.configured, state: posley.state, error: posley.error, missing: posley.missing, source: "source" in posley ? posley.source : "remote gateway" },
       timestamp: Date.now(),
     }, { headers: { "Cache-Control": "no-store" } });

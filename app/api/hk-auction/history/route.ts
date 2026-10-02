@@ -5,6 +5,7 @@ const BINANCE_FUTURES_APIS = [
   "https://fapi3.binance.com",
 ];
 const BYBIT_API = "https://api.bybit.com";
+const BITGET_API = "https://api.bitget.com";
 const FETCH_TIMEOUT_MS = 6_000;
 
 type FutuPushStore = typeof globalThis & {
@@ -16,6 +17,7 @@ type FutuPushStore = typeof globalThis & {
 
 type BinanceKline = [number, string, string, string, string, ...unknown[]];
 type BybitKlineResponse = { retCode?: number; retMsg?: string; result?: { list?: Array<[string, string, string, string, string, ...string[]]> } };
+type BitgetKlineResponse = { code?: string; msg?: string; data?: Array<[string, string, string, string, string, ...string[]]> };
 
 const validStock = (value: string | null) => value?.trim().toUpperCase().match(/^HK\.\d{5}$/)?.[0] ?? null;
 const validPerp = (value: string | null) => value?.trim().toUpperCase().match(/^[A-Z0-9_]{3,32}USDT$/)?.[0] ?? null;
@@ -60,11 +62,20 @@ async function getBybitKlines(symbol: string, startTime: number, endTime: number
   return payload.result.list.map((row) => [Number(row[0]), row[1], row[2], row[3], row[4]] as BinanceKline).sort((left, right) => left[0] - right[0]);
 }
 
+async function getBitgetKlines(symbol: string, startTime: number, endTime: number): Promise<BinanceKline[]> {
+  const query = new URLSearchParams({ symbol, productType: "usdt-futures", granularity: "1m", startTime: String(Math.floor(startTime / 60_000) * 60_000), endTime: String(Math.floor(endTime / 60_000) * 60_000), limit: "1000" });
+  const response = await fetch(`${BITGET_API}/api/v2/mix/market/candles?${query}`, { cache: "no-store", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  if (!response.ok) throw new Error(`${symbol}: Bitget history HTTP ${response.status}.`);
+  const payload = await response.json() as BitgetKlineResponse;
+  if (payload.code !== "00000" || !Array.isArray(payload.data)) throw new Error(`${symbol}: ${payload.msg || "Bitget history unavailable."}`);
+  return payload.data.map((row) => [Number(row[0]), row[1], row[2], row[3], row[4]] as BinanceKline).sort((left, right) => left[0] - right[0]);
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const stockSymbol = validStock(url.searchParams.get("stock"));
   const perpSymbol = validPerp(url.searchParams.get("perp"));
-  const venue = url.searchParams.get("venue")?.toLowerCase() === "bybit" ? "bybit" : "binance";
+  const venue = url.searchParams.get("venue")?.toLowerCase() === "bybit" ? "bybit" : url.searchParams.get("venue")?.toLowerCase() === "bitget" ? "bitget" : "binance";
   const sharesPerContract = positive(url.searchParams.get("shares"));
   const usdHkd = positive(url.searchParams.get("usdhkd"));
   if (!stockSymbol || !perpSymbol || sharesPerContract === null || usdHkd === null || usdHkd > 20) {
@@ -91,7 +102,9 @@ export async function GET(request: Request) {
     const klines = (await Promise.all([...stockDays.values()].map((timestamps) =>
       venue === "bybit"
         ? getBybitKlines(perpSymbol, Math.min(...timestamps), Math.max(...timestamps) + 59_999)
-        : getBinanceKlines(perpSymbol, Math.min(...timestamps), Math.max(...timestamps) + 59_999)
+        : venue === "bitget"
+          ? getBitgetKlines(perpSymbol, Math.min(...timestamps), Math.max(...timestamps) + 59_999)
+          : getBinanceKlines(perpSymbol, Math.min(...timestamps), Math.max(...timestamps) + 59_999)
     ))).flat();
     const perpByMinute = new Map(klines.flatMap((bar) => {
       const timestamp = Number(bar[0]);
@@ -110,14 +123,14 @@ export async function GET(request: Request) {
       }];
     });
     if (!points.length) {
-      return Response.json({ error: `No overlapping one-minute Futu and ${venue === "bybit" ? "Bybit" : "Binance"} history was found.` }, { status: 404 });
+      return Response.json({ error: `No overlapping one-minute Futu and ${venue === "bybit" ? "Bybit" : venue === "bitget" ? "Bitget" : "Binance"} history was found.` }, { status: 404 });
     }
     return Response.json({
       stockSymbol,
       perpSymbol,
       interval: "1m",
       points,
-      source: `Futu OpenD + ${venue === "bybit" ? "Bybit linear" : "Binance USD-M"} klines`,
+      source: `Futu OpenD + ${venue === "bybit" ? "Bybit linear" : venue === "bitget" ? "Bitget USDT-M" : "Binance USD-M"} klines`,
       timestamp: Date.now(),
     }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {

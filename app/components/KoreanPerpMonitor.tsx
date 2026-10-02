@@ -7,12 +7,14 @@ const COGNITO_CLIENT_ID = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID ?? "5qup0una
 const COGNITO_DOMAIN = process.env.NEXT_PUBLIC_COGNITO_DOMAIN ?? "posley.auth.us-east-1.amazoncognito.com";
 
 type VenueQuote = { venue: string; symbol: string; bid: number | null; ask: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null; buyKoreaSellPerp: number | null; buyPerpSellKorea: number | null };
-type Row = { code: string; name: string; market: "KRX" | "TSE"; currency: "KRW" | "JPY"; sharesPerPerp: number; cashBidKrw: number | null; cashAskKrw: number | null; cashBidQty: number | null; cashAskQty: number | null; cashUpdatedAt: number | null; cashBidUsd: number | null; cashAskUsd: number | null; venues: VenueQuote[]; mappingNote: string | null };
-type Payload = { rows?: Row[]; fx?: { bid: number | null; ask: number | null; updatedAt: number | null }; yenFx?: { bid: number | null; ask: number | null; updatedAt: number | null }; posley?: { state: string; error: string; missing: string[]; source?: string }; timestamp?: number; error?: string };
+type Row = { code: string; name: string; market: "KRX" | "TSE"; currency: "KRW" | "JPY"; sharesPerPerp: number; cashBidKrw: number | null; cashAskKrw: number | null; cashLast: number | null; cashBidQty: number | null; cashAskQty: number | null; cashUpdatedAt: number | null; cashBidUsd: number | null; cashAskUsd: number | null; venues: VenueQuote[]; mappingNote: string | null };
+type FxBook = { bid: number | null; ask: number | null; last: number | null; updatedAt: number | null };
+type Payload = { rows?: Row[]; fx?: FxBook; yenFx?: FxBook; posley?: { state: string; error: string; missing: string[]; source?: string }; timestamp?: number; error?: string };
 
 const fmt = (value: number | null, digits = 2) => value === null ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const pct = (value: number | null) => value === null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(3)}%`;
 const time = (value: number | null) => value === null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(value);
+const dateTime = (value: number | null) => value === null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(value);
 const POLL_MS = 2_000;
 const EDGE_MAX_AGE_MS = 60_000;
 
@@ -21,14 +23,15 @@ function mergeRows(previous: Row[] = [], incoming: Row[] = []) {
   return incoming.map((row) => {
     const prior = priorByCode.get(row.code);
     if (!prior) return row;
-    const cash = row.cashBidKrw !== null && row.cashAskKrw !== null && (row.cashUpdatedAt ?? 0) >= (prior.cashUpdatedAt ?? 0) ? row : prior;
+    const cash = (row.cashLast != null || row.cashBidKrw != null || row.cashAskKrw != null) && (row.cashUpdatedAt ?? 0) >= (prior.cashUpdatedAt ?? 0) ? row : prior;
     const priorVenues = new Map(prior.venues.map((quote) => [quote.venue, quote]));
     return {
       ...row,
       cashBidKrw: cash.cashBidKrw, cashAskKrw: cash.cashAskKrw,
+      cashLast: cash.cashLast,
       cashBidQty: cash.cashBidQty, cashAskQty: cash.cashAskQty,
-      cashBidUsd: row.cashBidUsd ?? prior.cashBidUsd,
-      cashAskUsd: row.cashAskUsd ?? prior.cashAskUsd,
+      cashBidUsd: row.cashBidUsd,
+      cashAskUsd: row.cashAskUsd,
       cashUpdatedAt: cash.cashUpdatedAt,
       venues: row.venues.map((quote) => {
         const older = priorVenues.get(quote.venue);
@@ -86,8 +89,8 @@ export default function KoreanPerpMonitor() {
       if (!response.ok) throw new Error(next.error || "Korean stock feed unavailable.");
       setPayload((previous) => ({
         ...next,
-        fx: next.fx && next.fx.bid !== null && next.fx.ask !== null ? next.fx : previous.fx,
-        yenFx: next.yenFx && next.yenFx.bid !== null && next.yenFx.ask !== null ? next.yenFx : previous.yenFx,
+        fx: next.fx && (next.fx.bid !== null || next.fx.ask !== null || next.fx.last !== null) ? next.fx : previous.fx,
+        yenFx: next.yenFx && (next.yenFx.bid !== null || next.yenFx.ask !== null || next.yenFx.last !== null) ? next.yenFx : previous.yenFx,
         rows: mergeRows(previous.rows, next.rows),
       }));
       setError("");
@@ -103,19 +106,20 @@ export default function KoreanPerpMonitor() {
   };
 
   return <section className={styles.monitor} aria-label="Korean and Japanese stock perpetual basis">
-    <header><div><p>POSLEY KRX + TSE · EXCHANGE PERPETUALS</p><h2>Korean &amp; Japanese stock cross-venue basis</h2><span>Executable BBO comparison · verified share/ADR ratios · USDT treated as USD</span></div><div className={styles.status}><i />{payload.posley?.state === "live" ? `LIVE · ${payload.posley.source ?? "Posley"} · ${time(payload.timestamp ?? null)}` : payload.posley?.state === "partial" ? "PARTIAL · waiting for stock / FX" : "CONNECTING"}</div></header>
-    <div className={styles.fx}><span>USD/KRW POSLEY BBO</span><strong>{fmt(payload.fx?.bid ?? null, 2)} / {fmt(payload.fx?.ask ?? null, 2)}</strong><small>Cash bid converts at FX ask; cash ask converts at FX bid.</small></div>
-    <div className={styles.fx}><span>USD/JPY POSLEY BBO</span><strong>{fmt(payload.yenFx?.bid ?? null, 2)} / {fmt(payload.yenFx?.ask ?? null, 2)}</strong><small>Japanese signals require fresh Tokyo stock and USD/JPY books.</small></div>
+    <header><div><p>POSLEY KRX + TSE · EXCHANGE PERPETUALS</p><h2>Korean &amp; Japanese stock cross-venue basis</h2><span>Executable BBO comparison · verified share/ADR ratios · USDT treated as USD</span></div><div className={`${styles.status} ${payload.posley?.state === "closed" ? styles.closed : ""}`}><i />{payload.posley?.state === "live" ? `LIVE · ${payload.posley.source ?? "Posley"} · ${time(payload.timestamp ?? null)}` : payload.posley?.state === "closed" ? "CLOSED · last cash quotes" : payload.posley?.state === "partial" ? "PARTIAL · waiting for stock / FX" : "CONNECTING"}</div></header>
+    <div className={styles.fx}><span>USD/KRW POSLEY {payload.fx?.bid != null && payload.fx?.ask != null ? clock - (payload.fx.updatedAt ?? 0) <= EDGE_MAX_AGE_MS ? "BBO" : "LAST BBO" : "LAST"}</span><strong>{payload.fx?.bid != null && payload.fx?.ask != null ? `${fmt(payload.fx.bid, 2)} / ${fmt(payload.fx.ask, 2)}` : fmt(payload.fx?.last ?? null, 2)}</strong><small>As of {dateTime(payload.fx?.updatedAt ?? null)} HKT · only fresh FX BBO is used for signals.</small></div>
+    <div className={styles.fx}><span>USD/JPY POSLEY {payload.yenFx?.bid != null && payload.yenFx?.ask != null ? clock - (payload.yenFx.updatedAt ?? 0) <= EDGE_MAX_AGE_MS ? "BBO" : "LAST BBO" : "LAST"}</span><strong>{payload.yenFx?.bid != null && payload.yenFx?.ask != null ? `${fmt(payload.yenFx.bid, 2)} / ${fmt(payload.yenFx.ask, 2)}` : fmt(payload.yenFx?.last ?? null, 2)}</strong><small>As of {dateTime(payload.yenFx?.updatedAt ?? null)} HKT · only fresh FX BBO is used for signals.</small></div>
     {(loginError || error || payload.posley?.error) && <div className={styles.notice}><span>{loginError || error || payload.posley?.error}</span><button disabled={loginBusy} onClick={() => void connect()}>{loginBusy ? "Checking…" : "Connect Posley"}</button></div>}
     <div className={styles.rows}>{payload.rows?.map((row) => <article key={row.code}>
-      <div className={styles.identity}><small>{row.market} {row.code}{row.sharesPerPerp !== 1 ? ` · ${row.sharesPerPerp} shares / perp` : ""}</small><strong>{row.name}</strong><span>{row.currency} {fmt(row.cashBidKrw, 0)} / {fmt(row.cashAskKrw, 0)}</span><em>≈ USD {fmt(row.cashBidUsd)} / {fmt(row.cashAskUsd)} · {time(row.cashUpdatedAt)}</em></div>
+      <div className={styles.identity}><small>{row.market} {row.code}{row.sharesPerPerp !== 1 ? ` · ${row.sharesPerPerp} shares / perp` : ""}</small><strong>{row.name}</strong><span>{row.currency} {payload.posley?.state === "closed" && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : row.cashBidKrw != null && row.cashAskKrw != null ? `${fmt(row.cashBidKrw, 0)} / ${fmt(row.cashAskKrw, 0)}` : row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : "—"} · {payload.posley?.state === "closed" ? "CLOSED" : row.cashBidUsd != null && row.cashAskUsd != null ? "LIVE" : "STALE"}</span><em>{row.cashBidUsd != null && row.cashAskUsd != null ? `≈ USD ${fmt(row.cashBidUsd)} / ${fmt(row.cashAskUsd)}` : "Last cash quote · no live basis"} · {dateTime(row.cashUpdatedAt)} HKT</em></div>
       <div className={styles.venues}>{row.venues.map((quote) => {
         const oldestLeg = Math.min(row.cashUpdatedAt ?? 0, (row.market === "TSE" ? payload.yenFx : payload.fx)?.updatedAt ?? 0, quote.updatedAt ?? 0);
-        const stale = !oldestLeg || clock - oldestLeg > EDGE_MAX_AGE_MS;
+        const closed = payload.posley?.state === "closed";
+        const stale = closed || !oldestLeg || clock - oldestLeg > EDGE_MAX_AGE_MS;
         return <div key={quote.venue} className={styles.venue}>
         <div><b>{quote.venue}</b><code>{quote.symbol}</code><time>{time(quote.updatedAt)}</time></div>
         <div className={styles.bbo}><span>PERP BID / ASK<strong>{fmt(quote.bid)} / {fmt(quote.ask)}</strong></span><span>SIZE<strong>{fmt(quote.bidQty)} / {fmt(quote.askQty)}</strong></span></div>
-        <div className={styles.edges}><span className={!stale && (quote.buyKoreaSellPerp ?? -1) > 0 ? styles.positive : ""}>BUY {row.market} · SELL PERP<b>{stale ? "STALE" : pct(quote.buyKoreaSellPerp)}</b></span><span className={!stale && (quote.buyPerpSellKorea ?? -1) > 0 ? styles.positive : ""}>BUY PERP · SELL {row.market}<b>{stale ? "STALE" : pct(quote.buyPerpSellKorea)}</b></span></div>
+        <div className={styles.edges}><span className={!stale && (quote.buyKoreaSellPerp ?? -1) > 0 ? styles.positive : ""}>BUY {row.market} · SELL PERP<b>{closed ? "CLOSED" : stale ? "STALE" : pct(quote.buyKoreaSellPerp)}</b></span><span className={!stale && (quote.buyPerpSellKorea ?? -1) > 0 ? styles.positive : ""}>BUY PERP · SELL {row.market}<b>{closed ? "CLOSED" : stale ? "STALE" : pct(quote.buyPerpSellKorea)}</b></span></div>
       </div>; })}</div>
       {row.mappingNote && <p className={styles.mapping}>{row.mappingNote}</p>}
     </article>)}</div>
