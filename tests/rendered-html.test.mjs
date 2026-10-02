@@ -422,8 +422,11 @@ test("ships a lightweight Futu symbol updater", async () => {
   ]);
   assert.match(installer, /Reuse it on symbol/);
   assert.match(updater, /launchctl kickstart -k/);
+  assert.match(updater, /dirname -- "\$0"/);
+  assert.doesNotMatch(updater, /2026-07-30\/ban/);
   assert.match(pusher, /HK\.00388/);
   assert.match(pusher, /HK\.02097/);
+  assert.match(pusher, /HK\.09999/);
 });
 
 test("uses executable best bid or ask for live Oracle Monitor deviations", async () => {

@@ -2,8 +2,8 @@
 
 set -eu
 
-source_root="/Users/posley3302_15/Documents/Codex/2026-07-30/ban"
-source_relay="$source_root/services/futu-pusher"
+source_relay="$(cd -- "$(dirname -- "$0")" && pwd)"
+source_root="$(cd -- "$source_relay/../.." && pwd)"
 source_plist="$source_relay/capital.posley.tradfi-futu-pusher.plist"
 source_token="$source_root/.futu-push-token"
 runtime_dir="/Users/posley3302_15/Library/Application Support/TradFiFutuRelay"

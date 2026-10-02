@@ -2,8 +2,7 @@
 
 set -eu
 
-source_root="/Users/posley3302_15/Documents/Codex/2026-07-30/ban"
-source_relay="$source_root/services/futu-pusher"
+source_relay="$(cd -- "$(dirname -- "$0")" && pwd)"
 runtime_dir="/Users/posley3302_15/Library/Application Support/TradFiFutuRelay"
 service="gui/$(/usr/bin/id -u)/capital.posley.tradfi-futu-pusher"
 
@@ -20,5 +19,5 @@ fi
 /bin/launchctl kickstart -k "$service"
 
 echo
-echo "Market-data relay updated. Futu and the eight Posley ADR streams are now subscribed."
+echo "Market-data relay updated. Futu, Korean and Japanese stocks, and FX streams are now subscribed."
 echo "You can close this window."
