@@ -42,13 +42,13 @@ function officeRelaySnapshot() {
   const stored = (globalThis as PushStore).__FUTU_PUSH_SNAPSHOT__;
   if (!stored || Date.now() - stored.receivedAt > PUSH_MAX_AGE_MS) return null;
   const books = (stored.payload.quotes ?? []).flatMap((quote) => {
-    const code = quote.symbol?.startsWith("KRX.") ? quote.symbol.slice(4) : quote.symbol === "FX.USDKRW" ? "USDKRW" : null;
+    const code = quote.symbol?.startsWith("KRX.") || quote.symbol?.startsWith("TSE.") ? quote.symbol.slice(4) : quote.symbol === "FX.USDKRW" ? "USDKRW" : quote.symbol === "FX.USDJPY" ? "USDJPY" : null;
     const timestamp = Number(quote.marketTimestamp);
     if (!code || !Number.isFinite(timestamp) || Date.now() - timestamp > QUOTE_MAX_AGE_MS) return [];
     return [{ symbol: code, streamKey: `office:${quote.symbol}`, bid: positive(quote.bid), ask: positive(quote.ask), last: null, bidSize: positive(quote.bidSize), askSize: positive(quote.askSize), timestamp }];
   });
   if (!books.some((book) => book.symbol !== "USDKRW")) return null;
-  const wanted = [...KOREAN_STOCKS.map((stock) => stock.code), "USDKRW"];
+  const wanted = [...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), "USDKRW", "USDJPY"];
   const found = new Set(books.map((book) => book.symbol));
   return { configured: true, state: found.size === wanted.length ? "live" : "partial", error: "", books, missing: wanted.filter((symbol) => !found.has(symbol)), timestamp: Date.now(), source: "office relay" };
 }
@@ -79,8 +79,8 @@ export async function GET(request: Request) {
       return !book || !Number.isFinite(book.timestamp) || Date.now() - book.timestamp > QUOTE_MAX_AGE_MS;
     });
     const posley = { ...remote, books: [...mergedBooks.values()], configured: remote.configured || Boolean(office), missing: unavailable,
-      state: !remote.configured && !office ? "unconfigured" : unavailable.length ? "partial" : "live", error: remote.configured ? remote.error : office ? "" : remote.error,
-      source: remote.configured && office ? "Posley + office relay" : remote.configured ? "remote gateway" : office ? "office relay" : "unavailable" };
+      state: !remote.configured && !office ? "unconfigured" : unavailable.length ? "partial" : "live", error: unavailable.length && !office ? remote.error : "",
+      source: office && !remote.books.length ? "office relay" : remote.configured && office ? "Posley + office relay" : remote.configured ? "remote gateway" : office ? "office relay" : "unavailable" };
 
     const books = new Map(posley.books.map((book) => [book.symbol, book]));
     const tickers = new Map(bitgetPayload.data.flatMap((ticker) => ticker.symbol ? [[ticker.symbol, ticker] as const] : []));

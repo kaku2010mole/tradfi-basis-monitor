@@ -155,7 +155,7 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
   if (
     !payload || !Number.isFinite(payload.generatedAt) || Math.abs(now - payload.generatedAt) > 30_000 ||
     !Array.isArray(payload.quotes) || payload.quotes.length < 1 || payload.quotes.length > 30 ||
-    payload.quotes.some((quote) => typeof quote?.symbol !== "string" || !/^(?:FX\.USDKRW|HK\.(?:\d{5}|800000|HSImain)|KRX\.(?:034020|035420|042700|066570|454910)|US\.(?:TCEHY|XIACY|KSHTY|MPNGY|PMRTY|MMXGY|LNVGY|BYDDY|LITE|NVDA|Z[TFNB]main))$/.test(quote.symbol)) ||
+    payload.quotes.some((quote) => typeof quote?.symbol !== "string" || !/^(?:FX\.(?:USDKRW|USDJPY)|HK\.(?:\d{5}|800000|HSImain)|KRX\.(?:034020|035420|042700|066570|454910)|TSE\.(?:285A|5802|6758|6857|6920|7203|8035|8306|9984)|US\.(?:TCEHY|XIACY|KSHTY|MPNGY|PMRTY|MMXGY|LNVGY|BYDDY|LITE|NVDA|Z[TFNB]main))$/.test(quote.symbol)) ||
     (payload.orderbooks !== undefined && (!Array.isArray(payload.orderbooks) || payload.orderbooks.length > 30)) ||
     (payload.history !== undefined && (
       !payload.history || typeof payload.history !== "object" ||

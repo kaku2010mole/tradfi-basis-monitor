@@ -9,13 +9,17 @@ const SYMBOLS = ["TCEHY", "XIACY", "KSHTY", "MPNGY", "PMRTY", "MMXGY", "LNVGY", 
 const KEYS = SYMBOLS.map((symbol) => `orderbook:ibkr:STK:${symbol}:SMART:USD`);
 const KOREAN_CODES = ["034020", "035420", "042700", "066570", "454910"];
 const KOREAN_KEYS = KOREAN_CODES.map((code) => `orderbook:ibkr:STK:${code}:KRX:KRW`);
+const JAPANESE_CODES = ["285A", "5802", "6758", "6857", "6920", "7203", "8035", "8306", "9984"];
+const JAPANESE_KEYS = JAPANESE_CODES.map((code) => `orderbook:ibkr:STK:${code}:TSEJ:JPY`);
 const FX_KEY = "orderbook:ibkr:FX:USD:KRW";
+const FX_JPY_KEY = "orderbook:ibkr:FX:USD:JPY";
 const FX_HL_KEY = "index_price:hyperliquid:xyz:KRW";
-KEYS.push(FX_KEY, FX_HL_KEY, ...KOREAN_KEYS);
+KEYS.push(FX_KEY, FX_JPY_KEY, FX_HL_KEY, ...KOREAN_KEYS, ...JAPANESE_KEYS);
 const allowedKeys = new Map([
   ...SYMBOLS.map((symbol) => [`orderbook:ibkr:STK:${symbol}:SMART:USD`, `US.${symbol}`]),
-  [FX_KEY, "FX.USDKRW"], [FX_HL_KEY, "FX.USDKRW"],
+  [FX_KEY, "FX.USDKRW"], [FX_JPY_KEY, "FX.USDJPY"], [FX_HL_KEY, "FX.USDKRW"],
   ...KOREAN_CODES.map((code) => [`orderbook:ibkr:STK:${code}:KRX:KRW`, `KRX.${code}`]),
+  ...JAPANESE_CODES.map((code) => [`orderbook:ibkr:STK:${code}:TSEJ:JPY`, `TSE.${code}`]),
 ]);
 const latest = new Map();
 const fxHistory = new Map();
@@ -50,6 +54,11 @@ const quoteFromEntry = (message) => {
   if (!symbol || !fields || typeof fields !== "object") return null;
   const bid = firstLevel(fields.bids ?? fields.bid);
   const ask = firstLevel(fields.asks ?? fields.ask);
+  let details = fields.specific_data;
+  if (typeof details === "string") {
+    try { details = JSON.parse(details); } catch { details = null; }
+  }
+  const stale = details?.stale === true || details?.stale === "true";
   const candidates = [
     fields.last_tick_ts_ms,
     fields.bids_receive_ts_ms,
@@ -63,16 +72,16 @@ const quoteFromEntry = (message) => {
     .map(timestamp).filter((value) => value !== null);
   const last = positive(fields.index_price ?? fields.mark_price ?? fields.last_price ?? fields.last ?? fields.price);
   if (bid.price === null && ask.price === null && last === null) return null;
-  const isFx = symbol === "FX.USDKRW";
+  const isFx = symbol.startsWith("FX.");
   return {
     symbol,
     name: symbol,
-    marketState: isFx ? "FX_REFERENCE" : symbol.startsWith("KRX.") ? "KRX_REFERENCE" : "US_REFERENCE",
+    marketState: isFx ? "FX_REFERENCE" : symbol.startsWith("KRX.") ? "KRX_REFERENCE" : symbol.startsWith("TSE.") ? "TSE_REFERENCE" : "US_REFERENCE",
     auctionPrice: null,
     last,
     previousClose: positive(fields.previous_close ?? fields.prev_close),
-    bid: bid.price,
-    ask: ask.price,
+    bid: stale || bid.size === null ? null : bid.price,
+    ask: stale || ask.size === null ? null : ask.price,
     bidSize: bid.size,
     askSize: ask.size,
     marketTimestamp: candidates.length ? Math.max(...candidates) : Date.now(),
@@ -84,10 +93,21 @@ let socket;
 let reconnectMs = 1_000;
 let pingTimer;
 let pushing = false;
+let lastRelayMessageAt = Date.now();
+
+// The outer LaunchAgent loop restarts this process if a network change leaves
+// the WebSocket stuck without a close event.
+setInterval(() => {
+  if (Date.now() - lastRelayMessageAt > 90_000) {
+    console.error("Posley ADR relay silent for 90s; restarting the pusher.");
+    process.exit(1);
+  }
+}, 15_000);
 
 const connect = () => {
   socket = new WebSocket(RELAY_URL);
   socket.addEventListener("open", () => {
+    lastRelayMessageAt = Date.now();
     reconnectMs = 1_000;
     socket.send(JSON.stringify({ action: "subscribe", keys: KEYS, snapshot: 1 }));
     clearInterval(pingTimer);
@@ -97,6 +117,7 @@ const connect = () => {
     console.log(`Posley ADR relay connected; subscribed to ${KEYS.length} streams.`);
   });
   socket.addEventListener("message", (event) => {
+    lastRelayMessageAt = Date.now();
     try {
       const message = JSON.parse(String(event.data));
       if (message.type !== "entry") return;

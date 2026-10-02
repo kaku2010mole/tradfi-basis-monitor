@@ -76,11 +76,13 @@ test("scans Binance and Bitget TradFi stock and ETF contracts into an English di
 });
 
 test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Monitor", async () => {
-  const [page, component, route, posley] = await Promise.all([
+  const [page, component, route, posley, officePusher, worker] = await Promise.all([
     readFile(new URL("../app/oracle/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/KoreanPerpMonitor.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/oracle-monitor/korean-bitget/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/posleyAdr.ts", import.meta.url), "utf8"),
+    readFile(new URL("../services/futu-pusher/posley-adr-pusher.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
   ]);
   assert.match(page, /<KoreanPerpMonitor/);
   assert.match(component, /Korean &amp; Japanese stock cross-venue basis/);
@@ -97,6 +99,14 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(route, /BUY KRX|buyKoreaSellPerp/);
   assert.match(posley, /FX:USD:KRW/);
   assert.match(posley, /FX:USD:JPY/);
+  assert.match(officePusher, /STK:\$\{code\}:TSEJ:JPY/);
+  assert.match(officePusher, /FX:USD:JPY/);
+  assert.match(officePusher, /relay silent for 90s/);
+  assert.match(officePusher, /specific_data/);
+  assert.match(route, /quote\.symbol\?\.startsWith\("TSE\."\)/);
+  assert.match(route, /quote\.symbol === "FX\.USDJPY"/);
+  assert.match(worker, /TSE/);
+  assert.match(worker, /285A/);
   assert.match(route, /code: "7203"[^\n]*sharesPerPerp: 10/);
   assert.match(route, /fresh\(yenFx\?\.timestamp\)/);
   assert.match(posley, /saved Posley login has expired/);
