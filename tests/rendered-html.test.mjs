@@ -113,6 +113,10 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(route, /marketSession/);
   assert.match(route, /"PRE-MARKET"/);
   assert.match(route, /"AFTER-HOURS"/);
+  assert.match(route, /14 \* 60 \+ 40\) return "AFTER-HOURS OPENING"/);
+  assert.match(route, /cashSessionActive = sessions\.KRX === "REGULAR" \|\| sessions\.KRX === "AFTER-HOURS"/);
+  assert.match(component, /row\.market === "KRX" && row\.session === "AFTER-HOURS"/);
+  assert.match(component, /AFTER-HOURS BBO/);
   assert.match(route, /"OPENING AUCTION"/);
   assert.match(route, /USDJPYUSDT/);
   assert.match(route, /indexPrice/);

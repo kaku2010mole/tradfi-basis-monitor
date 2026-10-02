@@ -48,7 +48,8 @@ function marketSession(market: "KRX" | "TSE", now: number) {
   if (market === "KRX") {
     if (clock >= 7 * 60 && clock < 8 * 60) return "PRE-MARKET";
     if (clock >= 8 * 60 && clock < 14 * 60 + 30) return "REGULAR";
-    if (clock >= 14 * 60 + 30 && clock < 19 * 60) return "AFTER-HOURS";
+    if (clock >= 14 * 60 + 30 && clock < 14 * 60 + 40) return "AFTER-HOURS OPENING";
+    if (clock >= 14 * 60 + 40 && clock < 19 * 60) return "AFTER-HOURS";
     return "CLOSED";
   }
   if (clock >= 7 * 60 && clock < 8 * 60) return "OPENING AUCTION";
@@ -126,7 +127,8 @@ export async function GET(request: Request) {
       const cash = books.get(stock.code);
       const cashBidKrw = positive(cash?.bid);
       const cashAskKrw = positive(cash?.ask);
-      const usable = sessions.KRX === "REGULAR" && fresh(cash?.timestamp) && fresh(fx?.timestamp) && positive(cash?.bidSize) !== null && positive(cash?.askSize) !== null;
+      const cashSessionActive = sessions.KRX === "REGULAR" || sessions.KRX === "AFTER-HOURS";
+      const usable = cashSessionActive && fresh(cash?.timestamp) && fresh(fx?.timestamp) && positive(cash?.bidSize) !== null && positive(cash?.askSize) !== null;
       const cashBidUsd = usable && cashBidKrw !== null && fxAsk !== null ? cashBidKrw / fxAsk : null;
       const cashAskUsd = usable && cashAskKrw !== null && fxBid !== null ? cashAskKrw / fxBid : null;
       const venues = [
