@@ -107,6 +107,7 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(officePusher, /FX:USD:JPY/);
   assert.match(officePusher, /relay silent for 90s/);
   assert.match(officePusher, /specific_data/);
+  assert.match(officePusher, /if \(stale\) return null/);
   assert.match(route, /quote\.symbol\?\.startsWith\("TSE\."\)/);
   assert.match(route, /quote\.symbol === "FX\.USDJPY"/);
   assert.match(route, /DISPLAY_MAX_AGE_MS/);
@@ -127,6 +128,44 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(route, /code: "7203"[^\n]*sharesPerPerp: 10/);
   assert.match(route, /fresh\(yenFx\?\.timestamp\)/);
   assert.match(posley, /saved Posley login has expired/);
+});
+
+test("last-only relay heartbeats cannot erase or refresh a recent executable book", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("heartbeat-test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  const credential = "test-futu-push-token";
+  const environment = { FUTU_PUSH_TOKEN: credential };
+  const context = { waitUntil() {}, passThroughOnException() {} };
+  const priorSnapshot = globalThis.__FUTU_PUSH_SNAPSHOT__;
+  const bookTimestamp = Date.now() - 3_000;
+  const book = { symbol: "KRX.035420", bid: 192100, ask: 192200, bidSize: 598, askSize: 362, last: 192100, marketTimestamp: bookTimestamp };
+  const send = (quote) => worker.fetch(new Request("http://localhost/api/hk-auction/ingest", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ generatedAt: Date.now(), quotes: [quote] }),
+  }), environment, context);
+  try {
+    delete globalThis.__FUTU_PUSH_SNAPSHOT__;
+    assert.equal((await send(book)).status, 202);
+    assert.equal((await send({ ...book, bid: null, ask: null, last: 192200 })).status, 202);
+    const merged = globalThis.__FUTU_PUSH_SNAPSHOT__?.payload.quotes.find((quote) => quote.symbol === book.symbol);
+    assert.equal(merged?.bid, book.bid);
+    assert.equal(merged?.ask, book.ask);
+    assert.equal(merged?.last, 192200);
+    assert.equal(merged?.marketTimestamp, bookTimestamp);
+    assert.equal((await send({ ...book, bid: 192300, ask: 192400, marketTimestamp: Date.now() })).status, 202);
+    const refreshed = globalThis.__FUTU_PUSH_SNAPSHOT__?.payload.quotes.find((quote) => quote.symbol === book.symbol);
+    assert.equal(refreshed?.bid, 192300);
+    const expiredBook = { ...book, marketTimestamp: Date.now() - 70_000 };
+    assert.equal((await send(expiredBook)).status, 202);
+    assert.equal((await send({ ...expiredBook, bid: null, ask: null, marketTimestamp: Date.now() })).status, 202);
+    const expired = globalThis.__FUTU_PUSH_SNAPSHOT__?.payload.quotes.find((quote) => quote.symbol === book.symbol);
+    assert.equal(expired?.bid, null);
+  } finally {
+    if (priorSnapshot) globalThis.__FUTU_PUSH_SNAPSHOT__ = priorSnapshot;
+    else delete globalThis.__FUTU_PUSH_SNAPSHOT__;
+  }
 });
 
 test("restores the Relative Value Monitor and its global prediction-error broadcast", async () => {

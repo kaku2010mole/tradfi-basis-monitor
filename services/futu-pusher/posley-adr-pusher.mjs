@@ -59,6 +59,9 @@ const quoteFromEntry = (message) => {
     try { details = JSON.parse(details); } catch { details = null; }
   }
   const stale = details?.stale === true || details?.stale === "true";
+  // A relay heartbeat repeats the previous market timestamp. It is not a new
+  // quote and must not erase a still-fresh two-sided book in `latest`.
+  if (stale) return null;
   const candidates = [
     fields.last_tick_ts_ms,
     fields.bids_receive_ts_ms,
@@ -80,8 +83,8 @@ const quoteFromEntry = (message) => {
     auctionPrice: null,
     last,
     previousClose: positive(fields.previous_close ?? fields.prev_close),
-    bid: stale || bid.size === null ? null : bid.price,
-    ask: stale || ask.size === null ? null : ask.price,
+    bid: bid.size === null ? null : bid.price,
+    ask: ask.size === null ? null : ask.price,
     bidSize: bid.size,
     askSize: ask.size,
     marketTimestamp: candidates.length ? Math.max(...candidates) : Date.now(),

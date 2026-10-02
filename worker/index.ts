@@ -178,9 +178,34 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
     }
     return [...merged.values()];
   };
+  const hasCompleteBook = (record: Record<string, unknown>) =>
+    ["bid", "ask", "bidSize", "askSize"].every((field) => Number.isFinite(Number(record[field])) && Number(record[field]) > 0);
+  const mergedQuotes = new Map<string, Record<string, unknown>>();
+  for (const record of previous?.quotes ?? []) {
+    const symbol = typeof record?.symbol === "string" ? record.symbol.toUpperCase() : "";
+    if (symbol) mergedQuotes.set(symbol, record);
+  }
+  for (const record of payload.quotes) {
+    const symbol = typeof record?.symbol === "string" ? record.symbol.toUpperCase() : "";
+    if (!symbol) continue;
+    const prior = mergedQuotes.get(symbol);
+    const priorTimestamp = Number(prior?.marketTimestamp);
+    if (prior && hasCompleteBook(prior) && !hasCompleteBook(record) &&
+        Number.isFinite(priorTimestamp) && priorTimestamp > 0 && now - priorTimestamp <= 60_000) {
+      // Keep the original book timestamp: a last-only update or relay heartbeat
+      // must never make an old bid/ask look newly executable.
+      mergedQuotes.set(symbol, {
+        ...prior,
+        last: Number(record.last) > 0 ? record.last : prior.last,
+        marketState: record.marketState ?? prior.marketState,
+      });
+    } else {
+      mergedQuotes.set(symbol, record);
+    }
+  }
   const mergedPayload: FutuPushPayload = {
     generatedAt: Math.max(previous?.generatedAt ?? 0, payload.generatedAt),
-    quotes: mergeBySymbol(previous?.quotes, payload.quotes),
+    quotes: [...mergedQuotes.values()],
     orderbooks: mergeBySymbol(previous?.orderbooks, payload.orderbooks),
     history: { ...(previous?.history ?? {}), ...(payload.history ?? {}) },
   };
