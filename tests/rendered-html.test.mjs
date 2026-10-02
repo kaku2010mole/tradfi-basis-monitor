@@ -161,7 +161,10 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(auction, /"HK\.00992".*hkSharesPerAdr: 20/);
   assert.match(auction, /Binance-implied ADR/);
   assert.match(auction, /FUTU ↔ \{perpVenue\}/);
-  assert.match(auction, /US references live/);
+  assert.match(auction, /US references \{freshReferences\.length\}/);
+  assert.match(auction, /const adrActionable = adrBasisPct !== null && adrFresh && adrBid !== null && adrAsk !== null/);
+  assert.match(auction, /INDICATIVE ONLY/);
+  assert.doesNotMatch(quotes, /delayedAdrBenchmarks/);
   assert.match(auction, /HK\.01211.*BYDUSDT.*BYDDY.*hkSharesPerAdr: 1/);
   assert.match(auction, /ASSET_TIERS/);
   assert.match(auction, /Tier for \$\{pair\.perpSymbol\}/);

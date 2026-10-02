@@ -347,7 +347,7 @@ export default function HkAuctionPage() {
       if (!adrSortActive) return quote?.metrics.midBasisPct === null || quote?.metrics.midBasisPct === undefined ? -1 : Math.abs(quote.metrics.midBasisPct);
       const openDAdr = pair.adrSymbol ? payload?.references?.[pair.adrSymbol] : undefined;
       const timestamp = openDAdr?.marketTimestamp ?? null;
-      if (!timestamp || now - timestamp > ADR_BENCHMARK_MAX_AGE_MS || quote?.metrics.binanceMid === null || quote?.metrics.binanceMid === undefined || !pair.hkSharesPerAdr) return -1;
+      if (!timestamp || now - timestamp > ADR_STALE_MS || openDAdr?.stale !== false || openDAdr.bid === null || openDAdr.ask === null || quote?.metrics.binanceMid === null || quote?.metrics.binanceMid === undefined || !pair.hkSharesPerAdr) return -1;
       const bid = openDAdr?.bid ?? null;
       const ask = openDAdr?.ask ?? null;
       const last = openDAdr?.last ?? null;
@@ -373,7 +373,10 @@ export default function HkAuctionPage() {
   const session = sessionState(now, futuState);
   const alert = Number(threshold) || 0;
   const wantedReferences = [...new Set([LITE_REFERENCE_SYMBOL, "NVDA", ...pairs.flatMap((pair) => pair.adrSymbol ? [pair.adrSymbol] : [])])];
-  const availableReferences = wantedReferences.filter((symbol) => payload?.references?.[symbol]);
+  const freshReferences = wantedReferences.filter((symbol) => {
+    const reference = payload?.references?.[symbol];
+    return reference && reference.stale === false && reference.marketTimestamp && now - reference.marketTimestamp <= ADR_STALE_MS;
+  });
   const missingReferences = wantedReferences.filter((symbol) => !payload?.references?.[symbol]);
   const missingFutuReferences = missingReferences.filter((symbol) => symbol === "LITE" || symbol === "NVDA");
   const missingPosleyReferences = missingReferences.filter((symbol) => symbol !== "LITE" && symbol !== "NVDA");
@@ -391,7 +394,7 @@ export default function HkAuctionPage() {
         <span className={payload?.sources.futu ? styles.online : ""}><i />Futu {payload?.sources.futu ? "connected" : "waiting for relay"}</span>
         <span className={payload?.sources.binance ? styles.online : ""}><i />Binance {payload?.sources.binance ? "live" : "reconnecting"}</span>
         <span className={payload?.sources.bybit ? styles.online : ""}><i />Bybit {payload?.sources.bybit ? "live" : "reconnecting"}</span>
-        <button className={availableReferences.length === wantedReferences.length ? styles.online : ""} disabled><i />{availableReferences.length === wantedReferences.length ? "US references live" : availableReferences.length ? `US references partial ${availableReferences.length}/${wantedReferences.length}` : "US references waiting"}</button>
+        <button className={freshReferences.length === wantedReferences.length ? styles.online : ""} disabled><i />US references {freshReferences.length}/{wantedReferences.length} fresh</button>
       </div>
     </section>
 
@@ -452,7 +455,7 @@ export default function HkAuctionPage() {
         const fundingPct = quote?.binance?.fundingRate === null || quote?.binance?.fundingRate === undefined ? null : quote.binance.fundingRate * 100;
         const openDAdr = pair.adrSymbol ? payload?.references?.[pair.adrSymbol] : undefined;
         const adrTimestamp = openDAdr?.marketTimestamp ?? null;
-        const adrFresh = Boolean(adrTimestamp && now - adrTimestamp <= ADR_STALE_MS);
+        const adrFresh = Boolean(openDAdr?.stale === false && adrTimestamp && now - adrTimestamp <= ADR_STALE_MS);
         const adrUsable = Boolean(adrTimestamp && now - adrTimestamp <= ADR_BENCHMARK_MAX_AGE_MS);
         const adrBid = openDAdr?.bid ?? null;
         const adrAsk = openDAdr?.ask ?? null;
@@ -464,6 +467,7 @@ export default function HkAuctionPage() {
           ? quote.metrics.binanceMid * perpsPerAdr : null;
         const adrBasisPct = adrMid !== null && binanceImpliedAdrUsd !== null && binanceImpliedAdrUsd > 0
           ? (adrMid / binanceImpliedAdrUsd - 1) * 100 : null;
+        const adrActionable = adrBasisPct !== null && adrFresh && adrBid !== null && adrAsk !== null;
         const lite = payload?.references?.[LITE_REFERENCE_SYMBOL];
         const liteTimestamp = lite?.marketTimestamp ?? null;
         const liteUsable = Boolean(liteTimestamp && now - liteTimestamp <= ADR_BENCHMARK_MAX_AGE_MS);
@@ -483,7 +487,7 @@ export default function HkAuctionPage() {
           : adrMid === null ? `${pair.adrSymbol} price unavailable`
           : binanceImpliedAdrUsd === null ? "Binance perp price unavailable"
           : "Waiting for valid prices";
-        const cardHot = hot || (adrBasisPct !== null && Math.abs(adrBasisPct) >= alert);
+        const cardHot = hot || (adrActionable && adrBasisPct !== null && Math.abs(adrBasisPct) >= alert);
         return <article key={id} className={`${styles.card} ${cardHot ? styles.hotCard : ""}`}>
           <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol}</h3><small>{isHkQuotedPerp(pair.perpSymbol) ? `1 Binance perp ↔ ${pair.sharesPerContract.toLocaleString()} HK shares` : `${pair.sharesPerContract.toLocaleString()} shares / perp`}{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={styles.headerMeta}><label className={`${styles.tierControl} ${styles[`tier${tier}`]}`} title={`Suggested: Tier ${suggestedTier.grade} · ${suggestedTier.reason}`}><span>TAG</span><select aria-label={`Tier for ${pair.perpSymbol}`} value={tier} onChange={(event) => updateTier(pair, event.target.value as AssetTier)}><option value="S">S · Top</option><option value="A">A · High quality</option><option value="B">B · Selective</option><option value="C">C · Tactical</option></select><small>{TIER_LABELS[tier]}</small></label><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></div></header>
           <div className={styles.cardSignals}>
@@ -511,9 +515,9 @@ export default function HkAuctionPage() {
                 <div><dt>{nvda?.hkCloseAnchor ? "HK CLOSE ANCHOR" : "US PRIOR CLOSE"}</dt><dd>{number(nvdaAnchor, 4)}</dd><small>{nvda?.hkCloseAnchor ? `${time(nvda.hkCloseAnchor.timestamp)} HKT · OpenD 1m` : "Fallback when a 16:00 HKT bar is unavailable"}</small></div>
               </dl>
             </section> : null}
-            {pair.adrSymbol ? <section className={`${styles.signalRow} ${styles.adrSignal} ${adrBasisPct === null ? styles.signalWaiting : ""} ${adrBasisPct !== null && Math.abs(adrBasisPct) >= alert ? styles.signalRowHot : ""}`}>
+            {pair.adrSymbol ? <section className={`${styles.signalRow} ${styles.adrSignal} ${adrBasisPct === null ? styles.signalWaiting : ""} ${adrActionable && adrBasisPct !== null && Math.abs(adrBasisPct) >= alert ? styles.signalRowHot : ""}`}>
               <div className={styles.signalBasis}><span>OVERNIGHT · {(openDAdr?.source ?? "US REFERENCE").toUpperCase()} ↔ BINANCE</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small>{adrFresh ? `LIVE ADR · ${time(adrTimestamp)}` : adrUsable ? `US BENCHMARK · ${time(adrTimestamp)}` : adrTimestamp ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
-              <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{adrBasisPct === null ? "SIGNAL UNAVAILABLE" : adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}`}</strong><small>{adrBasisPct === null ? `${adrWaitingReason} · expired data excluded` : `${adrFresh ? "Live" : "Latest US benchmark"} ADR versus Binance · gap ${pct(Math.abs(adrBasisPct))}`}</small></div>
+              <div className={styles.signalDirection}><span>{adrActionable ? "TRADE DIRECTION" : "REFERENCE STATUS"}</span><strong>{adrActionable ? adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}` : adrBasisPct !== null ? "INDICATIVE ONLY" : "SIGNAL UNAVAILABLE"}</strong><small>{adrActionable ? `Live ADR BBO versus Binance · gap ${pct(Math.abs(adrBasisPct))}` : adrBasisPct !== null ? "Not executable · delayed or stale ADR / no live bid-ask" : `${adrWaitingReason} · expired data excluded`}</small></div>
               <dl className={`${styles.signalMetrics} ${styles.adrMetrics}`}>
                 <div><dt>{pair.adrSymbol} · USD</dt><dd>{number(adrMid, 4)}</dd></div>
                 <div><dt>Binance-implied ADR</dt><dd>{number(binanceImpliedAdrUsd, 4)}</dd></div>
