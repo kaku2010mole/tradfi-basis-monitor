@@ -86,8 +86,10 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   ]);
   assert.match(page, /<KoreanPerpMonitor/);
   assert.match(component, /Korean &amp; Japanese stock cross-venue basis/);
-  assert.match(component, /CLOSED · last cash quotes/);
+  assert.match(component, /KRX \$\{payload\.sessions\.KRX\} · TSE \$\{payload\.sessions\.TSE\}/);
   assert.match(component, /Last cash quote · no live basis/);
+  assert.match(component, /index fallback is indicative only/);
+  assert.match(component, /Pre-open book if available · no official IEP verified/);
   assert.match(component, /Connect Posley/);
   assert.match(component, /equity_monitor_id_token/);
   assert.doesNotMatch(component, /005935/);
@@ -108,7 +110,12 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(route, /quote\.symbol\?\.startsWith\("TSE\."\)/);
   assert.match(route, /quote\.symbol === "FX\.USDJPY"/);
   assert.match(route, /DISPLAY_MAX_AGE_MS/);
-  assert.match(route, /scheduledCashClosed/);
+  assert.match(route, /marketSession/);
+  assert.match(route, /"PRE-MARKET"/);
+  assert.match(route, /"AFTER-HOURS"/);
+  assert.match(route, /"OPENING AUCTION"/);
+  assert.match(route, /USDJPYUSDT/);
+  assert.match(route, /indexPrice/);
   assert.match(route, /cashLast: positive\(cash\?\.last\)/);
   assert.match(route, /positive\(cash\?\.bidSize\) !== null/);
   assert.match(worker, /TSE/);
