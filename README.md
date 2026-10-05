@@ -155,17 +155,6 @@ page's pair setup. Live ADR quotes use a 30-second freshness indicator; the most
 recent US quote can remain an explicitly labelled benchmark for up to 96 hours
 so the HK pre-open session can compare against the prior US close.
 
-## Taker–Taker live execution
-
-The password-protected `/taker` page supports paper DCA and explicitly armed
-internal Hyperliquid taker–taker mainnet execution. The user selects two
-Hyperliquid perps, a fair A/B price ratio, a USD hedge ratio, trigger, interval,
-slice size, and IOC slippage cap. Each slice submits both perp IOC orders in one
-signed exchange action. A multi-order action is not atomic, so any one-leg fill
-stops the bot and is reported as unhedged exposure. The API wallet key exists
-only in the current browser tab and is cleared by closing or locking it. Hidden
-or stale tabs pause automatically.
-
 ## Learn More
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)

@@ -20,7 +20,7 @@ type BybitKlineResponse = { retCode?: number; retMsg?: string; result?: { list?:
 type BitgetKlineResponse = { code?: string; msg?: string; data?: Array<[string, string, string, string, string, ...string[]]> };
 
 const validStock = (value: string | null) => value?.trim().toUpperCase().match(/^HK\.\d{5}$/)?.[0] ?? null;
-const validPerp = (value: string | null) => value?.trim().toUpperCase().match(/^[A-Z0-9_]{3,32}USDT$/)?.[0] ?? null;
+const validPerp = (value: string | null) => /^io:(TCNT|TENCENT)$/i.test(value?.trim() ?? "") ? "io:TCNT" : value?.trim().toUpperCase().match(/^[A-Z0-9_]{3,32}USDT$/)?.[0] ?? null;
 
 const positive = (value: unknown) => {
   const parsed = Number(value);
@@ -71,11 +71,19 @@ async function getBitgetKlines(symbol: string, startTime: number, endTime: numbe
   return payload.data.map((row) => [Number(row[0]), row[1], row[2], row[3], row[4]] as BinanceKline).sort((left, right) => left[0] - right[0]);
 }
 
+async function getHyperliquidKlines(symbol: string, startTime: number, endTime: number): Promise<BinanceKline[]> {
+  const response = await fetch("https://api.hyperliquid.xyz/info", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "candleSnapshot", req: { coin: symbol, interval: "1m", startTime, endTime } }), cache: "no-store", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  if (!response.ok) throw new Error(`${symbol}: Hyperliquid history HTTP ${response.status}.`);
+  const candles = await response.json() as Array<{ t: number; o: string; h: string; l: string; c: string }>;
+  if (!Array.isArray(candles)) throw new Error("Invalid Hyperliquid candle response.");
+  return candles.map((bar) => [bar.t, bar.o, bar.h, bar.l, bar.c] as BinanceKline);
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const stockSymbol = validStock(url.searchParams.get("stock"));
   const perpSymbol = validPerp(url.searchParams.get("perp"));
-  const venue = url.searchParams.get("venue")?.toLowerCase() === "bybit" ? "bybit" : url.searchParams.get("venue")?.toLowerCase() === "bitget" ? "bitget" : "binance";
+  const venue = perpSymbol === "io:TCNT" ? "hyperliquid" : url.searchParams.get("venue")?.toLowerCase() === "bybit" ? "bybit" : url.searchParams.get("venue")?.toLowerCase() === "bitget" ? "bitget" : "binance";
   const sharesPerContract = positive(url.searchParams.get("shares"));
   const usdHkd = positive(url.searchParams.get("usdhkd"));
   if (!stockSymbol || !perpSymbol || sharesPerContract === null || usdHkd === null || usdHkd > 20) {
@@ -100,7 +108,9 @@ export async function GET(request: Request) {
       stockDays.set(hktDay, [...(stockDays.get(hktDay) ?? []), timestamp]);
     });
     const klines = (await Promise.all([...stockDays.values()].map((timestamps) =>
-      venue === "bybit"
+      venue === "hyperliquid"
+        ? getHyperliquidKlines(perpSymbol, Math.min(...timestamps), Math.max(...timestamps) + 59_999)
+        : venue === "bybit"
         ? getBybitKlines(perpSymbol, Math.min(...timestamps), Math.max(...timestamps) + 59_999)
         : venue === "bitget"
           ? getBitgetKlines(perpSymbol, Math.min(...timestamps), Math.max(...timestamps) + 59_999)
@@ -123,14 +133,14 @@ export async function GET(request: Request) {
       }];
     });
     if (!points.length) {
-      return Response.json({ error: `No overlapping one-minute Futu and ${venue === "bybit" ? "Bybit" : venue === "bitget" ? "Bitget" : "Binance"} history was found.` }, { status: 404 });
+      return Response.json({ error: `No overlapping one-minute Futu and ${venue === "hyperliquid" ? "Hyperliquid" : venue === "bybit" ? "Bybit" : venue === "bitget" ? "Bitget" : "Binance"} history was found.` }, { status: 404 });
     }
     return Response.json({
       stockSymbol,
       perpSymbol,
       interval: "1m",
       points,
-      source: `Futu OpenD + ${venue === "bybit" ? "Bybit linear" : venue === "bitget" ? "Bitget USDT-M" : "Binance USD-M"} klines`,
+      source: `Futu OpenD + ${venue === "hyperliquid" ? "Hyperliquid" : venue === "bybit" ? "Bybit linear" : venue === "bitget" ? "Bitget USDT-M" : "Binance USD-M"} klines`,
       timestamp: Date.now(),
     }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {

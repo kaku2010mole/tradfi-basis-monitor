@@ -30,7 +30,7 @@ type PairConfig = {
   stockSymbol: string;
   perpSymbol: string;
   sharesPerContract: number;
-  perpVenue: "binance" | "bybit" | "bitget";
+  perpVenue: "binance" | "bybit" | "bitget" | "hyperliquid";
 };
 
 type Level = { price: number; size: number };
@@ -97,6 +97,7 @@ type BybitTickerResponse = {
 type BitgetTickerResponse = { code?: string; data?: Array<{ symbol?: string; bidPr?: string; askPr?: string; bidSz?: string; askSz?: string; fundingRate?: string; ts?: string }> };
 
 const DEFAULT_PAIRS: PairConfig[] = [
+  { stockSymbol: "HK.00700", perpSymbol: "io:TCNT", sharesPerContract: 1, perpVenue: "hyperliquid" },
   { stockSymbol: "HK.00700", perpSymbol: "TENCENTUSDT", sharesPerContract: 1, perpVenue: "binance" },
   { stockSymbol: "HK.01024", perpSymbol: "KUAISHOUUSDT", sharesPerContract: 1, perpVenue: "binance" },
   { stockSymbol: "HK.03690", perpSymbol: "MEITUANUSDT", sharesPerContract: 1, perpVenue: "binance" },
@@ -166,7 +167,9 @@ const normalizeFutuSymbol = (value: string) => {
 };
 
 const normalizePerpSymbol = (value: string) => {
-  const symbol = value.trim().toUpperCase();
+  const raw = value.trim();
+  if (/^io:(TCNT|TENCENT)$/i.test(raw)) return "io:TCNT";
+  const symbol = raw.toUpperCase();
   if (!/^[A-Z0-9_]{3,32}USDT$/.test(symbol)) throw new Error(`Invalid Binance perp symbol: ${value}`);
   if (symbol === "XIAOMIUSDT") throw new Error("XIAOMIUSDT has been removed from this monitor.");
   return symbol;
@@ -187,7 +190,7 @@ const parsePair = (raw: string): PairConfig => {
   if (!Number.isFinite(sharesPerContract) || sharesPerContract <= 0 || sharesPerContract > 100_000) {
     throw new Error(`Invalid sharesPerContract for ${stockSymbol}.`);
   }
-  const perpVenue = parts[3]?.toLowerCase() === "bybit" ? "bybit" : parts[3]?.toLowerCase() === "bitget" ? "bitget" : "binance";
+  const perpVenue = perpSymbol === "io:TCNT" ? "hyperliquid" : parts[3]?.toLowerCase() === "bybit" ? "bybit" : parts[3]?.toLowerCase() === "bitget" ? "bitget" : "binance";
   return { stockSymbol, perpSymbol, sharesPerContract, perpVenue };
 };
 
@@ -352,6 +355,7 @@ async function getFutuQuotes(symbols: string[]) {
 }
 
 async function getBinanceQuotes(symbols: string[]) {
+  if (!symbols.length) return new Map<string, BinanceQuote>();
   const store = globalThis as FutuPushStore;
   const now = Date.now();
   const cachedBatch = store.__BINANCE_BATCH_CACHE__;
@@ -501,6 +505,33 @@ async function getBybitQuotes(symbols: string[]) {
   finally { if (store.__BYBIT_BATCH_PROMISE__ === promise) delete store.__BYBIT_BATCH_PROMISE__; }
 }
 
+async function getHyperliquidQuotes(symbols: string[]) {
+  const info = async (body: object) => {
+    const response = await fetch("https://api.hyperliquid.xyz/info", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!response.ok) throw new Error(`Hyperliquid info HTTP ${response.status}.`);
+    return response.json();
+  };
+  const quotes = new Map<string, BinanceQuote>();
+  if (!symbols.length) return quotes;
+  const [meta, ...books] = await Promise.all([
+    info({ type: "metaAndAssetCtxs", dex: "io" }),
+    ...symbols.map((coin) => info({ type: "l2Book", coin })),
+  ]);
+  const contexts = new Map<string, { funding?: string }>((meta?.[0]?.universe ?? []).map((asset: { name: string }, index: number) => [asset.name, meta[1]?.[index] ?? {}]));
+  books.forEach((book, index) => {
+    const symbol = symbols[index];
+    const bid = positive(book?.levels?.[0]?.[0]?.px);
+    const ask = positive(book?.levels?.[1]?.[0]?.px);
+    if (bid === null || ask === null || ask < bid) return;
+    const receivedAt = Date.now();
+    const marketTimestamp = positive(book.time) ?? 0;
+    const rawFunding = contexts.get(symbol)?.funding;
+    const funding = rawFunding == null ? NaN : Number(rawFunding);
+    quotes.set(symbol, { symbol, bid, ask, mid: (bid + ask) / 2, bidSize: positive(book.levels[0][0].sz), askSize: positive(book.levels[1][0].sz), fundingRate: Number.isFinite(funding) ? funding : null, nextFundingTime: (Math.floor(receivedAt / 3_600_000) + 1) * 3_600_000, marketTimestamp, receivedAt, stale: !marketTimestamp || receivedAt - marketTimestamp > BINANCE_STALE_MS });
+  });
+  return quotes;
+}
+
 async function getBitgetQuotes(symbols: string[]) {
   if (!symbols.length) return new Map<string, BinanceQuote>();
   const store = globalThis as FutuPushStore;
@@ -600,11 +631,13 @@ export async function GET(request: Request) {
   const binanceSymbols = pairConfigs.filter((pair) => pair.perpVenue === "binance").map((pair) => pair.perpSymbol);
   const bybitSymbols = pairConfigs.filter((pair) => pair.perpVenue === "bybit").map((pair) => pair.perpSymbol);
   const bitgetSymbols = pairConfigs.filter((pair) => pair.perpVenue === "bitget").map((pair) => pair.perpSymbol);
-  const [futuResult, binanceResult, bybitResult, bitgetResult] = await Promise.allSettled([
+  const hyperliquidSymbols = pairConfigs.filter((pair) => pair.perpVenue === "hyperliquid").map((pair) => pair.perpSymbol);
+  const [futuResult, binanceResult, bybitResult, bitgetResult, hyperliquidResult] = await Promise.allSettled([
     getFutuQuotes([...pairConfigs.map((pair) => pair.stockSymbol), ...referenceSymbols]),
     getBinanceQuotes(binanceSymbols),
     getBybitQuotes(bybitSymbols),
     getBitgetQuotes(bitgetSymbols),
+    getHyperliquidQuotes(hyperliquidSymbols),
   ]);
   const futuBySymbol = new Map(
     futuResult.status === "fulfilled" ? futuResult.value.map((quote) => [quote.symbol, quote] as const) : [],
@@ -618,6 +651,8 @@ export async function GET(request: Request) {
   const bybitBySymbol = bybitResult.status === "fulfilled" ? bybitResult.value : new Map<string, BinanceQuote>();
   const bitgetBySymbol = bitgetResult.status === "fulfilled" ? bitgetResult.value : new Map<string, BinanceQuote>();
 
+  if (hyperliquidResult.status === "rejected") errors.push(errorMessage(hyperliquidResult.reason));
+  const hyperliquidBySymbol = hyperliquidResult.status === "fulfilled" ? hyperliquidResult.value : new Map<string, BinanceQuote>();
   const now = Date.now();
   const references = Object.fromEntries(referenceSymbols.flatMap((symbol) => {
     const quote = futuBySymbol.get(symbol);
@@ -625,7 +660,7 @@ export async function GET(request: Request) {
   }));
   const quotes = pairConfigs.map((pair) => {
     const futu = futuBySymbol.get(pair.stockSymbol) ?? null;
-    const binance = (pair.perpVenue === "bybit" ? bybitBySymbol : pair.perpVenue === "bitget" ? bitgetBySymbol : binanceBySymbol).get(pair.perpSymbol) ?? null;
+    const binance = (pair.perpVenue === "hyperliquid" ? hyperliquidBySymbol : pair.perpVenue === "bybit" ? bybitBySymbol : pair.perpVenue === "bitget" ? bitgetBySymbol : binanceBySymbol).get(pair.perpSymbol) ?? null;
 
     // A missing exchange timestamp is not proof of freshness. Keep the raw
     // record for link diagnostics, but exclude it from every trading metric.
@@ -712,6 +747,7 @@ export async function GET(request: Request) {
       futu: futuResult.status === "fulfilled",
       binance: binanceResult.status === "fulfilled" && binanceBySymbol.size > 0,
       bybit: bybitResult.status === "fulfilled" && bybitBySymbol.size > 0,
+      hyperliquid: hyperliquidResult.status === "fulfilled" && hyperliquidBySymbol.size > 0,
       bitget: bitgetResult.status === "fulfilled" && bitgetBySymbol.size > 0,
     },
     errors: [...new Set(errors)],

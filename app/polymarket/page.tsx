@@ -44,29 +44,6 @@ type Market = {
 };
 
 type FundingPoint = { t: number; rate: number };
-type AccountFundingRecord = { id: string; time: number; coin: string; usdc: number; cumulativeUsdc: number; fundingRate: number | null };
-type AccountFundingPayload = {
-  user: string;
-  updatedAt: number;
-  summary: { netUsdc: number; receivedUsdc: number; paidUsdc: number; last24hUsdc: number; settlements: number; activeCoins: number; firstTime: number | null; lastTime: number | null };
-  chart: Array<{ t: number; deltaUsdc: number; cumulativeUsdc: number }>;
-  byCoin: Array<{ coin: string; netUsdc: number; receivedUsdc: number; paidUsdc: number; settlements: number }>;
-  records: AccountFundingRecord[];
-};
-type AccountPositionEstimate = {
-  coin: string;
-  size: number;
-  oracle: number | null;
-  fundingRate: number | null;
-  notionalUsdc: number | null;
-  estimatedUsdc: number | null;
-};
-type AccountPositionForecast = {
-  status: "connecting" | "live" | "reconnecting";
-  ready: boolean;
-  updatedAt: number | null;
-  positions: AccountPositionEstimate[];
-};
 type StreamStatus = "connecting" | "live" | "reconnecting";
 type BinanceBook = { symbol?: string; bidPrice?: string; askPrice?: string; time?: number };
 type BinanceStreamFrame = { e?: string; s?: string; b?: string; a?: string; E?: number; r?: string; T?: number };
@@ -77,17 +54,6 @@ const HISTORY_WINDOWS = [
   { label: "7D", ms: 7 * 24 * 60 * 60_000 },
   { label: "30D", ms: 30 * 24 * 60 * 60_000 },
 ] as const;
-
-const ACCOUNT_HISTORY_WINDOWS = [
-  { label: "24H", ms: 24 * 60 * 60_000 },
-  { label: "7D", ms: 7 * 24 * 60 * 60_000 },
-  { label: "30D", ms: 30 * 24 * 60 * 60_000 },
-  { label: "ALL", ms: 0 },
-] as const;
-
-const DAY_MS = 24 * 60 * 60_000;
-const HKT_OFFSET_MS = 8 * 60 * 60_000;
-type FundingInterval = { start: number; end: number; net: number; received: number; paid: number; settlements: number };
 
 const positive = (value: unknown) => {
   const parsed = Number(value);
@@ -101,18 +67,7 @@ const formatPct = (value: number | null, digits = 4) => value === null || !Numbe
 const formatFunding = (value: number | null) => value === null ? "—" : formatPct(value * 100, 5);
 const formatPrice = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: value >= 100 ? 3 : 7 });
 const formatCompact = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format(value);
-const formatUsdc = (value: number | null, digits = 2) => value === null || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : "−"}$${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 const formatTime = (value: number | null, date = false) => value === null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: date ? "short" : undefined, day: date ? "2-digit" : undefined, hour: "2-digit", minute: "2-digit", hour12: false }).format(value);
-const startOfHktDay = (value: number) => Math.floor((value + HKT_OFFSET_MS) / DAY_MS) * DAY_MS - HKT_OFFSET_MS;
-const startOfHktWeek = (value: number) => {
-  const dayStart = startOfHktDay(value);
-  const weekday = new Date(dayStart + HKT_OFFSET_MS).getUTCDay();
-  return dayStart - ((weekday + 6) % 7) * DAY_MS;
-};
-const periodLabel = (interval: FundingInterval, mode: "daily" | "weekly") => {
-  const format = (value: number) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", day: "2-digit", month: "short" }).format(value);
-  return mode === "daily" ? format(interval.start) : `${format(interval.start)} – ${format(interval.end - 1)}`;
-};
 const fundingHours = (interval: string) => {
   const match = interval.trim().toLowerCase().match(/([\d.]+)\s*h/);
   const hours = Number(match?.[1]);
@@ -185,268 +140,6 @@ function FundingChart({ points, symbol }: { points: FundingPoint[]; symbol: stri
     </svg>
     {selected && hoverIndex !== null && <div className={styles.tooltip} style={{ left: `${Math.min(78, Math.max(4, hoverIndex / Math.max(1, points.length - 1) * 100))}%` }}><strong>{formatTime(selected.t, true)} HKT</strong><span>1h funding {formatFunding(selected.rate)}</span><span>Approx. APR {formatPct(selected.rate * 24 * 365 * 100, 2)}</span></div>}
   </div>;
-}
-
-function AccountFundingChart({ points }: { points: AccountFundingPayload["chart"] }) {
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const width = 980;
-  const height = 330;
-  const left = 78;
-  const right = 24;
-  const top = 25;
-  const bottom = 278;
-  const values = points.map((point) => point.cumulativeUsdc);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const padding = Math.max(1, (max - min) * .12);
-  const floor = min - padding;
-  const ceiling = max + padding;
-  const x = (index: number) => left + (index / Math.max(1, points.length - 1)) * (width - left - right);
-  const y = (value: number) => top + ((ceiling - value) / Math.max(1, ceiling - floor)) * (bottom - top);
-  const path = values.map((value, index) => `${index ? "L" : "M"}${x(index).toFixed(2)},${y(value).toFixed(2)}`).join(" ");
-  const area = `${path} L${x(points.length - 1)},${bottom} L${x(0)},${bottom} Z`;
-  const ticks = Array.from({ length: 5 }, (_, index) => floor + (ceiling - floor) * index / 4);
-  const timeTicks = Array.from(new Set([0, Math.floor((points.length - 1) / 3), Math.floor((points.length - 1) * 2 / 3), points.length - 1]));
-  const selected = hoverIndex === null ? null : points[hoverIndex];
-
-  return <div className={styles.accountChartWrap} onMouseLeave={() => setHoverIndex(null)} onMouseMove={(event) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const chartX = ((event.clientX - rect.left + event.currentTarget.scrollLeft) / event.currentTarget.scrollWidth) * width;
-    const index = Math.round(((chartX - left) / (width - left - right)) * (points.length - 1));
-    setHoverIndex(Math.max(0, Math.min(points.length - 1, index)));
-  }}>
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Cumulative Hyperliquid funding income history">
-      <defs><linearGradient id="accountFundingArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#6e49d8" stopOpacity=".25" /><stop offset="1" stopColor="#6e49d8" stopOpacity=".02" /></linearGradient></defs>
-      {ticks.map((tick) => <g key={tick}><line x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} className={styles.accountGridLine} /><text x={left - 10} y={y(tick) + 4} textAnchor="end" className={styles.accountAxisText}>{formatUsdc(tick, 0)}</text></g>)}
-      {timeTicks.map((index) => <text key={index} x={x(index)} y={height - 15} textAnchor={index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"} className={styles.accountAxisText}>{formatTime(points[index].t, true)}</text>)}
-      <path d={area} className={styles.accountArea} />
-      <path d={path} className={styles.accountLine} />
-      {selected && hoverIndex !== null && <><line x1={x(hoverIndex)} x2={x(hoverIndex)} y1={top} y2={bottom} className={styles.hoverLine} /><circle cx={x(hoverIndex)} cy={y(selected.cumulativeUsdc)} r="5" className={styles.accountDot} /></>}
-    </svg>
-    {selected && hoverIndex !== null && <div className={styles.accountTooltip} style={{ left: `${Math.min(75, Math.max(4, hoverIndex / Math.max(1, points.length - 1) * 100))}%` }}><strong>{formatTime(selected.t, true)} HKT</strong><span>Cumulative {formatUsdc(selected.cumulativeUsdc)}</span><span>Settlement {formatUsdc(selected.deltaUsdc, 4)}</span></div>}
-  </div>;
-}
-
-function AccountFundingPanel() {
-  const [payload, setPayload] = useState<AccountFundingPayload | null>(null);
-  const [windowMs, setWindowMs] = useState(ACCOUNT_HISTORY_WINDOWS[3].ms);
-  const [periodMode, setPeriodMode] = useState<"daily" | "weekly">("daily");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [positionForecast, setPositionForecast] = useState<AccountPositionForecast>({ status: "connecting", ready: false, updatedAt: null, positions: [] });
-  const inFlight = useRef(false);
-
-  const load = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    try {
-      const response = await fetch("/api/hyperliquid/user-funding", { cache: "no-store" });
-      const raw = await response.text();
-      let next: AccountFundingPayload & { error?: string };
-      try {
-        next = JSON.parse(raw) as AccountFundingPayload & { error?: string };
-      } catch {
-        throw new Error(response.ok ? "Account funding response is temporarily unavailable." : `Account funding endpoint unavailable · HTTP ${response.status}`);
-      }
-      if (!response.ok) throw new Error(next.error || "Account funding history unavailable.");
-      setPayload(next);
-      setError("");
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Account funding history unavailable.");
-    } finally {
-      setLoading(false);
-      inFlight.current = false;
-    }
-  }, []);
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => void load());
-    const timer = window.setInterval(load, 60_000);
-    return () => { window.cancelAnimationFrame(frame); window.clearInterval(timer); };
-  }, [load]);
-
-  useEffect(() => {
-    let disposed = false;
-    let reconnectTimer: number | null = null;
-    let socket: WebSocket | null = null;
-    let reconnectAttempt = 0;
-    let hasPositionSnapshot = false;
-    const subscribedCoins = new Set<string>();
-    const positions = new Map<string, number>();
-    const contexts = new Map<string, { oracle: number | null; fundingRate: number | null }>();
-
-    const publish = (status: AccountPositionForecast["status"]) => {
-      const nextPositions = [...positions.entries()].map(([coin, size]): AccountPositionEstimate => {
-        const context = contexts.get(coin);
-        const oracle = context?.oracle ?? null;
-        const fundingRate = context?.fundingRate ?? null;
-        const notionalUsdc = oracle === null ? null : Math.abs(size * oracle);
-        // Positive funding is paid by longs to shorts, so a positive estimate means account income.
-        const estimatedUsdc = oracle === null || fundingRate === null ? null : -size * oracle * fundingRate;
-        return { coin, size, oracle, fundingRate, notionalUsdc, estimatedUsdc };
-      }).sort((a, b) => Math.abs(b.estimatedUsdc ?? 0) - Math.abs(a.estimatedUsdc ?? 0));
-      setPositionForecast({ status, ready: hasPositionSnapshot, updatedAt: Date.now(), positions: nextPositions });
-    };
-
-    const subscribeCoin = (coin: string) => {
-      if (!socket || socket.readyState !== WebSocket.OPEN || subscribedCoins.has(coin)) return;
-      subscribedCoins.add(coin);
-      socket.send(JSON.stringify({ method: "subscribe", subscription: { type: "activeAssetCtx", coin } }));
-    };
-
-    const readClearinghouseStates = (value: unknown) => {
-      if (!value || typeof value !== "object") return [] as unknown[];
-      if (Array.isArray(value)) return value.map((entry) => Array.isArray(entry) ? entry[1] : entry);
-      return Object.values(value as Record<string, unknown>);
-    };
-
-    const connect = () => {
-      if (disposed) return;
-      socket = new WebSocket("wss://api.hyperliquid.xyz/ws");
-      socket.onopen = () => {
-        reconnectAttempt = 0;
-        subscribedCoins.clear();
-        socket?.send(JSON.stringify({ method: "subscribe", subscription: { type: "allDexsClearinghouseState", user: "0xa590a393CC3e1776a47f32fD99ef5fc7c464a243" } }));
-        for (const coin of positions.keys()) subscribeCoin(coin);
-        publish("live");
-      };
-      socket.onmessage = (event) => {
-        try {
-          const frame = JSON.parse(String(event.data)) as { channel?: string; data?: unknown };
-          if (frame.channel === "allDexsClearinghouseState") {
-            const data = frame.data as { clearinghouseStates?: unknown } | undefined;
-            const nextPositions = new Map<string, number>();
-            for (const stateValue of readClearinghouseStates(data?.clearinghouseStates)) {
-              const state = stateValue as { assetPositions?: Array<{ position?: { coin?: string; szi?: string | number } }> };
-              for (const item of state.assetPositions ?? []) {
-                const coin = item.position?.coin?.trim();
-                const size = finite(item.position?.szi);
-                if (coin && size !== null && size !== 0) nextPositions.set(coin, (nextPositions.get(coin) ?? 0) + size);
-              }
-            }
-            positions.clear();
-            for (const [coin, size] of nextPositions) {
-              positions.set(coin, size);
-              subscribeCoin(coin);
-            }
-            hasPositionSnapshot = true;
-            publish("live");
-          }
-          if (frame.channel === "activeAssetCtx") {
-            const data = frame.data as { coin?: string; ctx?: { oraclePx?: string | number; funding?: string | number } } | undefined;
-            const coin = data?.coin?.trim();
-            if (!coin) return;
-            contexts.set(coin, { oracle: finite(data?.ctx?.oraclePx), fundingRate: finite(data?.ctx?.funding) });
-            publish("live");
-          }
-        } catch {
-          // Ignore malformed frames and keep the last complete forecast visible.
-        }
-      };
-      socket.onerror = () => socket?.close();
-      socket.onclose = () => {
-        if (disposed) return;
-        publish("reconnecting");
-        reconnectAttempt += 1;
-        reconnectTimer = window.setTimeout(connect, Math.min(10_000, 750 * 2 ** Math.min(4, reconnectAttempt)));
-      };
-    };
-
-    connect();
-    return () => {
-      disposed = true;
-      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
-      socket?.close();
-    };
-  }, []);
-
-  const cutoff = windowMs && payload ? payload.updatedAt - windowMs : 0;
-  const chart = useMemo(() => {
-    const visible = payload?.chart.filter((point) => point.t >= cutoff) ?? [];
-    if (!visible.length) return [];
-    let periodRunning = 0;
-    const baselineTime = windowMs ? cutoff : Math.max(0, visible[0].t - 60_000);
-    return [
-      { t: baselineTime, deltaUsdc: 0, cumulativeUsdc: 0 },
-      ...visible.map((point) => {
-        periodRunning += point.deltaUsdc;
-        return { ...point, cumulativeUsdc: periodRunning };
-      }),
-    ];
-  }, [cutoff, payload?.chart, windowMs]);
-  const records = useMemo(() => (payload?.records ?? []).filter((record) => record.time >= cutoff).slice().reverse(), [cutoff, payload?.records]);
-  const periodMetrics = useMemo(() => {
-    const all = payload?.records ?? [];
-    const now = payload?.updatedAt ?? 0;
-    const summarize = (start: number) => all.reduce((result, record) => {
-      if (record.time < start) return result;
-      result.net += record.usdc;
-      result.received += Math.max(0, record.usdc);
-      result.paid += Math.max(0, -record.usdc);
-      result.settlements += 1;
-      return result;
-    }, { net: 0, received: 0, paid: 0, settlements: 0 });
-    const todayStart = startOfHktDay(now);
-    const weekStart = startOfHktWeek(now);
-    return {
-      today: summarize(todayStart),
-      week: summarize(weekStart),
-      rolling7d: summarize(now - 7 * DAY_MS),
-    };
-  }, [payload?.records, payload?.updatedAt]);
-  const intervals = useMemo(() => {
-    if (!payload) return [];
-    const weekly = periodMode === "weekly";
-    const step = weekly ? 7 * DAY_MS : DAY_MS;
-    const count = weekly ? 12 : 14;
-    const currentStart = weekly ? startOfHktWeek(payload.updatedAt) : startOfHktDay(payload.updatedAt);
-    const buckets = Array.from({ length: count }, (_, index): FundingInterval => {
-      const start = currentStart - (count - 1 - index) * step;
-      return { start, end: start + step, net: 0, received: 0, paid: 0, settlements: 0 };
-    });
-    const firstStart = buckets[0]?.start ?? 0;
-    for (const record of payload.records) {
-      if (record.time < firstStart || record.time >= currentStart + step) continue;
-      const bucketStart = weekly ? startOfHktWeek(record.time) : startOfHktDay(record.time);
-      const bucket = buckets[Math.round((bucketStart - firstStart) / step)];
-      if (!bucket) continue;
-      bucket.net += record.usdc;
-      bucket.received += Math.max(0, record.usdc);
-      bucket.paid += Math.max(0, -record.usdc);
-      bucket.settlements += 1;
-    }
-    return buckets.reverse();
-  }, [payload, periodMode]);
-  const maxIntervalNet = Math.max(1, ...intervals.map((interval) => Math.abs(interval.net)));
-  const address = payload?.user ?? "0xa590a393CC3e1776a47f32fD99ef5fc7c464a243";
-  const forecastReady = positionForecast.positions.filter((position) => position.estimatedUsdc !== null);
-  const nextHourEstimate = forecastReady.length || (positionForecast.ready && positionForecast.positions.length === 0)
-    ? forecastReady.reduce((sum, position) => sum + (position.estimatedUsdc ?? 0), 0)
-    : null;
-
-  return <section className={styles.accountPanel}>
-    <header className={styles.accountHeader}><div><p className={styles.eyebrow}>HYPERLIQUID ACCOUNT FUNDING</p><h2>Cumulative funding income</h2><code>{address}</code></div><div className={styles.accountHeaderActions}><span className={!error && payload ? styles.accountLive : styles.accountWaiting}><i />{error ? "RECONNECTING" : payload ? "LIVE · 30S" : "CONNECTING"}</span><button type="button" onClick={() => void load()}>Refresh</button></div></header>
-    {error && !payload ? <div className={styles.accountEmpty}>{error}</div> : <>
-      <div className={styles.accountSummary}>
-        <article className={styles.accountNet}><span>LIFETIME NET</span><strong className={(payload?.summary.netUsdc ?? 0) >= 0 ? styles.positive : styles.negative}>{loading && !payload ? "Loading…" : formatUsdc(payload?.summary.netUsdc ?? null)}</strong><small>Received {formatUsdc(payload?.summary.receivedUsdc ?? null)} · paid {payload ? `−$${payload.summary.paidUsdc.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "—"}</small></article>
-        <article className={styles.nextFundingEstimate}><span>NEXT 1H ESTIMATE</span><strong className={(nextHourEstimate ?? 0) >= 0 ? styles.positive : styles.negative}>{formatUsdc(nextHourEstimate)}</strong><small>{positionForecast.status !== "live" ? "Position feed reconnecting" : positionForecast.ready ? `${forecastReady.length}/${positionForecast.positions.length} positions priced · current rates` : "Waiting for position snapshot"}</small></article>
-        <article><span>TODAY · HKT</span><strong className={periodMetrics.today.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload ? periodMetrics.today.net : null)}</strong><small>Since 00:00 HKT · {periodMetrics.today.settlements} settlements</small></article>
-        <article><span>THIS WEEK · HKT</span><strong className={periodMetrics.week.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload ? periodMetrics.week.net : null)}</strong><small>Since Monday 00:00 HKT · {periodMetrics.week.settlements} settlements</small></article>
-        <article><span>ROLLING 7 DAYS</span><strong className={periodMetrics.rolling7d.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(payload ? periodMetrics.rolling7d.net : null)}</strong><small>{periodMetrics.rolling7d.settlements} settlements</small></article>
-      </div>
-      <div className={styles.accountControls}><div><strong>Income history</strong><span>Every selected window is rebased to $0 at its starting time</span></div><div className={styles.accountWindows}>{ACCOUNT_HISTORY_WINDOWS.map((window) => <button key={window.label} className={windowMs === window.ms ? styles.activeAccountWindow : ""} onClick={() => setWindowMs(window.ms)}>{window.label}</button>)}</div></div>
-      <div className={styles.accountBody}>
-        <section className={styles.accountChartPanel}><div className={styles.accountSectionTitle}><div><span>PERIOD NET · REBASED TO $0</span><strong>{ACCOUNT_HISTORY_WINDOWS.find((window) => window.ms === windowMs)?.label}</strong></div><small>Hover for exact settlement value</small></div>{chart.length > 1 ? <AccountFundingChart points={chart} /> : <div className={styles.accountEmpty}>No funding settlements in this window.</div>}</section>
-        <aside className={styles.coinBreakdown}><div className={styles.accountSectionTitle}><div><span>NEXT HOUR BY POSITION</span><strong>Current-rate estimate</strong></div><small>{positionForecast.status === "live" && positionForecast.ready ? "LIVE" : positionForecast.status === "reconnecting" ? "RECONNECTING" : "CONNECTING"}</small></div><div className={styles.coinRows}>{positionForecast.positions.length ? positionForecast.positions.slice(0, 12).map((position) => <div key={position.coin}><span><b>{position.coin}</b><small>{position.size > 0 ? "LONG" : "SHORT"} {Math.abs(position.size).toLocaleString("en-US", { maximumFractionDigits: 6 })} · {formatCompact(position.notionalUsdc)}</small></span><strong className={(position.estimatedUsdc ?? 0) >= 0 ? styles.positive : styles.negative}>{formatUsdc(position.estimatedUsdc, 4)}</strong></div>) : <div className={styles.positionEmpty}>{positionForecast.ready ? "No open perpetual positions." : "Connecting to live positions…"}</div>}</div><p className={styles.forecastNote}>Estimate = −position size × Oracle × current 1h funding rate. The final hourly rate can change before settlement.</p></aside>
-      </div>
-      <section className={styles.periodPanel}>
-        <header className={styles.periodHead}><div><p className={styles.eyebrow}>PERIOD-BY-PERIOD INCOME</p><h3>{periodMode === "daily" ? "Daily funding income" : "Weekly funding income"}</h3><span>{periodMode === "daily" ? "Natural days · 00:00–24:00 HKT" : "Natural weeks · Monday–Sunday HKT"}</span></div><div className={styles.periodToggle}><button className={periodMode === "daily" ? styles.activePeriod : ""} onClick={() => setPeriodMode("daily")}>DAILY</button><button className={periodMode === "weekly" ? styles.activePeriod : ""} onClick={() => setPeriodMode("weekly")}>WEEKLY</button></div></header>
-        <div className={styles.periodTable}><div className={styles.periodTableHead}><span>Period</span><span>Net income</span><span>Received</span><span>Paid</span><span>Settlements</span></div>{intervals.map((interval, index) => <div className={styles.periodRow} key={interval.start}><span><b>{index === 0 ? (periodMode === "daily" ? "TODAY" : "THIS WEEK") : periodLabel(interval, periodMode)}</b><small>{periodLabel(interval, periodMode)}</small></span><span className={styles.periodNet}><i className={interval.net >= 0 ? styles.periodPositiveBar : styles.periodNegativeBar} style={{ width: `${Math.max(2, Math.abs(interval.net) / maxIntervalNet * 100)}%` }} /><strong className={interval.net >= 0 ? styles.positive : styles.negative}>{formatUsdc(interval.net)}</strong></span><span className={styles.positive}>{formatUsdc(interval.received)}</span><span className={styles.negative}>{interval.paid ? `−$${interval.paid.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "$0.00"}</span><span>{interval.settlements}</span></div>)}</div>
-      </section>
-      <details className={styles.accountLedger}><summary><span>Settlement history</span><small>{records.length.toLocaleString()} records in selected window</small></summary><div className={styles.ledgerScroll}><table><thead><tr><th>Time · HKT</th><th>Market</th><th>Funding rate</th><th>Income · USDC</th><th>Cumulative</th></tr></thead><tbody>{records.slice(0, 250).map((record) => <tr key={record.id}><td>{formatTime(record.time, true)}</td><td>{record.coin}</td><td>{formatFunding(record.fundingRate)}</td><td className={record.usdc >= 0 ? styles.positive : styles.negative}>{formatUsdc(record.usdc, 4)}</td><td>{formatUsdc(record.cumulativeUsdc)}</td></tr>)}</tbody></table></div>{records.length > 250 && <footer>Showing the latest 250 of {records.length.toLocaleString()} records in this window.</footer>}</details>
-      <footer className={styles.accountFoot}><span>Positive = funding received · negative = funding paid</span><span>{payload?.updatedAt ? `Updated ${formatTime(payload.updatedAt)} HKT` : "Connecting…"}</span></footer>
-    </>}
-  </section>;
 }
 
 export default function PolymarketPerpsPage() {
@@ -719,7 +412,6 @@ export default function PolymarketPerpsPage() {
 
     <section className={styles.stats}><article><span>Active Poly Perps</span><strong>{markets.length || "—"}</strong><small>{categories.length} market categories</small></article><article><span>Funding-ready routes</span><strong>{fundingReadyRoutes}</strong><small>Hourly-normalized Poly ↔ BN / HL</small></article><article><span>Price-ready routes</span><strong>{priceReadyRoutes}</strong><small>{matched} Binance · {hyperMatched} Hyperliquid</small></article><article><span>Largest funding spread</span><strong className={(largestFundingSpread?.value ?? 0) >= 0 ? styles.positive : styles.negative}>{formatFunding(largestFundingSpread?.value ?? null)}</strong><small>{largestFundingSpread ? `${largestFundingSpread.market.symbol} · Poly ↔ ${largestFundingSpread.venue}` : "Waiting for synchronized funding"}</small></article><article><span>Largest price spread</span><strong className={(largestSpread?.value ?? 0) >= 0 ? styles.positive : styles.negative}>{formatPct(largestSpread?.value ?? null, 3)}</strong><small>{largestSpread ? `${largestSpread.market.symbol} · Poly ↔ ${largestSpread.venue}` : "Waiting for synchronized midpoint"}</small></article></section>
 
-    <AccountFundingPanel />
     <section className={styles.filters}><label>Search markets<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="BTC, AAPL, GOLD…" /></label><label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">All categories</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label className={styles.matchToggle}><input type="checkbox" checked={matchedOnly} onChange={(event) => setMatchedOnly(event.target.checked)} /><span>Cross-venue midpoint available</span></label><button onClick={() => void loadMarkets()}>Refresh now</button><p>{error || (lastUpdate ? `Last market update ${formatTime(lastUpdate)} HKT` : "Connecting public market data…")}</p></section>
 
     <section className={styles.marketGrid}>{visible.map((market) => {

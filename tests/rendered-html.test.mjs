@@ -23,8 +23,8 @@ test("server-renders the TradFi dashboard shell", async () => {
   const html = await response.text();
   assert.match(html, /<title>TradFi Basis Monitor<\/title>/i);
   assert.match(html, /Set the anchor\. Then watch the drift\./);
-  assert.match(html, /href="\/taker"/);
-  assert.match(html, /Hyperliquid Taker–Taker/);
+  assert.doesNotMatch(html, /href="\/taker"/);
+  assert.doesNotMatch(html, /Hyperliquid Taker–Taker/);
   assert.match(html, /href="\/blog"/);
   assert.doesNotMatch(html, /href="\/trade"/);
 });
@@ -356,37 +356,17 @@ test("does not proxy the Posley stream directory without a Cognito token", async
   assert.equal(response.status, 401);
 });
 
-test("keeps live taker execution explicitly gated", async () => {
-  const [studio, livePanel, quoteRoute, auth] = await Promise.all([
-    readFile(new URL("../app/taker/TakerStudio.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/taker/LiveDcaPanel.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/taker/quote/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/taker/page.tsx", import.meta.url), "utf8"),
-  ]);
-
-  assert.match(studio, /PAPER \+ LIVE/);
-  assert.match(studio, /now - lastQuoteAt < 5_000/);
-  assert.match(livePanel, /Perp \/ spot ready · two IOC orders · one signed action/);
-  assert.match(livePanel, /I authorize two real Hyperliquid mainnet IOC orders per slice/);
-  assert.ok(livePanel.includes("UNHEDGED ${filled.coin} FILL"));
-  assert.match(livePanel, /tif: "Ioc"/);
-  assert.match(livePanel, /orders: \[/);
-  assert.match(livePanel, /10_000 \+ Number\(market\.index\)/);
-  assert.match(livePanel, /formatPrice\(paddedA, assetA\.szDecimals, assetA\.marketType\)/);
-  assert.match(quoteRoute, /type: "spotMeta"/);
-  assert.match(quoteRoute, /only USDC-quoted spot markets/);
-  assert.match(studio, /Leg A market type/);
-  assert.match(studio, /typeA: marketTypeA/);
-  assert.doesNotMatch(livePanel, /Binance/);
-  assert.match(auth, /verifyTradeToken/);
+test("removed execution and account income endpoints are unavailable", async () => {
+  for (const path of ["/taker", "/api/taker/quote", "/api/trade-auth", "/api/hyperliquid/user-funding"]) {
+    assert.equal((await render(path)).status, 404, path);
+  }
 });
 
 test("compares Polymarket, Binance and Hyperliquid funding and price spreads in one view", async () => {
-  const [response, page, markets, accountFunding, switcher] = await Promise.all([
+  const [response, page, markets, switcher] = await Promise.all([
     render("/polymarket"),
     readFile(new URL("../app/polymarket/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/polymarket-perps/markets/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/hyperliquid/user-funding/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
   ]);
   assert.equal(response.status, 200);
@@ -403,26 +383,8 @@ test("compares Polymarket, Binance and Hyperliquid funding and price spreads in 
   assert.match(markets, /\/fapi\/v1\/fundingInfo/);
   assert.match(markets, /binanceFundingRate \/ binanceFundingHours/);
   assert.match(markets, /fundingRate: finite\(contexts\[index\]\?\.funding\)/);
-  assert.match(page, /Cumulative funding income/);
-  assert.match(page, /0xa590a393CC3e1776a47f32fD99ef5fc7c464a243/i);
-  assert.match(page, /Settlement history/);
-  assert.match(page, /window\.setInterval\(load, 60_000\)/);
-  assert.match(page, /Daily funding income/);
-  assert.match(page, /Weekly funding income/);
-  assert.match(page, /TODAY · HKT/);
-  assert.match(page, /THIS WEEK · HKT/);
-  assert.match(page, /startOfHktWeek/);
-  assert.match(page, /NEXT 1H ESTIMATE/);
-  assert.match(page, /allDexsClearinghouseState/);
-  assert.match(page, /-size \* oracle \* fundingRate/);
-  assert.match(page, /PERIOD NET · REBASED TO \$0/);
-  assert.match(page, /baselineTime/);
-  assert.match(accountFunding, /type: "userFunding"/);
-  assert.match(accountFunding, /PAGE_SIZE = 500/);
-  assert.match(accountFunding, /cursor = lastTime > previousLast \? lastTime : lastTime \+ 1/);
-  assert.match(accountFunding, /process\.env\.SITE_PASSWORD/);
-  assert.match(accountFunding, /cumulativeUsdc/);
-  assert.match(accountFunding, /__HL_FUNDING_RECORDS__/);
+  assert.doesNotMatch(renderedPage, /Cumulative funding income|NEXT 1H ESTIMATE|Settlement history/);
+  assert.doesNotMatch(page, /AccountFundingPanel|allDexsClearinghouseState|api\/hyperliquid\/user-funding/);
   assert.doesNotMatch(renderedPage, /Lighter funding income/);
   assert.doesNotMatch(page, /LighterFundingPanel|api\/lighter|LIGHTER ACCOUNT FUNDING/);
   await assert.rejects(readFile(new URL("../app/api/lighter/user-funding/route.ts", import.meta.url), "utf8"), /ENOENT/);
@@ -589,4 +551,75 @@ test("keeps numeric basis through closed, pre-market and stale cash quotes", asy
   const missing = equityBasis({ last: 3000 }, {});
   assert.equal(equitySpreads(missing.cashBidUsd, missing.cashAskUsd, { bid: 200, ask: 201 }).buyKoreaSellPerp, null);
   assert.equal(equityBasis({ last: 0 }, { last: 150 }).cashBidUsd, null);
+});
+
+test("routes Tencent aliases to Hyperliquid and computes HK auction and historical basis", async () => {
+  const importRoute = async (path) => {
+    const source = stripTypeScriptTypes(await readFile(new URL(path, import.meta.url), "utf8"));
+    return import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  };
+  const quotes = await importRoute("../app/api/hk-auction/quotes/route.ts");
+  const history = await importRoute("../app/api/hk-auction/history/route.ts");
+  const now = Date.now();
+  const minute = Math.floor(now / 60_000) * 60_000;
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  const originalPush = globalThis.__FUTU_PUSH_SNAPSHOT__;
+  const originalRelay = process.env.FUTU_RELAY_URL;
+  delete process.env.FUTU_RELAY_URL;
+  globalThis.__FUTU_PUSH_SNAPSHOT__ = {
+    receivedAt: now,
+    payload: {
+      quotes: [{ symbol: "HK.00700", marketState: "AUCTION", auctionPrice: 392, bid: 391, ask: 393, bidSize: 100, askSize: 200, marketTimestamp: now }],
+      history: { "HK.00700": [[minute, 392]] },
+    },
+  };
+  let bookTime = now;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(String(url), "https://api.hyperliquid.xyz/info");
+    const body = JSON.parse(options.body);
+    requests.push(body);
+    if (body.type === "metaAndAssetCtxs") return Response.json([{ universe: [{ name: "io:TCNT" }] }, [{ funding: "0.00000625" }]]);
+    if (body.type === "l2Book") {
+      assert.equal(body.coin, "io:TCNT");
+      return Response.json({ time: bookTime, levels: [[{ px: "51", sz: "10" }], [{ px: "52", sz: "20" }]] });
+    }
+    assert.equal(body.type, "candleSnapshot");
+    assert.equal(body.req.coin, "io:TCNT");
+    return Response.json([{ t: minute, o: "51", h: "52", l: "50", c: "51" }]);
+  };
+  try {
+    const query = new URLSearchParams({ pair: "HK.00700|io:TENCENT|1|hyperliquid", usdhkd: "7.84" });
+    const response = await quotes.GET(new Request(`http://localhost/api/hk-auction/quotes?${query}`));
+    const result = await response.json();
+    assert.equal(response.status, 200);
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.sources.hyperliquid, true);
+    const quote = result.quotes[0];
+    assert.equal(quote.perpSymbol, "io:TCNT");
+    assert.equal(quote.perpVenue, "hyperliquid");
+    assert.equal(quote.status, "live");
+    assert.equal(quote.binance.bid, 51);
+    assert.equal(quote.binance.askSize, 20);
+    assert.equal(quote.binance.fundingRate, 0.00000625);
+    assert.equal(quote.metrics.fairUsdt, 50);
+    assert.ok(Math.abs(quote.metrics.midBasisPct - 3) < 1e-10);
+    assert.ok(Math.abs(quote.metrics.sellPerpBuyStock.basisPct - (51 / (393 / 7.84) - 1) * 100) < 1e-10);
+    assert.equal(quote.metrics.sellPerpBuyStock.capacityContracts, 10);
+    const historical = await history.GET(new Request("http://localhost/api/hk-auction/history?stock=HK.00700&perp=io%3ATENCENT&shares=1&usdhkd=7.84"));
+    assert.equal(historical.status, 200);
+    const historicalResult = await historical.json();
+    assert.match(historicalResult.source, /Hyperliquid/);
+    assert.ok(Math.abs(historicalResult.points[0].value - 2) < 1e-10);
+    bookTime = now - 60_000;
+    const staleResult = await (await quotes.GET(new Request(`http://localhost/api/hk-auction/quotes?${query}`))).json();
+    assert.equal(staleResult.quotes[0].status, "stale");
+    assert.equal(staleResult.quotes[0].metrics.midBasisPct, null);
+    assert.equal(requests.filter((request) => request.type === "candleSnapshot").length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.__FUTU_PUSH_SNAPSHOT__ = originalPush;
+    if (originalRelay === undefined) delete process.env.FUTU_RELAY_URL;
+    else process.env.FUTU_RELAY_URL = originalRelay;
+  }
 });
