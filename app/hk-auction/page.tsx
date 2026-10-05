@@ -44,7 +44,6 @@ type OpenDReference = {
   hkCloseAnchor: { price: number; timestamp: number; source: string } | null;
 };
 type Payload = { quotes: Quote[]; references?: Record<string, OpenDReference>; usdHkd: number; timestamp: number; sources: { futu: boolean; binance: boolean; bybit?: boolean; bitget?: boolean; hyperliquid?: boolean }; errors: string[] };
-type HistoryPoint = { t: number; value: number; stockCloseHkd?: number; perpClose?: number };
 type LiteAnchor = { price: number; timestamp: number; source: string };
 
 const STORAGE_KEY = "hk-auction-pairs-v8";
@@ -152,39 +151,6 @@ function sessionState(now: number, futuState?: string | null) {
   return { key: "blocking", label: "Blocking / waiting open", detail: "Auction result is locked until 09:30", progress: 75 + ((total - 562) / 8) * 25 };
 }
 
-function SpreadHistory({ points, cursor, onCursor }: { points: HistoryPoint[]; cursor?: number; onCursor: (index: number) => void }) {
-  if (!points.length) return <div className={styles.emptyChart}>History starts after both real feeds produce a valid basis.</div>;
-  const width = 720;
-  const height = 218;
-  const plotTop = 18;
-  const plotBottom = 178;
-  const values = points.map((point) => point.value);
-  const rawMin = Math.min(0, ...values);
-  const rawMax = Math.max(0, ...values);
-  const padding = Math.max((rawMax - rawMin) * .12, .04);
-  const min = rawMin - padding;
-  const max = rawMax + padding;
-  const x = (index: number) => points.length === 1 ? width / 2 : 18 + index / (points.length - 1) * (width - 36);
-  const y = (value: number) => plotTop + (max - value) / (max - min) * (plotBottom - plotTop);
-  const path = points.map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(2)},${y(point.value).toFixed(2)}`).join(" ");
-  const selectedIndex = Math.min(points.length - 1, Math.max(0, cursor ?? points.length - 1));
-  const selected = points[selectedIndex];
-  return <div className={styles.chartWrap}>
-    <div className={styles.chartReadout}><div><span>SELECTED BASIS</span><strong className={selected.value < 0 ? styles.negative : styles.positive}>{pct(selected.value)}</strong></div><div><span>FUTU / PERP CLOSE</span><strong>{number(selected.stockCloseHkd)} / {number(selected.perpClose)}</strong></div><div><span>TIME · 1 MINUTE</span><strong>{time(selected.t)} HKT</strong></div></div>
-    <svg className={styles.chart} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Historical midpoint basis trend">
-      <defs><linearGradient id="basisFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#248e69" stopOpacity=".22"/><stop offset="1" stopColor="#248e69" stopOpacity="0"/></linearGradient></defs>
-      <line x1="18" x2={width - 18} y1={y(0)} y2={y(0)} className={styles.zeroLine}/>
-      <path d={`${path} L${x(points.length - 1)},${plotBottom} L${x(0)},${plotBottom} Z`} className={styles.areaPath}/>
-      <path d={path} className={styles.linePath}/>
-      <line x1={x(selectedIndex)} x2={x(selectedIndex)} y1={plotTop} y2={plotBottom} className={styles.cursorLine}/>
-      <circle cx={x(selectedIndex)} cy={y(selected.value)} r="5" className={styles.cursorDot}/>
-      <text x="18" y="208">{time(points[0].t)}</text><text x={width - 18} y="208" textAnchor="end">{time(points.at(-1)?.t)}</text>
-    </svg>
-    <input className={styles.chartSlider} type="range" min="0" max={Math.max(0, points.length - 1)} value={selectedIndex} onChange={(event) => onCursor(Number(event.target.value))} aria-label="Select a historical basis sample" />
-    <p>{points.length.toLocaleString()} aligned Futu + perpetual one-minute bars · range {pct(rawMin)} → {pct(rawMax)}</p>
-  </div>;
-}
-
 export default function HkAuctionPage() {
   const [pairs, setPairs] = useState<PairConfig[]>(DEFAULT_PAIRS);
   const [payload, setPayload] = useState<Payload | null>(null);
@@ -195,13 +161,6 @@ export default function HkAuctionPage() {
   const [managerOpen, setManagerOpen] = useState(false);
   const [draft, setDraft] = useState({ stockSymbol: "HK.", perpSymbol: "", sharesPerContract: "1", perpVenue: "binance" as PerpVenue, adrSymbol: "", hkSharesPerAdr: "1" });
   const [pairError, setPairError] = useState("");
-  const [history, setHistory] = useState<Record<string, HistoryPoint[]>>({});
-  const [historyLoading, setHistoryLoading] = useState<Record<string, boolean>>({});
-  const [historyError, setHistoryError] = useState<Record<string, string>>({});
-  const [cardTabs, setCardTabs] = useState<Record<string, "overview" | "history">>({});
-  const [historyCursor, setHistoryCursor] = useState<Record<string, number>>({});
-  const [liteAnchor, setLiteAnchor] = useState<LiteAnchor | null>(null);
-  const [liteAnchorError, setLiteAnchorError] = useState("");
   const requestRef = useRef(false);
 
   useEffect(() => {
@@ -272,29 +231,6 @@ export default function HkAuctionPage() {
       setLoading(false);
     }
   }, [pairs, usdHkd]);
-
-  const loadHistory = useCallback(async (id: string, pair: PairConfig) => {
-    setHistoryLoading((current) => ({ ...current, [id]: true }));
-    setHistoryError((current) => ({ ...current, [id]: "" }));
-    try {
-      const params = new URLSearchParams({
-        stock: pair.stockSymbol,
-        perp: pair.perpSymbol,
-        venue: pair.perpVenue ?? "binance",
-        shares: String(pair.sharesPerContract),
-        usdhkd: usdHkd,
-      });
-      const response = await fetch(`/api/hk-auction/history?${params}`, { cache: "no-store" });
-      const result = await response.json() as { points?: HistoryPoint[]; error?: string };
-      if (!response.ok || !Array.isArray(result.points)) throw new Error(result.error || "Historical spread is unavailable.");
-      setHistory((current) => ({ ...current, [id]: result.points ?? [] }));
-      setHistoryCursor((current) => ({ ...current, [id]: Math.max(0, (result.points?.length ?? 1) - 1) }));
-    } catch (error) {
-      setHistoryError((current) => ({ ...current, [id]: error instanceof Error ? error.message : "Historical spread is unavailable." }));
-    } finally {
-      setHistoryLoading((current) => ({ ...current, [id]: false }));
-    }
-  }, [usdHkd]);
 
   useEffect(() => {
     void load();
@@ -458,7 +394,6 @@ export default function HkAuctionPage() {
         const shortSymbol = shortPerp ? pair.perpSymbol : pair.stockSymbol;
         const longSymbol = shortPerp ? pair.stockSymbol : pair.perpSymbol;
         const signalEdge = signalReady ? Math.max(richEdge ?? -Infinity, cheapEdge ?? -Infinity) : null;
-        const activeTab = cardTabs[id] ?? "overview";
         const fundingPct = quote?.binance?.fundingRate === null || quote?.binance?.fundingRate === undefined ? null : quote.binance.fundingRate * 100;
         const openDAdr = pair.adrSymbol ? payload?.references?.[pair.adrSymbol] : undefined;
         const adrTimestamp = openDAdr?.marketTimestamp ?? null;
@@ -524,7 +459,7 @@ export default function HkAuctionPage() {
             </section> : null}
             {pair.adrSymbol ? <section className={`${styles.signalRow} ${styles.adrSignal} ${adrBasisPct === null ? styles.signalWaiting : ""} ${adrActionable && adrBasisPct !== null && Math.abs(adrBasisPct) >= alert ? styles.signalRowHot : ""}`}>
               <div className={styles.signalBasis}><span>OVERNIGHT · {(openDAdr?.source ?? "US REFERENCE").toUpperCase()} ↔ BINANCE</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small>{adrFresh ? `LIVE ADR · ${time(adrTimestamp)}` : adrUsable ? `US BENCHMARK · ${time(adrTimestamp)}` : adrTimestamp ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
-              <div className={styles.signalDirection}><span>{adrActionable ? "TRADE DIRECTION" : "REFERENCE STATUS"}</span><strong>{adrActionable ? adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}` : adrBasisPct !== null ? "INDICATIVE ONLY" : "SIGNAL UNAVAILABLE"}</strong><small>{adrActionable ? `Live ADR BBO versus Binance · gap ${pct(Math.abs(adrBasisPct))}` : adrBasisPct !== null ? "Not executable · delayed or stale ADR / no live bid-ask" : `${adrWaitingReason} · expired data excluded`}</small></div>
+              <div className={styles.signalDirection}><span>{adrActionable ? "TRADE DIRECTION" : "REFERENCE DIRECTION"}</span><strong>{adrBasisPct !== null ? adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}` : "SIGNAL UNAVAILABLE"}</strong><small>{adrActionable ? `Live ADR BBO versus Binance · gap ${pct(Math.abs(adrBasisPct))}` : adrBasisPct !== null ? `INDICATIVE ONLY · gap ${pct(Math.abs(adrBasisPct))} · delayed or stale ADR / no live bid-ask` : `${adrWaitingReason} · expired data excluded`}</small></div>
               <dl className={`${styles.signalMetrics} ${styles.adrMetrics}`}>
                 <div><dt>{pair.adrSymbol} · USD</dt><dd>{number(adrMid, 4)}</dd></div>
                 <div><dt>Binance-implied ADR</dt><dd>{number(binanceImpliedAdrUsd, 4)}</dd></div>
@@ -532,11 +467,6 @@ export default function HkAuctionPage() {
               </dl>
             </section> : null}
           </div>
-          <div className={styles.cardTabs} role="tablist" aria-label={`${pair.perpSymbol} card view`}>
-            <button role="tab" aria-selected={activeTab === "overview"} onClick={() => setCardTabs((current) => ({ ...current, [id]: "overview" }))}>Overview</button>
-            <button role="tab" aria-selected={activeTab === "history"} onClick={() => { if (activeTab === "history") setCardTabs((current) => ({ ...current, [id]: "overview" })); else { setCardTabs((current) => ({ ...current, [id]: "history" })); void loadHistory(id, pair); } }}>{activeTab === "history" ? "Close history" : "Open spread history"} <span>{history[id]?.length ?? 0}</span></button>
-          </div>
-          {activeTab === "history" ? <div className={styles.tabPanel} role="tabpanel">{historyLoading[id] ? <div className={styles.emptyChart}>Reading Futu and {perpVenue} one-minute history…</div> : historyError[id] ? <div className={styles.historyFailure}><strong>History unavailable</strong><span>{historyError[id]}</span><button onClick={() => void loadHistory(id, pair)}>Retry</button></div> : <SpreadHistory points={history[id] ?? []} cursor={historyCursor[id]} onCursor={(index) => setHistoryCursor((current) => ({ ...current, [id]: index }))} />}</div> : null}
           <footer><span>Futu {time(quote?.futu?.marketTimestamp)} HKT</span><span>{perpVenue} {time(quote?.binance?.marketTimestamp)} HKT</span><button aria-label={`Remove ${pair.perpSymbol}`} onClick={() => savePairs(pairs.filter((item) => item.stockSymbol !== pair.stockSymbol || item.perpSymbol !== pair.perpSymbol))}>Remove</button></footer>
         </article>;
         })}</div>
