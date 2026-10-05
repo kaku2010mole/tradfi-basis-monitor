@@ -634,3 +634,65 @@ test("server-renders HK auction after removing the card history controls", async
   assert.match(html, /HK CLOSE ANCHOR/);
   assert.doesNotMatch(html, /Open spread history|>Overview</);
 });
+
+test("keeps issuer record dates separate from ex-dates and parses per-share amounts", async () => {
+  const source = stripTypeScriptTypes(await readFile(new URL("../app/lib/issuerDividends.ts", import.meta.url), "utf8"));
+  const { parseIssuerDates, ASIAN_ISSUERS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  const samsung = ASIAN_ISSUERS.find((issuer) => issuer.symbols.includes("SAMSUNG"));
+  assert.deepEqual(parseIssuerDates("Notice of Record Date September 21, 2026. We would like to inform you that September 30, 2026 will be the record date to determine the list of shareholders eligible to receive the next quarterly dividend.", samsung, 2026).map((date) => date.recordDate), ["2026-09-30"]);
+  const hyundai = ASIAN_ISSUERS.find((issuer) => issuer.symbols.includes("HYUNDAI"));
+  const dates = parseIssuerDates('<table><tr><th>Dividend record date</th><th>Dividend payment date</th><th>Common share</th></tr><tr><td>2026.08.31</td><td>2026.09.30</td><td>2,500</td></tr></table>', hyundai, 2026);
+  assert.equal(dates[0].recordDate, "2026-08-31");
+  assert.equal(dates[0].paymentDate, "2026-09-30");
+  assert.equal(dates[0].amount, 2500);
+  assert.equal(parseIssuerDates('<table><tr><td>Annual meeting publication</td><td>2026.08.31</td><td>2026.09.30</td></tr></table>', hyundai, 2026).length, 0);
+  const mufg = ASIAN_ISSUERS.find((issuer) => issuer.symbols.includes("MUFG"));
+  assert.equal(parseIssuerDates("Record Dates for Determination of Dividends March 31 and September 30 (Interim dividend)", mufg, 2026).length, 2);
+  assert.equal(parseIssuerDates("March 31 fiscal year end. No dividend dates disclosed.", mufg, 2026).length, 0);
+});
+
+test("shows independent company schedules and available Nasdaq dates when one Nasdaq day is incomplete", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalCache = globalThis.__DIVIDEND_MONTH_CACHE__;
+  globalThis.__DIVIDEND_MONTH_CACHE__ = new Map();
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("/exchangeInfo")) return Response.json({ symbols: [{ symbol: "SAMSUNGUSDT", status: "TRADING", contractType: "TRADIFI_PERPETUAL", underlyingType: "EQUITY" }, { symbol: "AAPLUSDT", status: "TRADING", contractType: "TRADIFI_PERPETUAL", underlyingType: "EQUITY" }] });
+    if (url.includes("/premiumIndex")) return Response.json([{ symbol: "AAPLUSDT", markPrice: "200" }]);
+    if (url.includes("api.bitget.com")) return Response.json({ data: [] });
+    if (url.includes("query1.finance.yahoo.com")) return Response.json({ chart: { result: [{ meta: { regularMarketPrice: 50000 } }] } });
+    if (url.includes("api.nasdaq.com")) {
+      const date = new URL(url).searchParams.get("date");
+      if (date === "2026-09-01" || date === "2026-12-01") return Response.json({ status: { rCode: 200 }, data: {} });
+      return Response.json({ status: { rCode: 200 }, data: { calendar: { rows: date === "2026-09-02" ? [{ symbol: "AAPL", companyName: "Apple", dividend_Ex_Date: "09/02/2026", dividend_Rate: "1.00" }] : null } } });
+    }
+    if (url.includes("binance.com/bapi")) return Response.json({ data: { catalogs: [] } });
+    if (url.includes("hkexnews.hk")) return new Response("Dividends & Other Entitlements");
+    if (url.includes("samsung.com/global/ir")) return new Response("We would like to inform you that September 30, 2026 will be the record date to determine the list of shareholders eligible to receive the next quarterly dividend.");
+    throw new Error(`Unexpected URL ${url}`);
+  };
+  try {
+    const response = await render("/api/dividend-calendar?month=2026-09");
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.deepEqual(result.missingNasdaqDates, ["2026-09-01"]);
+    assert.match(result.warning, /Other sources and available dates are shown/);
+    assert.ok(result.events.some((event) => event.contract === "AAPLUSDT" && event.exDate === "2026-09-02"));
+    const samsung = result.events.find((event) => event.contract === "SAMSUNGUSDT" && event.recordDate === "2026-09-30");
+    assert.equal(samsung.exDate, null);
+    assert.equal(samsung.calendarDate, "2026-09-30");
+    assert.equal(samsung.settlementConfirmed, false);
+    assert.equal(samsung.amount, null);
+    assert.match(samsung.sourceUrl, /samsung.com/);
+    assert.ok(result.coverage.jp);
+    const december = await render("/api/dividend-calendar?month=2026-12");
+    assert.equal(december.status, 200);
+    const decemberResult = await december.json();
+    assert.deepEqual(decemberResult.missingNasdaqDates, ["2026-12-01"]);
+    assert.equal(decemberResult.error, undefined);
+    assert.match(decemberResult.warning, /2026-12-01/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.__DIVIDEND_MONTH_CACHE__ = originalCache;
+  }
+});

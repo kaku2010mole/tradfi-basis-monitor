@@ -1,3 +1,5 @@
+import { scanAsianIssuers } from "../../lib/issuerDividends";
+
 export const dynamic = "force-dynamic";
 
 const BINANCE_FUTURES = "https://fapi.binance.com/fapi/v1";
@@ -17,7 +19,7 @@ type NasdaqRow = { companyName: string; symbol: string; dividend_Ex_Date: string
 type Article = { code: string; title: string; releaseDate: number };
 type Exchange = "Binance" | "Bitget";
 type RuleType = "special_funding" | "no_adjustment";
-type Event = { id: string; exchange: Exchange; contract: string; underlying: string; company: string; exDate: string; paymentDate: string | null; amount: number | null; currency: string; markPrice: number | null; percent: number | null; status: "announced" | "calendar" | "scheduled"; eligible: boolean; ruleType: RuleType; ruleUrl: string; sourceUrl: string; sourceLabel: string; announcedAt: number | null };
+type Event = { id: string; exchange: Exchange; contract: string; underlying: string; company: string; exDate: string | null; calendarDate?: string; recordDate?: string; dateType?: "record"; settlementConfirmed?: boolean; paymentDate: string | null; amount: number | null; currency: string; markPrice: number | null; percent: number | null; status: "announced" | "calendar" | "scheduled"; eligible: boolean; ruleType: RuleType; ruleUrl: string; sourceUrl: string; sourceLabel: string; announcedAt: number | null };
 type Cache = typeof globalThis & { __DIVIDEND_MONTH_CACHE__?: Map<string, { expires: number; value: unknown }> };
 
 const ALIASES: Record<string, string> = { BRKB: "BRK-B", GOOGL: "GOOGL", FBTC: "FBTC", SAMSUNG: "005930", SKHYNIX: "000660", HYUNDAI: "005380" };
@@ -29,13 +31,14 @@ const pad = (value: number) => String(value).padStart(2, "0");
 const isoDate = (year: number, month: number, day: number) => `${year}-${pad(month)}-${pad(day)}`;
 const parseUsDate = (value: string) => { const [month, day, year] = value.split("/").map(Number); return year && month && day ? isoDate(year, month, day) : null; };
 const kstDate = (timestamp: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(timestamp));
+const eventDate = (event: Event) => event.calendarDate ?? event.exDate ?? "";
 const normalizedUnderlying = (symbol: string) => {
   const base = symbol.replace(/USDT$/, "");
   return ALIASES[base] ?? base.replace(/STOCK$/, "");
 };
 
-async function json<T>(url: string, headers: Record<string, string> = HEADERS) {
-  const response = await fetch(url, { cache: "no-store", headers, signal: AbortSignal.timeout(9_000) });
+async function json<T>(url: string, headers: Record<string, string> = HEADERS, timeoutMs = 9_000) {
+  const response = await fetch(url, { cache: "no-store", headers, signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) throw new Error(`${new URL(url).hostname} HTTP ${response.status}`);
   return await response.json() as T;
 }
@@ -65,12 +68,13 @@ async function nasdaqMonth(year: number, month: number) {
   const dates = Array.from({ length: days }, (_, index) => isoDate(year, month, index + 1))
     .filter((date) => { const weekday = new Date(`${date}T00:00:00Z`).getUTCDay(); return weekday !== 0 && weekday !== 6; });
   const rows: NasdaqRow[] = [];
-  for (let start = 0; start < dates.length; start += 4) {
-    const batch = await Promise.all(dates.slice(start, start + 4).map(async (date) => {
+  const failedDates: string[] = [];
+  for (let start = 0; start < dates.length; start += 6) {
+    const batch = await Promise.all(dates.slice(start, start + 6).map(async (date) => {
       let lastError: unknown;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          const payload = await json<{ status?: { rCode?: number }; data?: { calendar?: { rows?: NasdaqRow[] | null } } }>(`${NASDAQ_CALENDAR}?date=${date}`, { ...HEADERS, Origin: "https://www.nasdaq.com", Referer: "https://www.nasdaq.com/" });
+          const payload = await json<{ status?: { rCode?: number }; data?: { calendar?: { rows?: NasdaqRow[] | null } } }>(`${NASDAQ_CALENDAR}?date=${date}`, { ...HEADERS, Origin: "https://www.nasdaq.com", Referer: "https://www.nasdaq.com/" }, 4_000);
           const dayRows = payload.data?.calendar?.rows;
           if (payload.status?.rCode !== 200 || (dayRows !== null && !Array.isArray(dayRows))) throw new Error(`Nasdaq calendar returned incomplete data for ${date}.`);
           return dayRows ?? [];
@@ -79,11 +83,13 @@ async function nasdaqMonth(year: number, month: number) {
           if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 350));
         }
       }
-      throw new Error(`Nasdaq calendar failed on ${date}: ${lastError instanceof Error ? lastError.message : "unknown error"}`);
+      void lastError;
+      failedDates.push(date);
+      return [];
     }));
     batch.forEach((dayRows) => rows.push(...dayRows));
   }
-  return rows;
+  return { rows, failedDates: failedDates.sort() };
 }
 
 const plain = (html: string) => html.replace(/<br\s*\/?\s*>/gi, " ").replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ").trim();
@@ -166,7 +172,7 @@ export async function GET(request: Request) {
   try {
     const [{ instruments, equities, prices }, bitget] = await Promise.all([binanceSnapshot(), bitgetSnapshot()]);
     const underlyingPrices = await foreignUnderlyingPrices();
-    const [rows, official, hkexResult] = await Promise.all([nasdaqMonth(year, month), officialAdjustments(prices, underlyingPrices), hkexMonth(year, month).then((events) => ({ events, error: null as string | null })).catch((error) => ({ events: [], error: error instanceof Error ? error.message : "HKEX scan failed" }))]);
+    const [nasdaq, official, hkexResult, issuerScans] = await Promise.all([nasdaqMonth(year, month), officialAdjustments(prices, underlyingPrices), hkexMonth(year, month).then((events) => ({ events, error: null as string | null })).catch((error) => ({ events: [], error: error instanceof Error ? error.message : "HKEX scan failed" })), scanAsianIssuers([...equities, ...bitget.instruments].map((instrument) => instrument.symbol), year)]);
     const byUnderlying = new Map<string, Array<Instrument & { exchange: Exchange }>>();
     equities.forEach((instrument) => {
       const underlying = normalizedUnderlying(instrument.symbol);
@@ -176,7 +182,7 @@ export async function GET(request: Request) {
       const underlying = normalizedUnderlying(instrument.symbol);
       byUnderlying.set(underlying, [...(byUnderlying.get(underlying) ?? []), { ...instrument, exchange: "Bitget" }]);
     });
-    const calendarEvents: Event[] = rows.flatMap((row) => (byUnderlying.get(row.symbol.toUpperCase()) ?? []).flatMap((instrument) => {
+    const calendarEvents: Event[] = nasdaq.rows.flatMap((row) => (byUnderlying.get(row.symbol.toUpperCase()) ?? []).flatMap((instrument) => {
       const exchange = (instrument as Instrument & { exchange: Exchange }).exchange;
       const exDate = parseUsDate(row.dividend_Ex_Date); const amount = finite(row.dividend_Rate); const markPrice = (exchange === "Binance" ? prices : bitget.prices).get(instrument.symbol) ?? null;
       if (!exDate || amount === null || amount <= 0) return [];
@@ -190,6 +196,19 @@ export async function GET(request: Request) {
       const eligible = !EXCLUDED_LEVERAGED_ETFS.has(instrument.symbol);
       return { id: `hkex-${instrument.exchange.toLowerCase()}-${instrument.symbol}-${row.exDate}`, exchange: instrument.exchange, contract: instrument.symbol, underlying: row.code, company: row.company, exDate: row.exDate, paymentDate: null, amount: row.amount, currency: row.currency, markPrice: null, percent: null, status: "calendar", eligible, ruleType: eligible ? "special_funding" : "no_adjustment", ruleUrl: instrument.exchange === "Binance" ? "https://www.binance.com/en-PH/support/faq/detail/7ced719b5e9a4859a1864c2fe657309f" : "https://www.bitget.com/support/articles/12560603884782", sourceUrl: HKEX_ENTITLEMENTS, sourceLabel: "HKEX entitlement report", announcedAt: null } satisfies Event;
     }));
+    const issuerEvents: Event[] = issuerScans.flatMap((issuer) => issuer.dates.filter((date) => date.recordDate.startsWith(requested)).flatMap((date) =>
+      [...equities.map((instrument) => ({ ...instrument, exchange: "Binance" as const })), ...bitget.instruments.map((instrument) => ({ ...instrument, exchange: "Bitget" as const }))]
+        .filter((instrument) => issuer.symbols.includes(instrument.symbol.replace(/USDT$/, "")))
+        .map((instrument) => ({
+          id: `issuer-${instrument.exchange.toLowerCase()}-${instrument.symbol}-${date.recordDate}`,
+          exchange: instrument.exchange, contract: instrument.symbol, underlying: issuer.code, company: issuer.company,
+          exDate: null, calendarDate: date.recordDate, recordDate: date.recordDate, dateType: "record" as const,
+          paymentDate: date.paymentDate, amount: date.amount, currency: issuer.market === "KR" ? "KRW" : "JPY",
+          markPrice: null, percent: null, status: "scheduled" as const, eligible: true, ruleType: "special_funding" as const,
+          settlementConfirmed: false,
+          ruleUrl: instrument.exchange === "Binance" ? "https://www.binance.com/en-PH/support/faq/detail/7ced719b5e9a4859a1864c2fe657309f" : "https://www.bitget.com/support/articles/12560603884782",
+          sourceUrl: date.sourceUrl, sourceLabel: date.standing ? "Company IR record-date schedule · amount pending" : "Company dividend announcement · record date", announcedAt: null,
+        }))));
     // The issuer publishes ex-dates before the cash amount appears in Nasdaq's calendar.
     const issuerDates = year === 2026 && month === 10 ? [{ symbol: "JEPQ", exDate: "2026-10-01", paymentDate: "2026-10-05", company: "JPMorgan Nasdaq Equity Premium Income ETF" }] : [];
     const scheduled: Event[] = issuerDates.flatMap((date) => (byUnderlying.get(date.symbol) ?? []).map((instrument) => {
@@ -197,12 +216,19 @@ export async function GET(request: Request) {
       const price = (venue === "Binance" ? prices : bitget.prices).get(instrument.symbol) ?? null;
       return { id: `issuer-${venue.toLowerCase()}-${instrument.symbol}-${date.exDate}`, exchange: venue, contract: instrument.symbol, underlying: date.symbol, company: date.company, exDate: date.exDate, paymentDate: date.paymentDate, amount: null, currency: "USD", markPrice: price, percent: null, status: "scheduled", eligible: true, ruleType: "special_funding", ruleUrl: venue === "Binance" ? "https://www.binance.com/en-PH/support/faq/detail/7ced719b5e9a4859a1864c2fe657309f" : "https://www.bitget.com/support/articles/12560603884782", sourceUrl: JPM_2026_SCHEDULE, sourceLabel: "JPMorgan issuer schedule · amount pending", announcedAt: null } satisfies Event;
     }));
-    const eventMap = new Map<string, Event>(scheduled.map((event) => [`${event.exchange}:${event.contract}:${event.exDate}`, event]));
-    [...calendarEvents, ...hkEvents].forEach((event) => eventMap.set(`${event.exchange}:${event.contract}:${event.exDate}`, event));
-    official.forEach((event) => { if (event.exDate.startsWith(requested)) eventMap.set(`${event.exchange}:${event.contract}:${event.exDate}`, event); });
-    const events = [...eventMap.values()].sort((left, right) => left.exDate.localeCompare(right.exDate) || (right.percent ?? -1) - (left.percent ?? -1));
-    const value = { month: requested, generatedAt: Date.now(), scannedContracts: instruments.length + bitget.instruments.length, equityContracts: equities.length + bitget.instruments.length, coveredContracts: new Set(events.map((event) => `${event.exchange}:${event.contract}`)).size, exchangeCounts: { Binance: { scanned: instruments.length, candidates: equities.length }, Bitget: { scanned: bitget.instruments.length, candidates: bitget.instruments.length } }, coverage: { us: "Nasdaq calendar + verified issuer dates", hk: hkexResult.error ? `HKEX scan unavailable: ${hkexResult.error}` : "HKEX announced entitlements (not exhaustive)", kr: "Binance official adjustments only; Korean issuer schedules not yet covered" }, events };
-    store.__DIVIDEND_MONTH_CACHE__.set(requested, { expires: Date.now() + 60 * 60_000, value });
+    const eventMap = new Map<string, Event>([...scheduled, ...issuerEvents].map((event) => [`${event.exchange}:${event.contract}:${eventDate(event)}:${event.dateType ?? "ex"}`, event]));
+    [...calendarEvents, ...hkEvents].forEach((event) => eventMap.set(`${event.exchange}:${event.contract}:${eventDate(event)}:${event.dateType ?? "ex"}`, event));
+    official.forEach((event) => { if (eventDate(event).startsWith(requested)) eventMap.set(`${event.exchange}:${event.contract}:${eventDate(event)}:${event.dateType ?? "ex"}`, event); });
+    if (cached && nasdaq.failedDates.length) {
+      const prior = (cached.value as { events?: Event[] }).events ?? [];
+      prior.filter((event) => nasdaq.failedDates.includes(eventDate(event)) && event.sourceLabel.includes("Nasdaq")).forEach((event) => {
+        const key = `${event.exchange}:${event.contract}:${eventDate(event)}:${event.dateType ?? "ex"}`;
+        if (!eventMap.has(key)) eventMap.set(key, event);
+      });
+    }
+    const events = [...eventMap.values()].sort((left, right) => eventDate(left).localeCompare(eventDate(right)) || (right.percent ?? -1) - (left.percent ?? -1));
+    const value = { month: requested, generatedAt: Date.now(), scannedContracts: instruments.length + bitget.instruments.length, equityContracts: equities.length + bitget.instruments.length, coveredContracts: new Set(events.map((event) => `${event.exchange}:${event.contract}`)).size, exchangeCounts: { Binance: { scanned: instruments.length, candidates: equities.length }, Bitget: { scanned: bitget.instruments.length, candidates: bitget.instruments.length } }, coverage: { us: "Nasdaq calendar + verified issuer dates", hk: hkexResult.error ? `HKEX scan unavailable: ${hkexResult.error}` : "HKEX announced entitlements (not exhaustive)", kr: "Company IR and dividend announcements, independent of Binance; exact-date gaps listed below", jp: "Company IR and dividend schedules; record dates are labelled separately from ex-dates" }, issuerScans: issuerScans.map(({ dates, ...scan }) => ({ ...scan, verifiedDates: dates.length })), events, ...(nasdaq.failedDates.length ? { warning: `Nasdaq data unavailable for ${nasdaq.failedDates.length} date(s): ${nasdaq.failedDates.join(", ")}. Other sources and available dates are shown.`, missingNasdaqDates: nasdaq.failedDates } : {}) };
+    store.__DIVIDEND_MONTH_CACHE__.set(requested, { expires: Date.now() + (nasdaq.failedDates.length ? 5 : 60) * 60_000, value });
     return Response.json(value, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     if (cached) return Response.json({ ...(cached.value as Record<string, unknown>), warning: "The latest dividend scan was incomplete. Showing the last complete result." }, { headers: { "Cache-Control": "no-store" } });
