@@ -623,3 +623,14 @@ test("routes Tencent aliases to Hyperliquid and computes HK auction and historic
     else process.env.FUTU_RELAY_URL = originalRelay;
   }
 });
+
+
+test("server-renders HK auction after removing the card history controls", async () => {
+  const response = await render("/hk-auction");
+  const html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(html, /HK Auction Basis/);
+  assert.match(html, /io:TCNT/);
+  assert.match(html, /HK CLOSE ANCHOR/);
+  assert.doesNotMatch(html, /Open spread history|>Overview</);
+});

@@ -161,6 +161,8 @@ export default function HkAuctionPage() {
   const [managerOpen, setManagerOpen] = useState(false);
   const [draft, setDraft] = useState({ stockSymbol: "HK.", perpSymbol: "", sharesPerContract: "1", perpVenue: "binance" as PerpVenue, adrSymbol: "", hkSharesPerAdr: "1" });
   const [pairError, setPairError] = useState("");
+  const [liteAnchor, setLiteAnchor] = useState<LiteAnchor | null>(null);
+  const [liteAnchorError, setLiteAnchorError] = useState("");
   const requestRef = useRef(false);
 
   useEffect(() => {
