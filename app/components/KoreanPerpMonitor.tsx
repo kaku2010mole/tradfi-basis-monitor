@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { equityBasis, equitySpreads } from "../lib/equityBasis";
 import styles from "./KoreanPerpMonitor.module.css";
 
 const COGNITO_CLIENT_ID = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID ?? "5qup0una5tdma3l33pnn1gm87i";
@@ -107,23 +108,29 @@ export default function KoreanPerpMonitor() {
   };
 
   return <section className={styles.monitor} aria-label="Korean and Japanese stock perpetual basis">
-    <header><div><p>POSLEY KRX + TSE · EXCHANGE PERPETUALS</p><h2>Korean &amp; Japanese stock cross-venue basis</h2><span>Fresh BBO comparison · verified share/ADR ratios · USDT treated as USD</span></div><div className={`${styles.status} ${payload.sessions?.KRX !== "REGULAR" && payload.sessions?.KRX !== "AFTER-HOURS" && payload.sessions?.TSE !== "REGULAR" ? styles.closed : ""}`}><i />{payload.sessions ? `KRX ${payload.sessions.KRX} · TSE ${payload.sessions.TSE}${payload.posley?.state === "partial" ? " · DATA PARTIAL" : ""}` : "CONNECTING"}</div></header>
-    <div className={styles.fx}><span>USD/KRW POSLEY {payload.fx?.bid != null && payload.fx?.ask != null ? clock - (payload.fx.updatedAt ?? 0) <= EDGE_MAX_AGE_MS ? "BBO" : "LAST BBO" : "LAST"}</span><strong>{payload.fx?.bid != null && payload.fx?.ask != null ? `${fmt(payload.fx.bid, 2)} / ${fmt(payload.fx.ask, 2)}` : fmt(payload.fx?.last ?? null, 2)}</strong><small>As of {dateTime(payload.fx?.updatedAt ?? null)} HKT · only fresh FX BBO is used for signals.</small></div>
-    <div className={styles.fx}><span>USD/JPY {payload.yenFx?.source?.toUpperCase() ?? "WAITING"} {payload.yenFx?.bid != null && payload.yenFx?.ask != null ? clock - (payload.yenFx.updatedAt ?? 0) <= EDGE_MAX_AGE_MS ? "BBO" : "LAST BBO" : "LAST"}</span><strong>{payload.yenFx?.bid != null && payload.yenFx?.ask != null ? `${fmt(payload.yenFx.bid, 2)} / ${fmt(payload.yenFx.ask, 2)}` : fmt(payload.yenFx?.last ?? null, 2)}</strong><small>As of {dateTime(payload.yenFx?.updatedAt ?? null)} HKT · index fallback is indicative only; no executable FX bid/ask.</small></div>
+    <header><div><p>POSLEY KRX + TSE · EXCHANGE PERPETUALS</p><h2>Korean &amp; Japanese stock cross-venue basis</h2><span>All-session basis · latest available quotes · USDT treated as USD</span></div><div className={`${styles.status} ${payload.sessions?.KRX !== "REGULAR" && payload.sessions?.KRX !== "AFTER-HOURS" && payload.sessions?.TSE !== "REGULAR" ? styles.closed : ""}`}><i />{payload.sessions ? `KRX ${payload.sessions.KRX} · TSE ${payload.sessions.TSE}${payload.posley?.state === "partial" ? " · DATA PARTIAL" : ""}` : "CONNECTING"}</div></header>
+    <div className={styles.fx}><span>USD/KRW POSLEY {payload.fx?.bid != null && payload.fx?.ask != null ? clock - (payload.fx.updatedAt ?? 0) <= EDGE_MAX_AGE_MS ? "BBO" : "LAST BBO" : "LAST"}</span><strong>{payload.fx?.bid != null && payload.fx?.ask != null ? `${fmt(payload.fx.bid, 2)} / ${fmt(payload.fx.ask, 2)}` : fmt(payload.fx?.last ?? null, 2)}</strong><small>As of {dateTime(payload.fx?.updatedAt ?? null)} HKT · Latest available FX is used for basis; older quotes are labelled.</small></div>
+    <div className={styles.fx}><span>USD/JPY {payload.yenFx?.source?.toUpperCase() ?? "WAITING"} {payload.yenFx?.bid != null && payload.yenFx?.ask != null ? clock - (payload.yenFx.updatedAt ?? 0) <= EDGE_MAX_AGE_MS ? "BBO" : "LAST BBO" : "LAST"}</span><strong>{payload.yenFx?.bid != null && payload.yenFx?.ask != null ? `${fmt(payload.yenFx.bid, 2)} / ${fmt(payload.yenFx.ask, 2)}` : fmt(payload.yenFx?.last ?? null, 2)}</strong><small>As of {dateTime(payload.yenFx?.updatedAt ?? null)} HKT · FX index fallback is used for indicative basis when BBO is unavailable.</small></div>
     {(loginError || error || payload.posley?.error) && <div className={styles.notice}><span>{loginError || error || payload.posley?.error}</span><button disabled={loginBusy} onClick={() => void connect()}>{loginBusy ? "Checking…" : "Connect Posley"}</button></div>}
-    <div className={styles.rows}>{payload.rows?.map((row) => <article key={row.code}>
-      <div className={styles.identity}><small>{row.market} {row.code}{row.sharesPerPerp !== 1 ? ` · ${row.sharesPerPerp} shares / perp` : ""}</small><strong>{row.name}</strong><span>{row.currency} {row.session !== "REGULAR" && row.session !== "AFTER-HOURS" && row.session !== "OPENING AUCTION" && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : row.cashBidKrw != null && row.cashAskKrw != null ? `${fmt(row.cashBidKrw, 0)} / ${fmt(row.cashAskKrw, 0)}` : row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : "—"} · {row.cashBidUsd != null && row.cashAskUsd != null ? row.session === "AFTER-HOURS" ? "AFTER-HOURS BBO" : "LIVE" : row.session === "REGULAR" || row.session === "AFTER-HOURS" ? "STALE" : row.session}</span><em>{row.cashBidUsd != null && row.cashAskUsd != null ? `≈ USD ${fmt(row.cashBidUsd)} / ${fmt(row.cashAskUsd)}` : row.session === "OPENING AUCTION" ? "Pre-open book if available · no official IEP verified" : "Last cash quote · no live basis"} · {dateTime(row.cashUpdatedAt)} HKT</em></div>
+    <div className={styles.rows}>{payload.rows?.map((row) => {
+      const active = row.session === "REGULAR" || row.market === "KRX" && row.session === "AFTER-HOURS";
+      const fx = (row.market === "TSE" ? payload.yenFx : payload.fx) ?? {};
+      const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx, row.sharesPerPerp, !active);
+      return <article key={row.code}>
+      <div className={styles.identity}><small>{row.market} {row.code}{row.sharesPerPerp !== 1 ? ` · ${row.sharesPerPerp} shares / perp` : ""}</small><strong>{row.name}</strong><span>{row.currency} {basis.usesLast && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} / ${fmt(row.cashAskKrw, 0)}`} · {row.session}</span><em>≈ USD {fmt(basis.cashBidUsd)} / {fmt(basis.cashAskUsd)} · {basis.usesLast ? "Last cash price" : "Cash BBO"} · {dateTime(row.cashUpdatedAt)} HKT</em></div>
       <div className={styles.venues}>{row.venues.map((quote) => {
-        const oldestLeg = Math.min(row.cashUpdatedAt ?? 0, (row.market === "TSE" ? payload.yenFx : payload.fx)?.updatedAt ?? 0, quote.updatedAt ?? 0);
-        const active = row.session === "REGULAR" || row.market === "KRX" && row.session === "AFTER-HOURS";
-        const stale = !active || !oldestLeg || clock - oldestLeg > EDGE_MAX_AGE_MS;
+        const oldestLeg = Math.min(row.cashUpdatedAt ?? 0, fx.updatedAt ?? 0, quote.updatedAt ?? 0);
+        const stale = !oldestLeg || clock - oldestLeg > EDGE_MAX_AGE_MS;
+        const indicative = !active || stale || basis.usesLast || basis.usesFxLast || !row.cashBidQty || !row.cashAskQty;
+        const spreads = equitySpreads(basis.cashBidUsd, basis.cashAskUsd, quote);
+        const label = indicative ? `${row.session} · INDICATIVE${stale ? " · LAST QUOTES" : ""}` : row.session === "AFTER-HOURS" ? "AFTER-HOURS BBO" : "LIVE BBO";
         return <div key={quote.venue} className={styles.venue}>
         <div><b>{quote.venue}</b><code>{quote.symbol}</code><time>{time(quote.updatedAt)}</time></div>
         <div className={styles.bbo}><span>PERP BID / ASK<strong>{fmt(quote.bid)} / {fmt(quote.ask)}</strong></span><span>SIZE<strong>{fmt(quote.bidQty)} / {fmt(quote.askQty)}</strong></span></div>
-        <div className={styles.edges}><span className={!stale && (quote.buyKoreaSellPerp ?? -1) > 0 ? styles.positive : ""}>BUY {row.market} · SELL PERP<b>{!active ? row.session : stale ? "STALE" : pct(quote.buyKoreaSellPerp)}</b></span><span className={!stale && (quote.buyPerpSellKorea ?? -1) > 0 ? styles.positive : ""}>BUY PERP · SELL {row.market}<b>{!active ? row.session : stale ? "STALE" : pct(quote.buyPerpSellKorea)}</b></span></div>
+        <div className={styles.edges}><span className={(spreads.buyKoreaSellPerp ?? -1) > 0 ? styles.positive : ""}>BUY {row.market} · SELL PERP<b>{pct(spreads.buyKoreaSellPerp)}</b><small>{label}</small></span><span className={(spreads.buyPerpSellKorea ?? -1) > 0 ? styles.positive : ""}>BUY PERP · SELL {row.market}<b>{pct(spreads.buyPerpSellKorea)}</b><small>{label}</small></span></div>
       </div>; })}</div>
       {row.mappingNote && <p className={styles.mapping}>{row.mappingNote}</p>}
-    </article>)}</div>
-    <footer>KRX after-hours spreads appear from 14:40 to 19:00 HKT only when cash, FX and perp books are fresh. The Posley KRX book is not verified as an NXT-routable quote; confirm the cash venue before trading. The 14:30–14:40 after-hours opening and TSE opening auction do not show trade spreads. Indicative FX never produces a spread. Figures exclude fees, funding, borrow, tax, FX execution and latency.</footer>
+    </article>; })}</div>
+    <footer>Basis is shown in every market session. Closed, pre-market, auction, stale and last-price or FX-index comparisons are labelled INDICATIVE. Missing prices or FX show —. The Posley KRX book is not verified as an NXT-routable quote; confirm the cash venue before trading. Figures exclude fees, funding, borrow, tax, FX execution and latency.</footer>
   </section>;
 }

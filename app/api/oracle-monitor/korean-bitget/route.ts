@@ -1,3 +1,4 @@
+import { equityBasis, equitySpreads } from "../../../lib/equityBasis";
 import { posleyAdrSnapshot } from "../../../lib/posleyAdr";
 
 export const dynamic = "force-dynamic";
@@ -128,16 +129,13 @@ export async function GET(request: Request) {
       const cashBidKrw = positive(cash?.bid);
       const cashAskKrw = positive(cash?.ask);
       const cashSessionActive = sessions.KRX === "REGULAR" || sessions.KRX === "AFTER-HOURS";
-      const usable = cashSessionActive && fresh(cash?.timestamp) && fresh(fx?.timestamp) && positive(cash?.bidSize) !== null && positive(cash?.askSize) !== null;
-      const cashBidUsd = usable && cashBidKrw !== null && fxAsk !== null ? cashBidKrw / fxAsk : null;
-      const cashAskUsd = usable && cashAskKrw !== null && fxBid !== null ? cashAskKrw / fxBid : null;
+      const { cashBidUsd, cashAskUsd } = equityBasis(cash ?? {}, fx ?? {}, 1, !cashSessionActive);
       const venues = [
         stock.bitgetSymbol ? (() => { const quote = tickers.get(stock.bitgetSymbol); return { venue: "Bitget", symbol: stock.bitgetSymbol, bid: positive(quote?.bidPr), ask: positive(quote?.askPr), bidQty: positive(quote?.bidSz), askQty: positive(quote?.askSz), updatedAt: positive(quote?.ts) }; })() : null,
         stock.binanceSymbol ? (() => { const quote = binanceBooks.get(stock.binanceSymbol); return { venue: "Binance", symbol: stock.binanceSymbol, bid: positive(quote?.bidPrice), ask: positive(quote?.askPrice), bidQty: positive(quote?.bidQty), askQty: positive(quote?.askQty), updatedAt: positive(quote?.time) }; })() : null,
       ].flatMap((venue) => venue ? [{
         ...venue,
-        buyKoreaSellPerp: cashAskUsd !== null && venue.bid !== null && fresh(venue.updatedAt) ? (venue.bid / cashAskUsd - 1) * 100 : null,
-        buyPerpSellKorea: cashBidUsd !== null && venue.ask !== null && fresh(venue.updatedAt) ? (cashBidUsd / venue.ask - 1) * 100 : null,
+        ...equitySpreads(cashBidUsd, cashAskUsd, venue),
       }] : []);
       return {
         code: stock.code, name: stock.name, market: "KRX", session: sessions.KRX, currency: "KRW", sharesPerPerp: 1, venues,
@@ -152,12 +150,10 @@ export async function GET(request: Request) {
       const cash = books.get(stock.code);
       const cashBidKrw = positive(cash?.bid);
       const cashAskKrw = positive(cash?.ask);
-      const usable = sessions.TSE === "REGULAR" && fresh(cash?.timestamp) && fresh(yenFx?.timestamp) && positive(cash?.bidSize) !== null && positive(cash?.askSize) !== null;
-      const cashBidUsd = usable && cashBidKrw !== null && yenFxAsk !== null ? cashBidKrw * stock.sharesPerPerp / yenFxAsk : null;
-      const cashAskUsd = usable && cashAskKrw !== null && yenFxBid !== null ? cashAskKrw * stock.sharesPerPerp / yenFxBid : null;
+      const basisFx = useBitgetFx ? { last: bitgetFxIndex } : yenFx ?? {};
+      const { cashBidUsd, cashAskUsd } = equityBasis(cash ?? {}, basisFx, stock.sharesPerPerp, sessions.TSE !== "REGULAR");
       const quote = tickers.get(stock.bitgetSymbol);
       const bid = positive(quote?.bidPr); const ask = positive(quote?.askPr); const updatedAt = positive(quote?.ts);
-      const venueFresh = fresh(updatedAt);
       return {
         code: stock.code, name: stock.name, market: "TSE", session: sessions.TSE, currency: "JPY", sharesPerPerp: stock.sharesPerPerp,
         mappingNote: stock.code === "7203" ? "TM is Toyota's U.S. ADR; one ADS represents 10 ordinary shares." : null,
@@ -165,8 +161,7 @@ export async function GET(request: Request) {
         cashLast: positive(cash?.last),
         cashBidUsd, cashAskUsd,
         venues: [{ venue: "Bitget", symbol: stock.bitgetSymbol, bid, ask, bidQty: positive(quote?.bidSz), askQty: positive(quote?.askSz), updatedAt,
-          buyKoreaSellPerp: venueFresh && cashAskUsd !== null && bid !== null ? (bid / cashAskUsd - 1) * 100 : null,
-          buyPerpSellKorea: venueFresh && cashBidUsd !== null && ask !== null ? (cashBidUsd / ask - 1) * 100 : null }],
+          ...equitySpreads(cashBidUsd, cashAskUsd, { bid, ask }) }],
       };
     });
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { stripTypeScriptTypes } from "node:module";
 
 async function render(pathname = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -87,9 +88,9 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(page, /<KoreanPerpMonitor/);
   assert.match(component, /Korean &amp; Japanese stock cross-venue basis/);
   assert.match(component, /KRX \$\{payload\.sessions\.KRX\} · TSE \$\{payload\.sessions\.TSE\}/);
-  assert.match(component, /Last cash quote · no live basis/);
-  assert.match(component, /index fallback is indicative only/);
-  assert.match(component, /Pre-open book if available · no official IEP verified/);
+  assert.match(component, /Last cash price/);
+  assert.match(component, /FX index fallback is used for indicative basis/);
+  assert.match(component, /INDICATIVE/);
   assert.match(component, /Connect Posley/);
   assert.match(component, /equity_monitor_id_token/);
   assert.doesNotMatch(component, /005935/);
@@ -100,7 +101,7 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(route, /DOOSBOTUSDT/);
   assert.match(route, /binanceSymbol: "HANMIUSDT"/);
   assert.match(route, /bitgetSymbol: null, binanceSymbol: "HANMIUSDT"/);
-  assert.match(route, /BUY KRX|buyKoreaSellPerp/);
+  assert.match(route, /equitySpreads/);
   assert.match(posley, /FX:USD:KRW/);
   assert.match(posley, /FX:USD:JPY/);
   assert.match(officePusher, /STK:\$\{code\}:TSEJ:JPY/);
@@ -122,7 +123,7 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(route, /USDJPYUSDT/);
   assert.match(route, /indexPrice/);
   assert.match(route, /cashLast: positive\(cash\?\.last\)/);
-  assert.match(route, /positive\(cash\?\.bidSize\) !== null/);
+  assert.match(route, /equityBasis/);
   assert.match(worker, /TSE/);
   assert.match(worker, /285A/);
   assert.match(route, /code: "7203"[^\n]*sharesPerPerp: 10/);
@@ -561,4 +562,31 @@ test("FX-adjusts SKHX to CSOP 2L prediction error everywhere", async () => {
   assert.match(page, /USD\/KRWₜ \/ USD\/KRW₀/);
   assert.match(ranking, /model\.beta \* \(predictorGross - 1\)/);
   assert.match(alerts, /snapshot\.beta \* \(predictorGross - 1\)/);
+});
+
+
+test("keeps numeric basis through closed, pre-market and stale cash quotes", async () => {
+  const source = await readFile(new URL("../app/lib/equityBasis.ts", import.meta.url), "utf8");
+  const { equityBasis, equitySpreads } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString("base64")}`);
+  const cash = { bid: 19000, ask: 19200, last: 19120 };
+  const fx = { bid: 156, ask: 157 };
+  for (const session of ["CLOSED", "PRE-MARKET", "OPENING AUCTION", "LUNCH", "AFTER-HOURS OPENING"]) {
+    const basis = equityBasis(cash, fx, 1, true);
+    const spreads = equitySpreads(basis.cashBidUsd, basis.cashAskUsd, { bid: 122.22, ask: 122.28 });
+    assert.equal(basis.cashBidUsd, 19120 / 157, session);
+    assert.equal(basis.cashAskUsd, 19120 / 156, session);
+    assert.ok(Number.isFinite(spreads.buyKoreaSellPerp), session);
+    assert.ok(Number.isFinite(spreads.buyPerpSellKorea), session);
+  }
+  const live = equityBasis(cash, fx);
+  assert.equal(live.cashBidUsd, 19000 / 157);
+  assert.equal(live.cashAskUsd, 19200 / 156);
+  const reference = equityBasis({ last: 3000 }, { last: 150 }, 10, true);
+  assert.equal(reference.cashBidUsd, 200); // Toyota: ten ordinary shares per ADS.
+  assert.equal(reference.cashAskUsd, 200);
+  assert.equal(reference.usesLast, true);
+  assert.equal(reference.usesFxLast, true);
+  const missing = equityBasis({ last: 3000 }, {});
+  assert.equal(equitySpreads(missing.cashBidUsd, missing.cashAskUsd, { bid: 200, ask: 201 }).buyKoreaSellPerp, null);
+  assert.equal(equityBasis({ last: 0 }, { last: 150 }).cashBidUsd, null);
 });
