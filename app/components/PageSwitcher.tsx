@@ -4,7 +4,7 @@ import Link from "next/link";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
-  active: "basis" | "pairs" | "oracle" | "blog" | "polymarket" | "auction" | "dividends";
+  active: "jlp" | "basis" | "pairs" | "oracle" | "blog" | "polymarket" | "auction" | "dividends";
 };
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
@@ -16,7 +16,11 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
       </summary>
       <nav aria-label="Dashboard pages">
         <p>Switch dashboard</p>
-        <Link href="/" aria-current={active === "basis" ? "page" : undefined}>
+        <Link href="/" aria-current={active === "jlp" ? "page" : undefined}>
+          <span>JLP Research</span>
+          <small>Live yield, hedging and financing</small>
+        </Link>
+        <Link href="/basis" aria-current={active === "basis" ? "page" : undefined}>
           <span>Basis monitor</span>
           <small>Midpoint, anchor drift and funding</small>
         </Link>

@@ -16,7 +16,7 @@ async function render(pathname = "/") {
 }
 
 test("server-renders the TradFi dashboard shell", async () => {
-  const response = await render();
+  const response = await render("/basis");
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
@@ -31,7 +31,7 @@ test("server-renders the TradFi dashboard shell", async () => {
 
 test("adds a daily OpenD-backed Treasury futures yield estimator", async () => {
   const [response, estimator, route, pusher] = await Promise.all([
-    render(),
+    render("/basis"),
     readFile(new URL("../app/components/TreasuryYieldEstimator.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/treasury-yields/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
@@ -47,6 +47,24 @@ test("adds a daily OpenD-backed Treasury futures yield estimator", async () => {
     assert.match(route, new RegExp(`US\\.${symbol}main`));
     assert.match(pusher, new RegExp(`US\\.${symbol}main`));
   }
+});
+
+test("JLP Research is the homepage and the original Basis Monitor remains available", async () => {
+  const [home, basis, switcher, jlp, jlpApi] = await Promise.all([
+    render("/"),
+    render("/basis"),
+    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../public/jlp-app/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/jlp/[...endpoint]/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.equal(home.status, 200);
+  assert.match(await home.text(), /JLP Research dashboard/);
+  assert.match(await basis.text(), /Set the anchor\. Then watch the drift\./);
+  assert.match(switcher, /href="\/" aria-current=\{active === "jlp"/);
+  assert.match(switcher, /href="\/basis"/);
+  assert.match(jlp, /\/api\/jlp\/state/);
+  assert.match(jlp, /\/api\/jlp\/history/);
+  assert.match(jlpApi, /JLP data service unavailable/);
 });
 
 test("scans Binance and Bitget TradFi stock and ETF contracts into an English dividend calendar", async () => {

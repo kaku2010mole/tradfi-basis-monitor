@@ -44,4 +44,6 @@ __pycache__/
 /outputs/
 /work/
 /services/futu-pusher/.venv/
+/services/jlp-research/data/*.sqlite3-wal
+/services/jlp-research/data/*.sqlite3-shm
 /.futu-push-token
