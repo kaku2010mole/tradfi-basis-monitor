@@ -132,7 +132,7 @@
 .neutralStrip button b { color:var(--ink); font-size:9px; }
 .neutralStrip button i { color:#8290a2; font-size:7px; font-style:normal; font-weight:900; }
 .neutralStrip .activeNeutral { border-color:var(--blue); background:#eef6ff; box-shadow:0 0 0 2px rgba(36,118,229,.1); }
-.chartPanel { margin-top:10px; overflow:hidden; border:1px solid var(--line); border-top-width:4px; background:var(--panel); box-shadow:0 18px 55px rgba(23,46,79,.07); }
+.chartPanel { margin-top:16px; overflow:hidden; border:1px solid var(--line); border-top-width:3px; border-radius:12px; background:var(--panel); box-shadow:0 8px 28px rgba(23,46,79,.04); }
 .binancePanel { border-top-color:var(--binance); }
 .hyperliquidPanel { border-top-color:var(--hyper); }
 .panelHead { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; padding:20px 22px 6px; }
@@ -153,7 +153,8 @@
 .chartWrap svg { display:block; width:100%; height:auto; touch-action:none; }
 .tooltip { position:absolute; z-index:3; top:70px; min-width:180px; display:grid; gap:3px; padding:10px 12px; border:1px solid #d4deea; border-radius:9px; background:rgba(255,255,255,.97); box-shadow:0 15px 45px rgba(16,35,63,.16); color:#43536b; pointer-events:none; font:10px/1.45 var(--font-geist-mono),monospace; }
 .tooltip strong { color:var(--ink); font-family:var(--font-geist-sans),Arial,sans-serif; }
-.emptyChart { min-height:420px; display:grid; place-items:center; color:var(--muted); font-size:12px; }
+.emptyChart { min-height:210px; display:grid; place-items:center; color:var(--muted); font-size:12px; }
+.chartPanel .emptyChart { min-height:210px; }
 .chartFooter { display:flex; justify-content:space-between; gap:20px; padding:10px 22px 18px; color:var(--muted); font-size:9px; }
 .depthPanel { margin-top:10px; overflow:hidden; border:1px solid #233a50; background:#091723; color:#eaf4ff; box-shadow:0 22px 65px rgba(7,19,31,.19); }
 .depthHeader { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; padding:22px 24px 17px; border-bottom:1px solid rgba(155,181,204,.14); }

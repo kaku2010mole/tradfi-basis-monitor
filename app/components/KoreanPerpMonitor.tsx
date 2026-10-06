@@ -9,9 +9,10 @@ const COGNITO_DOMAIN = process.env.NEXT_PUBLIC_COGNITO_DOMAIN ?? "posley.auth.us
 
 type VenueQuote = { venue: string; symbol: string; bid: number | null; ask: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null; buyKoreaSellPerp: number | null; buyPerpSellKorea: number | null };
 type Session = "PRE-MARKET" | "OPENING AUCTION" | "REGULAR" | "AFTER-HOURS OPENING" | "AFTER-HOURS" | "LUNCH" | "CLOSED";
-type Row = { code: string; name: string; market: "KRX" | "TSE"; session: Session; currency: "KRW" | "JPY"; sharesPerPerp: number; cashBidKrw: number | null; cashAskKrw: number | null; cashLast: number | null; cashBidQty: number | null; cashAskQty: number | null; cashUpdatedAt: number | null; cashBidUsd: number | null; cashAskUsd: number | null; venues: VenueQuote[]; mappingNote: string | null };
+type AdrQuote = { symbol: string; sharesPerAdr: number; source: string; marketState: string | null; bid: number | null; ask: number | null; last: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null; buyAdrSellPerp: number | null; buyPerpSellAdr: number | null };
+type Row = { code: string; name: string; market: "KRX" | "TSE"; session: Session; currency: "KRW" | "JPY"; sharesPerPerp: number; cashBidKrw: number | null; cashAskKrw: number | null; cashLast: number | null; cashBidQty: number | null; cashAskQty: number | null; cashUpdatedAt: number | null; cashBidUsd: number | null; cashAskUsd: number | null; venues: VenueQuote[]; adr?: AdrQuote | null; mappingNote: string | null };
 type FxBook = { source: string; bid: number | null; ask: number | null; last: number | null; updatedAt: number | null };
-type Payload = { rows?: Row[]; sessions?: { KRX: Session; TSE: Session }; fx?: FxBook; yenFx?: FxBook; posley?: { state: string; error: string; missing: string[]; source?: string }; timestamp?: number; error?: string };
+type Payload = { rows?: Row[]; sessions?: { KRX: Session; TSE: Session; US: Session }; fx?: FxBook; yenFx?: FxBook; posley?: { state: string; error: string; missing: string[]; source?: string }; timestamp?: number; error?: string };
 
 const fmt = (value: number | null, digits = 2) => value === null ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const pct = (value: number | null) => value === null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(3)}%`;
@@ -19,6 +20,12 @@ const time = (value: number | null) => value === null ? "—" : new Intl.DateTim
 const dateTime = (value: number | null) => value === null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(value);
 const POLL_MS = 2_000;
 const EDGE_MAX_AGE_MS = 60_000;
+const isFresh = (timestamp: number | null | undefined, now: number) => Boolean(timestamp && now - timestamp <= EDGE_MAX_AGE_MS && timestamp - now < 5_000);
+const adrSpreads = (row: Row, adr: AdrQuote, perp: VenueQuote) => {
+  const scale = row.sharesPerPerp / adr.sharesPerAdr;
+  const spreads = equitySpreads(adr.bid === null ? null : adr.bid * scale, adr.ask === null ? null : adr.ask * scale, perp);
+  return { buyAdrSellPerp: spreads.buyKoreaSellPerp, buyPerpSellAdr: spreads.buyPerpSellKorea };
+};
 
 function mergeRows(previous: Row[] = [], incoming: Row[] = []) {
   const priorByCode = new Map(previous.map((row) => [row.code, row]));
@@ -35,6 +42,7 @@ function mergeRows(previous: Row[] = [], incoming: Row[] = []) {
       cashBidUsd: row.cashBidUsd,
       cashAskUsd: row.cashAskUsd,
       cashUpdatedAt: cash.cashUpdatedAt,
+      adr: row.adr && (row.adr.bid !== null || row.adr.ask !== null || row.adr.last !== null) && (row.adr.updatedAt ?? 0) >= (prior.adr?.updatedAt ?? 0) ? row.adr : prior.adr ?? row.adr,
       venues: row.venues.map((quote) => {
         const older = priorVenues.get(quote.venue);
         if (!older) return quote;
@@ -80,6 +88,7 @@ export default function KoreanPerpMonitor() {
   const [error, setError] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
+  const [marketFilter, setMarketFilter] = useState<"AUTO" | "ALL" | "KRX" | "TSE">("AUTO");
   const inFlight = useRef(false);
   const load = useCallback(async () => {
     if (inFlight.current) return;
@@ -107,30 +116,70 @@ export default function KoreanPerpMonitor() {
     catch (reason) { setLoginError(reason instanceof Error ? reason.message : "Posley login is unavailable."); setLoginBusy(false); }
   };
 
-  return <section className={styles.monitor} aria-label="Korean and Japanese stock perpetual basis">
-    <header><div><p>POSLEY KRX + TSE · EXCHANGE PERPETUALS</p><h2>Korean &amp; Japanese stock cross-venue basis</h2><span>All-session basis · latest available quotes · USDT treated as USD</span></div><div className={`${styles.status} ${payload.sessions?.KRX !== "REGULAR" && payload.sessions?.KRX !== "AFTER-HOURS" && payload.sessions?.TSE !== "REGULAR" ? styles.closed : ""}`}><i />{payload.sessions ? `KRX ${payload.sessions.KRX} · TSE ${payload.sessions.TSE}${payload.posley?.state === "partial" ? " · DATA PARTIAL" : ""}` : "CONNECTING"}</div></header>
-    <div className={styles.fx}><span>USD/KRW POSLEY {payload.fx?.bid != null && payload.fx?.ask != null ? clock - (payload.fx.updatedAt ?? 0) <= EDGE_MAX_AGE_MS ? "BBO" : "LAST BBO" : "LAST"}</span><strong>{payload.fx?.bid != null && payload.fx?.ask != null ? `${fmt(payload.fx.bid, 2)} / ${fmt(payload.fx.ask, 2)}` : fmt(payload.fx?.last ?? null, 2)}</strong><small>As of {dateTime(payload.fx?.updatedAt ?? null)} HKT · Latest available FX is used for basis; older quotes are labelled.</small></div>
-    <div className={styles.fx}><span>USD/JPY {payload.yenFx?.source?.toUpperCase() ?? "WAITING"} {payload.yenFx?.bid != null && payload.yenFx?.ask != null ? clock - (payload.yenFx.updatedAt ?? 0) <= EDGE_MAX_AGE_MS ? "BBO" : "LAST BBO" : "LAST"}</span><strong>{payload.yenFx?.bid != null && payload.yenFx?.ask != null ? `${fmt(payload.yenFx.bid, 2)} / ${fmt(payload.yenFx.ask, 2)}` : fmt(payload.yenFx?.last ?? null, 2)}</strong><small>As of {dateTime(payload.yenFx?.updatedAt ?? null)} HKT · FX index fallback is used for indicative basis when BBO is unavailable.</small></div>
-    {(loginError || error || payload.posley?.error) && <div className={styles.notice}><span>{loginError || error || payload.posley?.error}</span><button disabled={loginBusy} onClick={() => void connect()}>{loginBusy ? "Checking…" : "Connect Posley"}</button></div>}
-    <div className={styles.rows}>{payload.rows?.map((row) => {
-      const active = row.session === "REGULAR" || row.market === "KRX" && row.session === "AFTER-HOURS";
-      const fx = (row.market === "TSE" ? payload.yenFx : payload.fx) ?? {};
-      const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx, row.sharesPerPerp, !active);
-      return <article key={row.code}>
-      <div className={styles.identity}><small>{row.market} {row.code}{row.sharesPerPerp !== 1 ? ` · ${row.sharesPerPerp} shares / perp` : ""}</small><strong>{row.name}</strong><span>{row.currency} {basis.usesLast && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} / ${fmt(row.cashAskKrw, 0)}`} · {row.session}</span><em>≈ USD {fmt(basis.cashBidUsd)} / {fmt(basis.cashAskUsd)} · {basis.usesLast ? "Last cash price" : "Cash BBO"} · {dateTime(row.cashUpdatedAt)} HKT</em></div>
-      <div className={styles.venues}>{row.venues.map((quote) => {
-        const oldestLeg = Math.min(row.cashUpdatedAt ?? 0, fx.updatedAt ?? 0, quote.updatedAt ?? 0);
-        const stale = !oldestLeg || clock - oldestLeg > EDGE_MAX_AGE_MS;
-        const indicative = !active || stale || basis.usesLast || basis.usesFxLast || !row.cashBidQty || !row.cashAskQty;
+  const liveEdges = (payload.rows ?? []).flatMap((row) => {
+    const fx = row.market === "TSE" ? payload.yenFx : payload.fx;
+    const cashActive = row.session === "REGULAR" || row.market === "KRX" && row.session === "AFTER-HOURS";
+    const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, row.sharesPerPerp, !cashActive);
+    const cashEdges = cashActive && !basis.usesLast && !basis.usesFxLast && row.cashBidQty && row.cashAskQty && isFresh(row.cashUpdatedAt, clock) && isFresh(fx?.updatedAt, clock)
+      ? row.venues.flatMap((quote) => {
+        if (!isFresh(quote.updatedAt, clock) || !quote.bidQty || !quote.askQty) return [];
         const spreads = equitySpreads(basis.cashBidUsd, basis.cashAskUsd, quote);
-        const label = indicative ? `${row.session} · INDICATIVE${stale ? " · LAST QUOTES" : ""}` : row.session === "AFTER-HOURS" ? "AFTER-HOURS BBO" : "LIVE BBO";
-        return <div key={quote.venue} className={styles.venue}>
-        <div><b>{quote.venue}</b><code>{quote.symbol}</code><time>{time(quote.updatedAt)}</time></div>
-        <div className={styles.bbo}><span>PERP BID / ASK<strong>{fmt(quote.bid)} / {fmt(quote.ask)}</strong></span><span>SIZE<strong>{fmt(quote.bidQty)} / {fmt(quote.askQty)}</strong></span></div>
-        <div className={styles.edges}><span className={(spreads.buyKoreaSellPerp ?? -1) > 0 ? styles.positive : ""}>BUY {row.market} · SELL PERP<b>{pct(spreads.buyKoreaSellPerp)}</b><small>{label}</small></span><span className={(spreads.buyPerpSellKorea ?? -1) > 0 ? styles.positive : ""}>BUY PERP · SELL {row.market}<b>{pct(spreads.buyPerpSellKorea)}</b><small>{label}</small></span></div>
-      </div>; })}</div>
+        return [{ value: spreads.buyKoreaSellPerp, direction: `Buy ${row.market} · sell ${quote.venue}`, name: row.name, code: row.code, source: row.market === "KRX" ? "KRX route unverified" : "Live TSE BBO" },
+          { value: spreads.buyPerpSellKorea, direction: `Buy ${quote.venue} · sell ${row.market}`, name: row.name, code: row.code, source: row.market === "KRX" ? "KRX route unverified" : "Live TSE BBO" }];
+      }) : [];
+    const adr = row.adr;
+    const perp = row.venues.find((quote) => quote.venue === "Bitget");
+    const adrActive = payload.sessions?.US === "REGULAR" && (!adr?.marketState || ["MORNING", "AFTERNOON", "REGULAR"].includes(adr.marketState.toUpperCase()));
+    const adrBasis = adr && perp ? adrSpreads(row, adr, perp) : null;
+    const adrEdges = adr && perp && adrActive && isFresh(adr.updatedAt, clock) && isFresh(perp.updatedAt, clock) && adr.bidQty && adr.askQty && perp.bidQty && perp.askQty
+      ? [{ value: adrBasis?.buyAdrSellPerp ?? null, direction: `Buy ${adr.symbol} · sell Bitget`, name: row.name, code: row.code, source: "Live U.S. ADR BBO" },
+        { value: adrBasis?.buyPerpSellAdr ?? null, direction: `Buy Bitget · sell ${adr.symbol}`, name: row.name, code: row.code, source: "Live U.S. ADR BBO" }] : [];
+    return [...cashEdges, ...adrEdges].flatMap((edge) => edge.value !== null && edge.value > 0 ? [{ ...edge, value: edge.value }] : []);
+  }).sort((left, right) => right.value - left.value);
+  const effectiveMarket = marketFilter === "AUTO" ? payload.sessions?.US === "REGULAR" && payload.sessions.TSE === "CLOSED" && payload.sessions.KRX === "CLOSED" ? "TSE" : "ALL" : marketFilter;
+  const shownRows = (payload.rows ?? []).filter((row) => effectiveMarket === "ALL" || row.market === effectiveMarket);
+  const koreaRows = shownRows.filter((row) => row.market === "KRX");
+  const japanRows = shownRows.filter((row) => row.market === "TSE");
+
+  const renderRow = (row: Row) => {
+    const cashActive = row.session === "REGULAR" || row.market === "KRX" && row.session === "AFTER-HOURS";
+    const fx = row.market === "TSE" ? payload.yenFx : payload.fx;
+    const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, row.sharesPerPerp, !cashActive);
+    const adr = row.adr;
+    const perp = row.venues.find((quote) => quote.venue === "Bitget");
+    const adrActive = payload.sessions?.US === "REGULAR" && (!adr?.marketState || ["MORNING", "AFTERNOON", "REGULAR"].includes(adr.marketState.toUpperCase()));
+    const adrLive = Boolean(adr && perp && adrActive && isFresh(adr.updatedAt, clock) && isFresh(perp.updatedAt, clock) && adr.bidQty && adr.askQty && perp.bidQty && perp.askQty);
+    const adrBasis = adr && perp ? adrSpreads(row, adr, perp) : null;
+    const adrCard = adr && perp ? <div className={`${styles.referenceCard} ${styles.adrCard}`} key="adr">
+      <div className={styles.referenceHead}><div><span className={styles.referenceTag}>U.S. ADR ↔ BITGET</span><strong>{adr.symbol} / {perp.symbol}</strong></div><span className={adrLive ? styles.livePill : styles.indicativePill}>{adrLive ? "LIVE US BBO" : `${payload.sessions?.US ?? "US"} · INDICATIVE`}</span></div>
+      <div className={styles.referencePrices}><span>ADR BID / ASK <b>{fmt(adr.bid)} / {fmt(adr.ask)}</b></span><span>BITGET BID / ASK <b>{fmt(perp.bid)} / {fmt(perp.ask)}</b></span></div>
+      <div className={styles.referenceEdges}><span className={(adrBasis?.buyAdrSellPerp ?? -1) > 0 ? styles.positive : ""}>BUY ADR · SELL PERP<b>{pct(adrBasis?.buyAdrSellPerp ?? null)}</b></span><span className={(adrBasis?.buyPerpSellAdr ?? -1) > 0 ? styles.positive : ""}>BUY PERP · SELL ADR<b>{pct(adrBasis?.buyPerpSellAdr ?? null)}</b></span></div>
+      <small className={styles.referenceFoot}>1 ADR = {adr.sharesPerAdr} TSE {adr.sharesPerAdr === 1 ? "share" : "shares"} · 1 perp = {row.sharesPerPerp} · {adr.source} {time(adr.updatedAt)} HKT{!adrLive ? " · Last quotes only" : ""}</small>
+    </div> : null;
+    const cashCards = row.venues.map((quote) => {
+      const spreads = equitySpreads(basis.cashBidUsd, basis.cashAskUsd, quote);
+      const live = cashActive && !basis.usesLast && !basis.usesFxLast && Boolean(row.cashBidQty && row.cashAskQty && quote.bidQty && quote.askQty) && isFresh(row.cashUpdatedAt, clock) && isFresh(fx?.updatedAt, clock) && isFresh(quote.updatedAt, clock);
+      return <div className={styles.referenceCard} key={quote.venue}>
+        <div className={styles.referenceHead}><div><span className={styles.referenceTag}>{row.market} CASH ↔ {quote.venue.toUpperCase()}</span><strong>{quote.symbol}</strong></div><span className={live ? styles.livePill : styles.indicativePill}>{live ? row.session === "AFTER-HOURS" ? "AFTER-HOURS BBO" : "LIVE BBO" : `${row.session} · INDICATIVE`}</span></div>
+        <div className={styles.referencePrices}><span>CASH · USD EQUIV <b>{fmt(basis.cashBidUsd)} / {fmt(basis.cashAskUsd)}</b></span><span>PERP BID / ASK <b>{fmt(quote.bid)} / {fmt(quote.ask)}</b></span></div>
+        <div className={styles.referenceEdges}><span className={(spreads.buyKoreaSellPerp ?? -1) > 0 ? styles.positive : ""}>BUY {row.market} · SELL PERP<b>{pct(spreads.buyKoreaSellPerp)}</b></span><span className={(spreads.buyPerpSellKorea ?? -1) > 0 ? styles.positive : ""}>BUY PERP · SELL {row.market}<b>{pct(spreads.buyPerpSellKorea)}</b></span></div>
+        <small className={styles.referenceFoot}>{quote.venue} {time(quote.updatedAt)} HKT · Top size {fmt(quote.bidQty)} / {fmt(quote.askQty)}{!live ? " · Last or incomplete quote" : ""}</small>
+      </div>;
+    });
+    return <article className={styles.assetRow} key={row.code}>
+      <div className={styles.identity}><small>{row.market} {row.code}</small><strong>{row.name}</strong><span className={styles.cashPrice}>{row.currency} {basis.usesLast && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} / ${fmt(row.cashAskKrw, 0)}`}</span><span className={styles.sessionLabel}>{row.session} · {dateTime(row.cashUpdatedAt)} HKT</span>{row.sharesPerPerp !== 1 && <em>1 perp = {row.sharesPerPerp} TSE shares</em>}</div>
+      <div className={styles.references}>{row.market === "TSE" && adrActive && adrCard}{cashCards}{row.market === "TSE" && !adrActive && adrCard}</div>
       {row.mappingNote && <p className={styles.mapping}>{row.mappingNote}</p>}
-    </article>; })}</div>
-    <footer>Basis is shown in every market session. Closed, pre-market, auction, stale and last-price or FX-index comparisons are labelled INDICATIVE. Missing prices or FX show —. The Posley KRX book is not verified as an NXT-routable quote; confirm the cash venue before trading. Figures exclude fees, funding, borrow, tax, FX execution and latency.</footer>
+    </article>;
+  };
+
+  return <section className={styles.monitor} aria-label="Korean and Japanese stock cross-venue basis">
+    <header className={styles.monitorHeader}><div><p>KRX · TSE · U.S. ADR / PERPETUALS</p><h2>Stock cross-venue basis</h2><span>Live quote edges first. Closed-market comparisons remain visible and explicitly indicative.</span></div><div className={styles.status}><i />{payload.sessions ? `KRX ${payload.sessions.KRX} · TSE ${payload.sessions.TSE} · US ${payload.sessions.US}` : "CONNECTING"}</div></header>
+    <div className={styles.signalDeck}><div className={styles.signalIntro}><span>LIVE QUOTE RADAR</span><strong>{liveEdges.length ? `${liveEdges.length} positive edges` : "No live positive edge"}</strong><small>Ranked from fresh bid/ask books only. Fees and routing are not included.</small></div><div className={styles.signalList}>{liveEdges.slice(0, 3).map((edge, index) => <div key={`${edge.code}:${edge.direction}`} className={styles.signalItem}><small>0{index + 1} · {edge.source}</small><strong>{edge.name}<b>{pct(edge.value)}</b></strong><span>{edge.direction}</span></div>)}{!liveEdges.length && <p>Waiting for a positive edge with fresh cash/FX or U.S. ADR and perp books.</p>}</div></div>
+    <div className={styles.toolRow}><div className={styles.filters} role="group" aria-label="Filter stock market">{(["ALL", "KRX", "TSE"] as const).map((market) => <button key={market} className={effectiveMarket === market ? styles.activeFilter : ""} onClick={() => setMarketFilter(market)}>{market === "ALL" ? "All stocks" : market === "KRX" ? "Korea" : "Japan + ADR"}</button>)}</div><div className={styles.fxGroup}><span>USD/KRW <b>{payload.fx?.bid != null && payload.fx?.ask != null ? `${fmt(payload.fx.bid)} / ${fmt(payload.fx.ask)}` : fmt(payload.fx?.last ?? null)}</b><small>{isFresh(payload.fx?.updatedAt, clock) ? "LIVE" : "LAST"}</small></span><span>USD/JPY <b>{payload.yenFx?.bid != null && payload.yenFx?.ask != null ? `${fmt(payload.yenFx.bid)} / ${fmt(payload.yenFx.ask)}` : fmt(payload.yenFx?.last ?? null)}</b><small>{isFresh(payload.yenFx?.updatedAt, clock) ? "LIVE" : "LAST"}</small></span></div></div>
+    {(loginError || error || payload.posley?.error) && <div className={styles.notice}><span>{loginError || error || payload.posley?.error}</span><button disabled={loginBusy} onClick={() => void connect()}>{loginBusy ? "Checking…" : "Connect Posley"}</button></div>}
+    {koreaRows.length > 0 && <div className={styles.marketGroup}><div className={styles.groupHead}><div><span>01 / KOREA</span><h3>KRX cash vs perpetuals</h3></div><small>{payload.sessions?.KRX ?? "—"} · {koreaRows.length} names</small></div><div className={styles.rows}>{koreaRows.map(renderRow)}</div></div>}
+    {japanRows.length > 0 && <div className={styles.marketGroup}><div className={styles.groupHead}><div><span>02 / JAPAN + U.S. NIGHT</span><h3>TSE cash &amp; U.S. ADR vs Bitget</h3></div><small>TSE {payload.sessions?.TSE ?? "—"} · US {payload.sessions?.US ?? "—"} · {japanRows.length} names</small></div><div className={styles.rows}>{japanRows.map(renderRow)}</div></div>}
+    <footer>Positive percentages are gross quoted differences, not guaranteed arbitrage. U.S. ADR comparisons use verified share ratios and do not need USD/JPY; TSE comparisons do. Pre-market, closed and stale books are INDICATIVE. The KRX stream is not verified as NXT-routable. Confirm venue, fees, funding, borrow, tax and latency before trading.</footer>
   </section>;
 }

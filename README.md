@@ -136,6 +136,13 @@ an isolated push credential from `SITE_PASSWORD` when a separate token is not
 configured. The local derived token belongs in `.futu-push-token`, which is
 ignored by Git.
 
+The Oracle stock panel also uses the outbound OpenD push for the U.S.-listed
+Japanese ADRs `US.SONY`, `US.TM` and `US.MUFG`. Their ratios are respectively
+1, 10 and 1 Tokyo ordinary shares per ADR. The night-session ADR/perp edge
+compares fresh USD bid/ask books directly, without USD/JPY or a closed Tokyo
+quote as an executable leg. Deploy the server ingest allowlist before running
+`services/futu-pusher/Update Futu Symbols.command` on the relay Mac.
+
 On the relay Mac, double-click
 `services/futu-pusher/Install Futu Relay.command` once. It installs a per-user
 LaunchAgent that starts OpenD when needed, restarts the pusher after unexpected

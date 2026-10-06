@@ -231,11 +231,11 @@ async function fetchBrowserBinanceQuotes(symbols: string[], signal: AbortSignal)
 function DeviationChart({ points, threshold, symbol }: { points: OraclePoint[]; threshold: number; symbol: string }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const width = 1240;
-  const height = 500;
+  const height = 260;
   const left = 72;
   const right = 26;
-  const top = 38;
-  const bottom = 438;
+  const top = 22;
+  const bottom = 222;
   const plotted = points.filter((point): point is OraclePoint & { deviation: number; oracle: number } => point.deviation !== null && point.oracle !== null);
   const values = plotted.map((point) => point.deviation);
   const extent = Math.max(threshold * 1.25, ...values.map(Math.abs), 0.01);
@@ -809,6 +809,8 @@ export default function OracleMonitor() {
           <div>{neutral.map((quote) => <button key={quote.id} className={quote.id === selected?.id ? styles.activeNeutral : ""} onClick={() => setSelectedId(quote.id)}><b>{quote.symbol}</b><span>{formatPrice(quote.bid)} bid</span><i>ORACLE</i><span>{formatPrice(quote.ask)} ask</span></button>)}</div>
         </section>}
 
+        <KoreanPerpMonitor />
+
         <section className={`${styles.chartPanel} ${selected?.venue === "Binance" ? styles.binancePanel : styles.hyperliquidPanel}`}>
           <div className={styles.panelHead}>
             <div><p className={styles.eyebrow}>DEVIATION HISTORY</p><div className={styles.chartTitle}><h2>{selected?.symbol ?? "Select a contract"}</h2>{selected && <span className={selected.venue === "Binance" ? styles.binanceBadge : styles.hyperliquidBadge}>{selected.venue}</span>}</div></div>
@@ -825,8 +827,6 @@ export default function OracleMonitor() {
             <span>{chartPoints.length.toLocaleString()} points</span>
           </footer>
         </section>
-
-        <KoreanPerpMonitor />
 
         <footer className={styles.footer}>Executable deviation uses best bid only when it can be sold above Oracle, and best ask only when it can be bought below Oracle. If Oracle sits inside the spread, the executable edge is zero. Funding is shown in each venue&apos;s native interval.</footer>
       </div>

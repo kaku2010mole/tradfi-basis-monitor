@@ -13,16 +13,17 @@ const KOREAN_STOCKS = [
   { code: "454910", name: "Doosan Robotics", bitgetSymbol: "DOOSBOTUSDT", binanceSymbol: null },
 ] as const;
 const JAPANESE_STOCKS = [
-  { code: "285A", name: "Kioxia", bitgetSymbol: "KIOXIAUSDT", sharesPerPerp: 1 },
-  { code: "5802", name: "Sumitomo Electric", bitgetSymbol: "SUMIELECUSDT", sharesPerPerp: 1 },
-  { code: "6758", name: "Sony Group", bitgetSymbol: "SONYUSDT", sharesPerPerp: 1 },
-  { code: "6857", name: "Advantest", bitgetSymbol: "ADVANTESTUSDT", sharesPerPerp: 1 },
-  { code: "6920", name: "Lasertec", bitgetSymbol: "LASERTECUSDT", sharesPerPerp: 1 },
-  { code: "7203", name: "Toyota Motor", bitgetSymbol: "TMUSDT", sharesPerPerp: 10 },
-  { code: "8035", name: "Tokyo Electron", bitgetSymbol: "TOKYOELUSDT", sharesPerPerp: 1 },
-  { code: "8306", name: "MUFG", bitgetSymbol: "MUFGUSDT", sharesPerPerp: 1 },
-  { code: "9984", name: "SoftBank Group", bitgetSymbol: "SOFTBANKUSDT", sharesPerPerp: 1 },
+  { code: "285A", name: "Kioxia", bitgetSymbol: "KIOXIAUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
+  { code: "5802", name: "Sumitomo Electric", bitgetSymbol: "SUMIELECUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
+  { code: "6758", name: "Sony Group", bitgetSymbol: "SONYUSDT", sharesPerPerp: 1, adrSymbol: "SONY", sharesPerAdr: 1 },
+  { code: "6857", name: "Advantest", bitgetSymbol: "ADVANTESTUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
+  { code: "6920", name: "Lasertec", bitgetSymbol: "LASERTECUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
+  { code: "7203", name: "Toyota Motor", bitgetSymbol: "TMUSDT", sharesPerPerp: 10, adrSymbol: "TM", sharesPerAdr: 10 },
+  { code: "8035", name: "Tokyo Electron", bitgetSymbol: "TOKYOELUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
+  { code: "8306", name: "MUFG", bitgetSymbol: "MUFGUSDT", sharesPerPerp: 1, adrSymbol: "MUFG", sharesPerAdr: 1 },
+  { code: "9984", name: "SoftBank Group", bitgetSymbol: "SOFTBANKUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
 ] as const;
+const ADR_SYMBOLS = JAPANESE_STOCKS.flatMap((stock) => stock.adrSymbol ? [stock.adrSymbol] : []);
 
 type BitgetTicker = {
   symbol?: string; bidPr?: string; askPr?: string; bidSz?: string; askSz?: string; lastPr?: string; indexPrice?: string; ts?: string;
@@ -34,7 +35,7 @@ const positive = (value: unknown) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
-type PushedQuote = { symbol?: string; bid?: number | null; ask?: number | null; last?: number | null; bidSize?: number | null; askSize?: number | null; marketTimestamp?: number };
+type PushedQuote = { symbol?: string; bid?: number | null; ask?: number | null; last?: number | null; bidSize?: number | null; askSize?: number | null; marketTimestamp?: number; marketState?: string; source?: string };
 type PushStore = typeof globalThis & { __FUTU_PUSH_SNAPSHOT__?: { payload: { quotes?: PushedQuote[] }; receivedAt: number } };
 const QUOTE_MAX_AGE_MS = 60_000;
 const DISPLAY_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
@@ -59,19 +60,30 @@ function marketSession(market: "KRX" | "TSE", now: number) {
   return "CLOSED";
 }
 
+function usSession(now: number) {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(now);
+  const weekday = parts.find((part) => part.type === "weekday")?.value;
+  const clock = Number(parts.find((part) => part.type === "hour")?.value) * 60 + Number(parts.find((part) => part.type === "minute")?.value);
+  if (weekday === "Sat" || weekday === "Sun") return "CLOSED";
+  if (clock >= 9 * 60 + 30 && clock < 16 * 60) return "REGULAR";
+  if (clock >= 4 * 60 && clock < 9 * 60 + 30) return "PRE-MARKET";
+  if (clock >= 16 * 60 && clock < 20 * 60) return "AFTER-HOURS";
+  return "CLOSED";
+}
+
 function officeRelaySnapshot() {
   const stored = (globalThis as PushStore).__FUTU_PUSH_SNAPSHOT__;
   if (!stored) return null;
   const books = (stored.payload.quotes ?? []).flatMap((quote) => {
-    const code = quote.symbol?.startsWith("KRX.") || quote.symbol?.startsWith("TSE.") ? quote.symbol.slice(4) : quote.symbol === "FX.USDKRW" ? "USDKRW" : quote.symbol === "FX.USDJPY" ? "USDJPY" : null;
+    const code = quote.symbol?.startsWith("KRX.") || quote.symbol?.startsWith("TSE.") ? quote.symbol.slice(4) : quote.symbol?.startsWith("US.") ? quote.symbol.slice(3) : quote.symbol === "FX.USDKRW" ? "USDKRW" : quote.symbol === "FX.USDJPY" ? "USDJPY" : null;
     const timestamp = Number(quote.marketTimestamp);
     if (!code || !Number.isFinite(timestamp) || timestamp > Date.now() + 5_000 || Date.now() - timestamp > DISPLAY_MAX_AGE_MS) return [];
-    return [{ symbol: code, streamKey: `office:${quote.symbol}`, bid: positive(quote.bid), ask: positive(quote.ask), last: positive(quote.last), bidSize: positive(quote.bidSize), askSize: positive(quote.askSize), timestamp }];
+    return [{ symbol: code, streamKey: `office:${quote.symbol}`, bid: positive(quote.bid), ask: positive(quote.ask), last: positive(quote.last), bidSize: positive(quote.bidSize), askSize: positive(quote.askSize), timestamp, marketState: quote.marketState ?? null, source: quote.source ?? (quote.symbol?.startsWith("US.") ? "Futu OpenD" : "Posley office relay") }];
   });
   if (!books.length) return null;
-  const wanted = [...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), "USDKRW", "USDJPY"];
+  const wanted = [...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), ...(usSession(Date.now()) === "REGULAR" ? ADR_SYMBOLS : []), "USDKRW", "USDJPY"];
   const found = new Set(books.map((book) => book.symbol));
-  return { configured: true, state: found.size === wanted.length ? "live" : "partial", error: "", books, missing: wanted.filter((symbol) => !found.has(symbol)), timestamp: Date.now(), source: "office relay" };
+  return { configured: true, state: wanted.every((symbol) => found.has(symbol)) ? "live" : "partial", error: "", books, missing: wanted.filter((symbol) => !found.has(symbol)), timestamp: Date.now(), source: "office relay" };
 }
 
 export async function GET(request: Request) {
@@ -81,7 +93,7 @@ export async function GET(request: Request) {
     const office = officeRelaySnapshot();
     const remoteRequest = office && marketSession("KRX", Date.now()) !== "REGULAR" && !suppliedIdToken
       ? Promise.resolve({ configured: false, state: "idle", error: "", books: [], missing: [], timestamp: Date.now() })
-      : posleyAdrSnapshot([...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), "USDKRW", "USDJPY"], suppliedIdToken);
+      : posleyAdrSnapshot([...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), ...ADR_SYMBOLS, "USDKRW", "USDJPY"], suppliedIdToken);
     const [remote, bitgetResponse, binanceResponse] = await Promise.all([
       remoteRequest,
       fetch(BITGET_TICKERS, { cache: "no-store", signal: AbortSignal.timeout(7_000) }),
@@ -97,15 +109,15 @@ export async function GET(request: Request) {
     office?.books.forEach((book) => {
       if ((mergedBooks.get(book.symbol)?.timestamp ?? 0) < book.timestamp) mergedBooks.set(book.symbol, book);
     });
-    const wantedSymbols = [...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), "USDKRW", "USDJPY"];
+    const wantedSymbols = [...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), ...(usSession(Date.now()) === "REGULAR" ? ADR_SYMBOLS : []), "USDKRW", "USDJPY"];
     const unavailable = wantedSymbols.filter((symbol) => {
       const book = mergedBooks.get(symbol);
       return !book || !Number.isFinite(book.timestamp) || Date.now() - book.timestamp > QUOTE_MAX_AGE_MS;
     });
-    const sessions = { KRX: marketSession("KRX", Date.now()), TSE: marketSession("TSE", Date.now()) };
+    const sessions = { KRX: marketSession("KRX", Date.now()), TSE: marketSession("TSE", Date.now()), US: usSession(Date.now()) };
     const hasCashQuote = [...KOREAN_STOCKS, ...JAPANESE_STOCKS].some((stock) => mergedBooks.has(stock.code));
     const posley = { ...remote, books: [...mergedBooks.values()], configured: remote.configured || Boolean(office), missing: unavailable,
-      state: !remote.configured && !office ? "unconfigured" : sessions.KRX === "CLOSED" && sessions.TSE === "CLOSED" && hasCashQuote ? "closed" : unavailable.length ? "partial" : "live", error: unavailable.length && !office ? remote.error : "",
+      state: !remote.configured && !office ? "unconfigured" : sessions.KRX === "CLOSED" && sessions.TSE === "CLOSED" && sessions.US === "CLOSED" && hasCashQuote ? "closed" : unavailable.length ? "partial" : "live", error: unavailable.length && !office ? remote.error : "",
       source: office && !remote.books.length ? "office relay" : remote.configured && office ? "Posley + office relay" : remote.configured ? "remote gateway" : office ? "office relay" : "unavailable" };
 
     const books = new Map(posley.books.map((book) => [book.symbol, book]));
@@ -154,12 +166,19 @@ export async function GET(request: Request) {
       const { cashBidUsd, cashAskUsd } = equityBasis(cash ?? {}, basisFx, stock.sharesPerPerp, sessions.TSE !== "REGULAR");
       const quote = tickers.get(stock.bitgetSymbol);
       const bid = positive(quote?.bidPr); const ask = positive(quote?.askPr); const updatedAt = positive(quote?.ts);
+      const adr = stock.adrSymbol ? books.get(stock.adrSymbol) : null;
+      const adrScale = stock.sharesPerAdr ? stock.sharesPerPerp / stock.sharesPerAdr : null;
       return {
         code: stock.code, name: stock.name, market: "TSE", session: sessions.TSE, currency: "JPY", sharesPerPerp: stock.sharesPerPerp,
         mappingNote: stock.code === "7203" ? "TM is Toyota's U.S. ADR; one ADS represents 10 ordinary shares." : null,
         cashBidKrw, cashAskKrw, cashBidQty: positive(cash?.bidSize), cashAskQty: positive(cash?.askSize), cashUpdatedAt: cash?.timestamp ?? null,
         cashLast: positive(cash?.last),
         cashBidUsd, cashAskUsd,
+        adr: stock.adrSymbol ? { symbol: stock.adrSymbol, sharesPerAdr: stock.sharesPerAdr, source: !adr ? "Waiting for ADR feed" : "source" in adr ? String(adr.source) : "Posley IBKR", marketState: adr && "marketState" in adr ? adr.marketState : null,
+          bid: positive(adr?.bid), ask: positive(adr?.ask), last: positive(adr?.last), bidQty: positive(adr?.bidSize), askQty: positive(adr?.askSize), updatedAt: adr?.timestamp ?? null,
+          buyAdrSellPerp: adrScale && positive(adr?.ask) && bid ? (bid / (Number(adr?.ask) * adrScale) - 1) * 100 : null,
+          buyPerpSellAdr: adrScale && positive(adr?.bid) && ask ? ((Number(adr?.bid) * adrScale) / ask - 1) * 100 : null,
+        } : null,
         venues: [{ venue: "Bitget", symbol: stock.bitgetSymbol, bid, ask, bidQty: positive(quote?.bidSz), askQty: positive(quote?.askSz), updatedAt,
           ...equitySpreads(cashBidUsd, cashAskUsd, { bid, ask }) }],
       };

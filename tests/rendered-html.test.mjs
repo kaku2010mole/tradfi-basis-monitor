@@ -86,10 +86,11 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
     readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
   ]);
   assert.match(page, /<KoreanPerpMonitor/);
-  assert.match(component, /Korean &amp; Japanese stock cross-venue basis/);
-  assert.match(component, /KRX \$\{payload\.sessions\.KRX\} · TSE \$\{payload\.sessions\.TSE\}/);
-  assert.match(component, /Last cash price/);
-  assert.match(component, /FX index fallback is used for indicative basis/);
+  assert.match(component, /Stock cross-venue basis/);
+  assert.match(component, /KRX \$\{payload\.sessions\.KRX\} · TSE \$\{payload\.sessions\.TSE\} · US \$\{payload\.sessions\.US\}/);
+  assert.match(component, /U\.S\. ADR ↔ BITGET/);
+  assert.match(component, /LIVE QUOTE RADAR/);
+  assert.match(component, /USD\/JPY/);
   assert.match(component, /INDICATIVE/);
   assert.match(component, /Connect Posley/);
   assert.match(component, /equity_monitor_id_token/);
@@ -127,6 +128,11 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(worker, /TSE/);
   assert.match(worker, /285A/);
   assert.match(route, /code: "7203"[^\n]*sharesPerPerp: 10/);
+  assert.match(route, /adrSymbol: "SONY", sharesPerAdr: 1/);
+  assert.match(route, /adrSymbol: "TM", sharesPerAdr: 10/);
+  assert.match(route, /adrSymbol: "MUFG", sharesPerAdr: 1/);
+  assert.match(route, /America\/New_York/);
+  assert.match(worker, /SONY\|TM\|MUFG/);
   assert.match(route, /fresh\(yenFx\?\.timestamp\)/);
   assert.match(posley, /saved Posley login has expired/);
 });
@@ -165,6 +171,28 @@ test("last-only relay heartbeats cannot erase or refresh a recent executable boo
     assert.equal(expired?.bid, null);
   } finally {
     if (priorSnapshot) globalThis.__FUTU_PUSH_SNAPSHOT__ = priorSnapshot;
+    else delete globalThis.__FUTU_PUSH_SNAPSHOT__;
+  }
+});
+
+test("accepts verified Japanese ADR symbols from the Futu relay", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("japan-adr-test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  const previous = globalThis.__FUTU_PUSH_SNAPSHOT__;
+  const credential = "test-futu-push-token";
+  const now = Date.now();
+  const quotes = ["US.SONY", "US.TM", "US.MUFG"].map((symbol) => ({ symbol, bid: 20, ask: 21, bidSize: 10, askSize: 10, marketState: "MORNING", marketTimestamp: now }));
+  try {
+    const response = await worker.fetch(new Request("http://localhost/api/hk-auction/ingest", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ generatedAt: now, quotes }),
+    }), { FUTU_PUSH_TOKEN: credential }, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(response.status, 202);
+    for (const quote of quotes) assert.ok(globalThis.__FUTU_PUSH_SNAPSHOT__?.payload.quotes.some((item) => item.symbol === quote.symbol));
+  } finally {
+    if (previous) globalThis.__FUTU_PUSH_SNAPSHOT__ = previous;
     else delete globalThis.__FUTU_PUSH_SNAPSHOT__;
   }
 });
