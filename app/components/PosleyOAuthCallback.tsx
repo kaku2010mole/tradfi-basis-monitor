@@ -33,7 +33,7 @@ export default function PosleyOAuthCallback() {
       sessionStorage.removeItem("equity_monitor_pkce");
       const returnTo = sessionStorage.getItem("equity_monitor_return_to");
       sessionStorage.removeItem("equity_monitor_return_to");
-      location.replace(returnTo?.startsWith("/") ? returnTo : "/ewy-koru");
+      location.replace(returnTo?.startsWith("/") && !returnTo.startsWith("/ewy-koru") ? returnTo : "/oracle");
     };
 
     void exchange();

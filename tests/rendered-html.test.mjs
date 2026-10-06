@@ -67,6 +67,20 @@ test("JLP Research is the homepage and the original Basis Monitor remains availa
   assert.match(jlpApi, /JLP data service unavailable/);
 });
 
+test("removes the Leveraged Pair Monitor page, navigation and dedicated API", async () => {
+  const [page, quote, switcher, callback] = await Promise.all([
+    render("/ewy-koru"),
+    render("/api/ewy-koru/quote"),
+    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/PosleyOAuthCallback.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.equal(page.status, 404);
+  assert.equal(quote.status, 404);
+  assert.doesNotMatch(switcher, /Leveraged pairs|href="\/ewy-koru"/);
+  assert.match(callback, /!returnTo\.startsWith\("\/ewy-koru"\)/);
+  assert.match(callback, /: "\/oracle"/);
+});
+
 test("scans Binance and Bitget TradFi stock and ETF contracts into an English dividend calendar", async () => {
   const [response, page, route, switcher] = await Promise.all([
     render("/dividends"),
