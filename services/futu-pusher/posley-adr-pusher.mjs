@@ -73,6 +73,8 @@ const quoteFromEntry = (message) => {
     fields.marketTimestamp,
   ]
     .map(timestamp).filter((value) => value !== null);
+  const bookTimes = [fields.bids_receive_ts_ms, fields.asks_receive_ts_ms]
+    .map(timestamp).filter((value) => value !== null);
   const last = positive(fields.index_price ?? fields.mark_price ?? fields.last_price ?? fields.last ?? fields.price);
   if (bid.price === null && ask.price === null && last === null) return null;
   const isFx = symbol.startsWith("FX.");
@@ -87,7 +89,11 @@ const quoteFromEntry = (message) => {
     ask: ask.size === null ? null : ask.price,
     bidSize: bid.size,
     askSize: ask.size,
-    marketTimestamp: candidates.length ? Math.max(...candidates) : Date.now(),
+    // An opening-auction book can update before the first print. Timestamp
+    // a complete BBO from its receive time, not the prior session's last tick.
+    marketTimestamp: bid.size !== null && ask.size !== null && bookTimes.length
+      ? Math.max(...bookTimes)
+      : candidates.length ? Math.max(...candidates) : Date.now(),
     source: message.key === FX_HL_KEY ? "Posley Hyperliquid KRW index" : isFx ? "Posley IBKR FX" : "Posley office relay",
   };
 };

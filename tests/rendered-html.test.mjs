@@ -110,6 +110,7 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(officePusher, /relay silent for 90s/);
   assert.match(officePusher, /specific_data/);
   assert.match(officePusher, /if \(stale\) return null/);
+  assert.match(officePusher, /bookTimes = \[fields\.bids_receive_ts_ms, fields\.asks_receive_ts_ms\]/);
   assert.match(route, /quote\.symbol\?\.startsWith\("TSE\."\)/);
   assert.match(route, /quote\.symbol === "FX\.USDJPY"/);
   assert.match(route, /DISPLAY_MAX_AGE_MS/);
@@ -121,6 +122,11 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(component, /row\.market === "KRX" && row\.session === "AFTER-HOURS"/);
   assert.match(component, /AFTER-HOURS BBO/);
   assert.match(route, /"OPENING AUCTION"/);
+  assert.match(route, /preferCashLast\("TSE", sessions\.TSE, cash\?\.timestamp, now\)/);
+  assert.match(component, /preferCashLast\(row\.market, row\.session, row\.cashUpdatedAt, clock\)/);
+  assert.match(component, /Auction book, not yet executable/);
+  assert.match(component, /bid \/ .*ask/);
+  assert.match(posley, /if \(received\.length\) return Math\.max\(\.\.\.received\)/);
   assert.match(route, /USDJPYUSDT/);
   assert.match(route, /indexPrice/);
   assert.match(route, /cashLast: positive\(cash\?\.last\)/);
@@ -557,7 +563,7 @@ test("FX-adjusts SKHX to CSOP 2L prediction error everywhere", async () => {
 
 test("keeps numeric basis through closed, pre-market and stale cash quotes", async () => {
   const source = await readFile(new URL("../app/lib/equityBasis.ts", import.meta.url), "utf8");
-  const { equityBasis, equitySpreads } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString("base64")}`);
+  const { equityBasis, equitySpreads, preferCashLast } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString("base64")}`);
   const cash = { bid: 19000, ask: 19200, last: 19120 };
   const fx = { bid: 156, ask: 157 };
   for (const session of ["CLOSED", "PRE-MARKET", "OPENING AUCTION", "LUNCH", "AFTER-HOURS OPENING"]) {
@@ -571,6 +577,17 @@ test("keeps numeric basis through closed, pre-market and stale cash quotes", asy
   const live = equityBasis(cash, fx);
   assert.equal(live.cashBidUsd, 19000 / 157);
   assert.equal(live.cashAskUsd, 19200 / 156);
+  const japaneseAuctionBook = equityBasis({ bid: 2535, ask: 2536, last: 2500 }, fx, 1, false);
+  assert.equal(japaneseAuctionBook.cashBidUsd, 2535 / 157);
+  assert.equal(japaneseAuctionBook.cashAskUsd, 2536 / 156);
+  assert.equal(japaneseAuctionBook.usesLast, false);
+  const now = Date.now();
+  assert.equal(preferCashLast("TSE", "OPENING AUCTION", now - 1000, now), false);
+  assert.equal(preferCashLast("TSE", "REGULAR", now - 1000, now), false);
+  assert.equal(preferCashLast("TSE", "OPENING AUCTION", now - 61_000, now), true);
+  assert.equal(preferCashLast("TSE", "CLOSED", now - 1000, now), true);
+  assert.equal(preferCashLast("TSE", "LUNCH", now - 1000, now), true);
+  assert.equal(preferCashLast("KRX", "PRE-MARKET", now - 1000, now), true);
   const reference = equityBasis({ last: 3000 }, { last: 150 }, 10, true);
   assert.equal(reference.cashBidUsd, 200); // Toyota: ten ordinary shares per ADS.
   assert.equal(reference.cashAskUsd, 200);

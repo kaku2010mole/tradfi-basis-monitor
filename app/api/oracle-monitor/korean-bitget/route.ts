@@ -1,4 +1,4 @@
-import { equityBasis, equitySpreads } from "../../../lib/equityBasis";
+import { equityBasis, equitySpreads, preferCashLast } from "../../../lib/equityBasis";
 import { posleyAdrSnapshot } from "../../../lib/posleyAdr";
 
 export const dynamic = "force-dynamic";
@@ -163,7 +163,8 @@ export async function GET(request: Request) {
       const cashBidKrw = positive(cash?.bid);
       const cashAskKrw = positive(cash?.ask);
       const basisFx = useBitgetFx ? { last: bitgetFxIndex } : yenFx ?? {};
-      const { cashBidUsd, cashAskUsd } = equityBasis(cash ?? {}, basisFx, stock.sharesPerPerp, sessions.TSE !== "REGULAR");
+      const { cashBidUsd, cashAskUsd } = equityBasis(cash ?? {}, basisFx, stock.sharesPerPerp,
+        preferCashLast("TSE", sessions.TSE, cash?.timestamp, now));
       const quote = tickers.get(stock.bitgetSymbol);
       const bid = positive(quote?.bidPr); const ask = positive(quote?.askPr); const updatedAt = positive(quote?.ts);
       const adr = stock.adrSymbol ? books.get(stock.adrSymbol) : null;

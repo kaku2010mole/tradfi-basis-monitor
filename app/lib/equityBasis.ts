@@ -1,6 +1,15 @@
 type Book = { bid?: number | null; ask?: number | null; last?: number | null };
 const valid = (value: number | null | undefined) => value != null && Number.isFinite(value) && value > 0 ? value : null;
 
+// The TSE opening auction publishes books before any new trade. Use those
+// books when fresh for every Japanese pair, but retain last as the fallback
+// for stale quotes, the lunch break and the closed session.
+export function preferCashLast(market: "KRX" | "TSE", session: string, bookUpdatedAt: number | null | undefined, now: number) {
+  if (market === "KRX") return session !== "REGULAR" && session !== "AFTER-HOURS";
+  const freshBook = bookUpdatedAt != null && Number.isFinite(bookUpdatedAt) && bookUpdatedAt > 0 && now - bookUpdatedAt <= 60_000 && bookUpdatedAt - now < 5_000;
+  return session === "CLOSED" || session === "LUNCH" || !freshBook;
+}
+
 // Session and freshness describe the basis; they never suppress its value.
 export function equityBasis(cash: Book, fx: Book, sharesPerPerp = 1, preferLast = false) {
   const last = valid(cash.last);

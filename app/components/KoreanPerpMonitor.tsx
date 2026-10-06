@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { equityBasis, equitySpreads } from "../lib/equityBasis";
+import { equityBasis, equitySpreads, preferCashLast } from "../lib/equityBasis";
 import styles from "./KoreanPerpMonitor.module.css";
 
 const COGNITO_CLIENT_ID = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID ?? "5qup0una5tdma3l33pnn1gm87i";
@@ -119,7 +119,8 @@ export default function KoreanPerpMonitor() {
   const liveEdges = (payload.rows ?? []).flatMap((row) => {
     const fx = row.market === "TSE" ? payload.yenFx : payload.fx;
     const cashActive = row.session === "REGULAR" || row.market === "KRX" && row.session === "AFTER-HOURS";
-    const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, row.sharesPerPerp, !cashActive);
+    const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, row.sharesPerPerp,
+      preferCashLast(row.market, row.session, row.cashUpdatedAt, clock));
     const cashEdges = cashActive && !basis.usesLast && !basis.usesFxLast && row.cashBidQty && row.cashAskQty && isFresh(row.cashUpdatedAt, clock) && isFresh(fx?.updatedAt, clock)
       ? row.venues.flatMap((quote) => {
         if (!isFresh(quote.updatedAt, clock) || !quote.bidQty || !quote.askQty) return [];
@@ -144,7 +145,8 @@ export default function KoreanPerpMonitor() {
   const renderRow = (row: Row) => {
     const cashActive = row.session === "REGULAR" || row.market === "KRX" && row.session === "AFTER-HOURS";
     const fx = row.market === "TSE" ? payload.yenFx : payload.fx;
-    const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, row.sharesPerPerp, !cashActive);
+    const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, row.sharesPerPerp,
+      preferCashLast(row.market, row.session, row.cashUpdatedAt, clock));
     const adr = row.adr;
     const perp = row.venues.find((quote) => quote.venue === "Bitget");
     const adrActive = payload.sessions?.US === "REGULAR" && (!adr?.marketState || ["MORNING", "AFTERNOON", "REGULAR"].includes(adr.marketState.toUpperCase()));
@@ -163,11 +165,11 @@ export default function KoreanPerpMonitor() {
         <div className={styles.referenceHead}><div><span className={styles.referenceTag}>{row.market} CASH ↔ {quote.venue.toUpperCase()}</span><strong>{quote.symbol}</strong></div><span className={live ? styles.livePill : styles.indicativePill}>{live ? row.session === "AFTER-HOURS" ? "AFTER-HOURS BBO" : "LIVE BBO" : `${row.session} · INDICATIVE`}</span></div>
         <div className={styles.referencePrices}><span>CASH · USD EQUIV <b>{fmt(basis.cashBidUsd)} / {fmt(basis.cashAskUsd)}</b></span><span>PERP BID / ASK <b>{fmt(quote.bid)} / {fmt(quote.ask)}</b></span></div>
         <div className={styles.referenceEdges}><span className={(spreads.buyKoreaSellPerp ?? -1) > 0 ? styles.positive : ""}>BUY {row.market} · SELL PERP<b>{pct(spreads.buyKoreaSellPerp)}</b></span><span className={(spreads.buyPerpSellKorea ?? -1) > 0 ? styles.positive : ""}>BUY PERP · SELL {row.market}<b>{pct(spreads.buyPerpSellKorea)}</b></span></div>
-        <small className={styles.referenceFoot}>{quote.venue} {time(quote.updatedAt)} HKT · Top size {fmt(quote.bidQty)} / {fmt(quote.askQty)}{!live ? " · Last or incomplete quote" : ""}</small>
+        <small className={styles.referenceFoot}>{quote.venue} {time(quote.updatedAt)} HKT · Top size {fmt(quote.bidQty)} / {fmt(quote.askQty)}{!live ? basis.usesLast ? " · Cash last / incomplete book" : row.session === "OPENING AUCTION" ? " · Auction book, not yet executable" : " · Indicative book" : ""}</small>
       </div>;
     });
     return <article className={styles.assetRow} key={row.code}>
-      <div className={styles.identity}><small>{row.market} {row.code}</small><strong>{row.name}</strong><span className={styles.cashPrice}>{row.currency} {basis.usesLast && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} / ${fmt(row.cashAskKrw, 0)}`}</span><span className={styles.sessionLabel}>{row.session} · {dateTime(row.cashUpdatedAt)} HKT</span>{row.sharesPerPerp !== 1 && <em>1 perp = {row.sharesPerPerp} TSE shares</em>}</div>
+      <div className={styles.identity}><small>{row.market} {row.code}</small><strong>{row.name}</strong><span className={styles.cashPrice}>{row.currency} {basis.usesLast && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} bid / ${fmt(row.cashAskKrw, 0)} ask`}</span><span className={styles.sessionLabel}>{row.session} · {dateTime(row.cashUpdatedAt)} HKT</span>{row.sharesPerPerp !== 1 && <em>1 perp = {row.sharesPerPerp} TSE shares</em>}</div>
       <div className={styles.references}>{row.market === "TSE" && adrActive && adrCard}{cashCards}{row.market === "TSE" && !adrActive && adrCard}</div>
       {row.mappingNote && <p className={styles.mapping}>{row.mappingNote}</p>}
     </article>;

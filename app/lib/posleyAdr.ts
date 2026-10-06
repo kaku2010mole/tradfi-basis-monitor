@@ -66,9 +66,11 @@ const parseLevels = (value?: string) => !value ? [] : value.split("|").flatMap((
 
 const marketTimestamp = (data: Record<string, string>) => {
   const lastTick = Number(data.last_tick_ts_ms);
-  if (Number.isFinite(lastTick) && lastTick > 0) return lastTick;
   const received = [data.bids_receive_ts_ms, data.asks_receive_ts_ms].map(Number).filter((value) => Number.isFinite(value) && value > 0);
+  // Opening-auction books may change before the first trade. A previous-day
+  // last_tick must not make a newly received bid/ask look stale.
   if (received.length) return Math.max(...received);
+  if (Number.isFinite(lastTick) && lastTick > 0) return lastTick;
   const emitted = Number(data.event_emit_ts_ms);
   return Number.isFinite(emitted) && emitted > 0 ? emitted : 0;
 };
