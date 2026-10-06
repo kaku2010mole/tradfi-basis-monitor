@@ -109,7 +109,9 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(officePusher, /FX:USD:JPY/);
   assert.match(officePusher, /relay silent for 90s/);
   assert.match(officePusher, /specific_data/);
-  assert.match(officePusher, /if \(stale\) return null/);
+  assert.match(officePusher, /if \(stale && \(last === null \|\| !staleMarketTimes\.length\)\) return null/);
+  assert.match(officePusher, /bid: !stale && bid\.size !== null \? bid\.price : null/);
+  assert.match(officePusher, /marketTimestamp: stale \? Math\.max\(\.\.\.staleMarketTimes\)/);
   assert.match(officePusher, /bookTimes = \[fields\.bids_receive_ts_ms, fields\.asks_receive_ts_ms\]/);
   assert.match(route, /quote\.symbol\?\.startsWith\("TSE\."\)/);
   assert.match(route, /quote\.symbol === "FX\.USDJPY"/);

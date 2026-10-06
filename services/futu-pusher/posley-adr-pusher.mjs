@@ -59,9 +59,9 @@ const quoteFromEntry = (message) => {
     try { details = JSON.parse(details); } catch { details = null; }
   }
   const stale = details?.stale === true || details?.stale === "true";
-  // A relay heartbeat repeats the previous market timestamp. It is not a new
-  // quote and must not erase a still-fresh two-sided book in `latest`.
-  if (stale) return null;
+  // A stale heartbeat is not a new book, but its original last trade remains
+  // useful after a relay/Render restart. Preserve only last and its old market
+  // timestamp; never turn a repeated heartbeat into a live bid/ask.
   const candidates = [
     fields.last_tick_ts_ms,
     fields.bids_receive_ts_ms,
@@ -75,8 +75,11 @@ const quoteFromEntry = (message) => {
     .map(timestamp).filter((value) => value !== null);
   const bookTimes = [fields.bids_receive_ts_ms, fields.asks_receive_ts_ms]
     .map(timestamp).filter((value) => value !== null);
+  const staleMarketTimes = [fields.last_tick_ts_ms, fields.bids_receive_ts_ms, fields.asks_receive_ts_ms, fields.local_receive_ts_ms]
+    .map(timestamp).filter((value) => value !== null);
   const last = positive(fields.index_price ?? fields.mark_price ?? fields.last_price ?? fields.last ?? fields.price);
-  if (bid.price === null && ask.price === null && last === null) return null;
+  if (stale && (last === null || !staleMarketTimes.length)) return null;
+  if (!stale && bid.price === null && ask.price === null && last === null) return null;
   const isFx = symbol.startsWith("FX.");
   return {
     symbol,
@@ -85,15 +88,15 @@ const quoteFromEntry = (message) => {
     auctionPrice: null,
     last,
     previousClose: positive(fields.previous_close ?? fields.prev_close),
-    bid: bid.size === null ? null : bid.price,
-    ask: ask.size === null ? null : ask.price,
-    bidSize: bid.size,
-    askSize: ask.size,
+    bid: !stale && bid.size !== null ? bid.price : null,
+    ask: !stale && ask.size !== null ? ask.price : null,
+    bidSize: stale ? null : bid.size,
+    askSize: stale ? null : ask.size,
     // An opening-auction book can update before the first print. Timestamp
     // a complete BBO from its receive time, not the prior session's last tick.
-    marketTimestamp: bid.size !== null && ask.size !== null && bookTimes.length
-      ? Math.max(...bookTimes)
-      : candidates.length ? Math.max(...candidates) : Date.now(),
+    marketTimestamp: stale ? Math.max(...staleMarketTimes)
+      : bid.size !== null && ask.size !== null && bookTimes.length ? Math.max(...bookTimes)
+        : candidates.length ? Math.max(...candidates) : Date.now(),
     source: message.key === FX_HL_KEY ? "Posley Hyperliquid KRW index" : isFx ? "Posley IBKR FX" : "Posley office relay",
   };
 };
