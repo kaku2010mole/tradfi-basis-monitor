@@ -222,14 +222,24 @@ def relay_session(token: str) -> None:
         failures = 0
         history: dict[str, list[list[float | int]]] = {}
         history_refreshed_at = 0.0
+        history_sent_at = 0.0
         while RUNNING:
             started = time.monotonic()
             try:
-                if not history or started - history_refreshed_at >= HISTORY_REFRESH_SECONDS:
-                    history = build_history(context, quote_symbols)
+                if started - history_refreshed_at >= HISTORY_REFRESH_SECONDS:
                     history_refreshed_at = started
-                    print(f"Loaded {sum(len(points) for points in history.values())} Futu one-minute history points.", flush=True)
-                push(build_payload(context, history, quote_symbols, book_symbols), token)
+                    try:
+                        history = build_history(context, quote_symbols)
+                        print(f"Loaded {sum(len(points) for points in history.values())} Futu one-minute history points.", flush=True)
+                    except RuntimeError as error:
+                        print(f"Futu history unavailable; live quotes continue: {error}", file=sys.stderr, flush=True)
+                # The ingest endpoint retains its latest history. Sending ~18k
+                # points on every one-second quote update causes TLS timeouts.
+                # Refresh history there once per minute; keep BBO pushes small.
+                include_history = bool(history) and started - history_sent_at >= 60
+                push(build_payload(context, history if include_history else {}, quote_symbols, book_symbols), token)
+                if include_history:
+                    history_sent_at = started
                 if failures:
                     print("Futu push recovered.", flush=True)
                 failures = 0
