@@ -76,6 +76,33 @@ class DataTests(unittest.TestCase):
         self.assertEqual(server.leveraged_apr(8,6,99,1),14)
         self.assertEqual(server.leveraged_apr(8,6,5,2),23)
 
+    def test_activity_uses_locked_tokens_not_guaranteed_usd_for_long_oi(self):
+        h={coin:dict(lockedTokens=2,shortUsd=50,guaranteedUsd=9999) for coin in server.MARKETS}
+        m={coin:dict(price='100',volume='1000') for coin in server.MARKETS}
+        a=server.derive_activity(h,m)
+        self.assertEqual(a['totals']['longOi'],600)
+        self.assertEqual(a['totals']['shortOi'],150)
+        self.assertEqual(a['totals']['grossOi'],750)
+        self.assertEqual(a['totals']['oneSidedOi'],375)
+        self.assertEqual(a['totals']['volume24h'],3000)
+        self.assertEqual(a['totals']['longShare'],80)
+
+    def test_activity_stale_pool_cannot_create_fake_oi_or_liquidation_zero(self):
+        server.STATE['pool']=dict(fetchedAt=(self.now-60)*1000,error=None)
+        with patch.object(server,'fetch',return_value=dict(price='100',volume='1000')):
+            with self.assertRaises(ValueError):server.activity()
+        self.assertNotIn('activity',server.STATE)
+
+    def test_activity_records_no_fabricated_liquidation_metrics(self):
+        server.STATE['pool']=dict(fetchedAt=self.now*1000,error=None,
+            hedges={coin:dict(lockedTokens=2,shortUsd=50) for coin in server.MARKETS})
+        with patch.object(server,'fetch',return_value=dict(price='100',volume='1000')):server.activity()
+        self.assertEqual(server.STATE['activity']['liquidationCoverage'],'separate_chain_feed')
+        server.persist()
+        with server.connect() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM samples WHERE metric LIKE '%liquidat%'").fetchone()[0],0)
+            self.assertEqual(c.execute('SELECT COUNT(DISTINCT ts) FROM samples').fetchone()[0],1)
+
     def test_negative_funding_reduces_return(self):
         self.assertEqual(server.leveraged_apr(8,-6,5,2),-1)
 

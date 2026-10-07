@@ -40,6 +40,8 @@ function renderState(){
  $('health').textContent=all?'● Data feeds connected':'Some feeds pending / delayed';$('health').className=all?'':'error';
  $('clock').textContent=dt(Date.now())+' HKT';
  renderStrategy();
+ renderActivity();
+ renderLiquidations();
  $('coverage').textContent=`Price / borrow records since ${dt(state.collectionStartedAt)} · 90-day fee yield and funding backfill`;
  const hs=['jlpHistory','history_BTC','history_ETH','history_SOL'];
  $('archiveState').textContent=hs.every(k=>state[k]?.fetchedAt&&!state[k]?.error)?'90-day history backfilled':hs.some(k=>state[k]?.error)?'Partial history backfill failed; automatic retry':'History backfill in progress';
@@ -56,7 +58,7 @@ function chart(id,sets,unit,zero=false,rangeDays=days){
  if(zero){ymin=Math.min(0,ymin);ymax=Math.max(0,ymax);}
  const pad=(ymax-ymin)*.12||Math.max(Math.abs(ymax)*.0001,.0001);ymin-=pad;ymax+=pad;
  const W=640,H=230,L=62,R=12,T=15,B=30,x=t=>L+(t-start)/(end-start)*(W-L-R),y=v=>T+(ymax-v)/(ymax-ymin)*(H-T-B);
- const nf=v=>unit==='USD'?'$'+fmt(v,4):fmt(v,Math.abs(v)<.01?5:2)+'%';
+ const nf=v=>unit==='USD'?'$'+fmt(v,4):unit==='USDm'?'$'+fmt(v/1e6,2)+'M':fmt(v,Math.abs(v)<.01?5:2)+'%';
  let svg=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${el.parentElement.querySelector('h3').textContent} history chart">`;
  for(let i=0;i<5;i++){const yy=T+i*(H-T-B)/4,v=ymax-i*(ymax-ymin)/4;svg+=`<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="#293843" stroke-dasharray="3 5"/><text x="${L-8}" y="${yy+4}" fill="#94a6b5" text-anchor="end" font-size="12">${nf(v)}</text>`;}
  if(zero)svg+=`<line x1="${L}" x2="${W-R}" y1="${y(0)}" y2="${y(0)}" stroke="#62737e"/>`;
@@ -69,6 +71,8 @@ function chart(id,sets,unit,zero=false,rangeDays=days){
 }
 function renderCharts(){
  renderStrategyCharts();
+ renderActivityCharts();
+ renderLiquidationChart();
  chart('pricechart',[{key:'market_price',label:'Market price',color:colors[0]},{key:'nav',label:'NAV',color:colors[1]}],'USD');
  chart('premiumchart',[{key:'premium',label:'Premium / discount',color:colors[0]}],'%',true);
  chart('yieldchart',[{key:'jlp_apr_archive',label:'Historical 7-day fee APR',color:colors[0],daily:true},{key:'jlp_apr',label:'Official APR',color:colors[1]},{key:'borrow_apr',label:'Borrow APR',color:colors[2]}],'%');
@@ -81,7 +85,7 @@ function settings(){
  if(!Number.isFinite(leverage)||leverage<1||leverage>10||!Number.isFinite(hedgeLeverage)||hedgeLeverage<1||hedgeLeverage>40||!Number.isFinite(capital)||capital<1||capital>1e9)return null;
  return {leverage,hedgeLeverage,capital};
 }
-function query(forHistory=false){const x=settings()||{leverage:2,hedgeLeverage:10};return new URLSearchParams({days:forHistory?Math.max(days,Number($('carryrange').value)):days,leverage:x.leverage,hedgeLeverage:x.hedgeLeverage}).toString();}
+function query(forHistory=false){const x=settings()||{leverage:2,hedgeLeverage:10};return new URLSearchParams({days:forHistory?Math.max(days,Number($('carryrange').value),Number($('activityrange').value)):days,leverage:x.leverage,hedgeLeverage:x.hedgeLeverage}).toString();}
 function renderStrategy(){
  const p=state.pool||{},s=state.strategy||{},x=settings();
  const valid=x&&!s.error&&age(s.fetchedAt)<45&&Object.entries(s.inputTimes||{}).length===4&&Object.values(s.inputTimes).every(t=>age(t)<45)&&!['pool','loan','price','funding'].some(k=>state[k]?.error)&&age(state.price?.sourceAt)<120;
@@ -128,3 +132,54 @@ $('carryunit').onchange=renderStrategyCharts;
 for(const id of ['leverage','hedgeleverage','equity'])$(id).addEventListener('input',()=>{renderStrategy();renderStrategyCharts();$('export').href='/api/jlp/export.csv?'+query();});
 $('export').href='/api/jlp/export.csv?'+query();
 getState();getHistory();setInterval(getState,5000);setInterval(()=>{if(!document.hidden)getHistory();},15000);
+
+function renderActivity(){
+ const a=state.activity||{},t=a.totals||{},money=v=>typeof v==='number'?usd(v/1e6,2)+'M':'—';
+ $('activitytime').textContent=health(a);
+ $('perpsvolume').textContent=money(t.volume24h);$('perpsoi').textContent=money(t.grossOi);
+ $('perpsoneside').textContent=money(t.oneSidedOi);$('perpslongshare').textContent=pct(t.longShare);
+ $('activitytable').innerHTML=['BTC','ETH','SOL'].map(coin=>{const c=a.coins?.[coin]||{};return `<tr><th>${coin}</th><td>${money(c.volume24h)}</td><td>${money(c.longOi)}</td><td>${money(c.shortOi)}</td></tr>`;}).join('');
+}
+function renderActivityCharts(){
+ chart('volumechart',[{key:'perps_volume24h_TOTAL',label:'Total',color:colors[0]},...['BTC','ETH','SOL'].map((c,i)=>({key:'perps_volume24h_'+c,label:c,color:[colors[1],colors[3],colors[2]][i]}))],'USDm',false,Number($('activityrange').value));
+ chart('oichart',[{key:'perps_longOi_TOTAL',label:'Long OI',color:colors[0]},{key:'perps_shortOi_TOTAL',label:'Short OI',color:colors[2]},{key:'perps_grossOi_TOTAL',label:'Gross OI',color:colors[1]},{key:'perps_oneSidedOi_TOTAL',label:'Gross / 2',color:colors[3]}],'USDm',false,Number($('activityrange').value));
+}
+
+$('activityrange').onchange=()=>{renderActivityCharts();getHistory();};
+
+const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let liquidationInitialized=false,liquidationSeen=new Set(),liquidationAlerts=[];
+try{const ids=JSON.parse(localStorage.getItem('jlp-liquidation-seen')||'[]');if(Array.isArray(ids)&&ids.length){liquidationSeen=new Set(ids);liquidationInitialized=true;}}catch{}
+function renderLiquidations(){
+ const feed=state.liquidations||{},t=feed.totals||{},events=feed.events||[],fresh=liquidationInitialized?events.filter(e=>!liquidationSeen.has(e.eventId)):[];
+ if(feed.fetchedAt){liquidationInitialized=true;for(const e of events)liquidationSeen.add(e.eventId);liquidationSeen=new Set([...liquidationSeen].slice(-2000));try{localStorage.setItem('jlp-liquidation-seen',JSON.stringify([...liquidationSeen]));}catch{}}
+ if(fresh.length){liquidationAlerts.push(...fresh.reverse());liquidationAlerts=liquidationAlerts.slice(-200);}
+ const healthy=feed.connected&&!feed.error&&age(feed.fetchedAt)<120,status=!feed.fetchedAt?'CONNECTING':feed.error?'FEED ERROR':feed.backlog?'CATCHING UP':healthy?'CONNECTED':'STALE';
+ $('liqstatus').textContent=status;$('liqstatus').className='tag '+(healthy&&!feed.backlog?'positive':'error');
+ const valid=feed.fetchedAt&&healthy&&!feed.backlog;
+ $('liqcount').textContent=feed.fetchedAt?fmt(t.count,0):'—';
+ const lowerBound=t.undecodedCount?'≥ ':'';
+ $('liqnotional').textContent=lowerBound+usd(t.notionalUsd,2);$('liqsplit').textContent=lowerBound+usd(t.longUsd,2)+' / '+lowerBound+usd(t.shortUsd,2);$('liqfees').textContent=lowerBound+usd(t.liquidationFeeUsd,2);
+ $('liqcoverage').textContent=feed.coverageSince?`Tracking since ${dt(feed.coverageSince)} HKT · ${feed.partial24h?'Partial 24h coverage':'Full locally monitored 24h window'}`:'Waiting for a verified collection checkpoint.';
+ $('liqhealth').textContent=feed.error?`Feed unavailable: ${feed.error}. Last observed totals are retained; coverage is incomplete.`:feed.backlog?`Catching up: ${fmt(feed.backlog,0)} transactions remaining. Totals are incomplete.`:`${health(feed,120)} · Chain finalization and polling add delay${t.undecodedCount?` · ${t.undecodedCount} event(s) have unavailable details`:''}`;
+ $('liqhealth').className='meta '+(valid?'':'error');
+ $('liqalert').hidden=!liquidationAlerts.length;
+ $('liqalertitems').innerHTML=liquidationAlerts.map(e=>`<div><strong>New liquidation</strong> · ${escapeHtml(e.market||'Details unavailable')} ${escapeHtml(e.side||'')} · ${usd(e.sizeUsd,2)} · ${dt(e.blockTime?e.blockTime*1000:e.observedAt*1000)}</div>`).join('');
+ const market=$('liqmarket').value,side=$('liqside').value,filtered=events.filter(e=>(market==='all'||e.market===market)&&(side==='all'||e.side===side));
+ $('liqevents').innerHTML=filtered.length?filtered.map(e=>`<tr class="${Date.now()-e.observedAt*1000<120000?'new-liquidation':''}"><th>${dt(e.blockTime?e.blockTime*1000:e.observedAt*1000)}${!e.blockTime?' (observed)':''}</th><td>${escapeHtml(e.market||'Unknown')}</td><td class="${e.side==='long'?'negative':'positive'}">${escapeHtml(e.side||'Unknown')}</td><td>${usd(e.sizeUsd,2)}</td><td>${usd(e.priceUsd,4)}</td><td>${usd(e.liquidationFeeUsd,2)}</td><td><a href="https://solscan.io/tx/${encodeURIComponent(e.signature)}" target="_blank" rel="noopener">View ↗</a>${e.decoded?'':' · Details unavailable'}</td></tr>`).join(''):`<tr><td colspan="7">${!feed.fetchedAt?'Connecting to Jupiter chain events…':!valid?'No matching records loaded. Feed coverage is incomplete.':events.length?'No events match these filters.':'No liquidation events observed since collection began.'}</td></tr>`;
+ $('liqtablemeta').textContent=`Showing ${filtered.length} matching event(s) from the latest ${events.length} · ${fmt(feed.eventCount,0)} total recorded · All recorded events are available in the export.`;
+ renderLiquidationChart();
+}
+function renderLiquidationChart(){
+ const f=state.liquidations||{},el=$('liqchart');
+ if(!f.coverageSince||!f.fetchedAt){el.innerHTML='<div class="empty">Waiting for chain-event coverage</div>';return;}
+ const start=Math.max(f.coverageSince,Date.now()-86400000),end=Math.max(start,Math.min(f.backlog?f.checkpointAt:f.fetchedAt,Date.now()));
+ let long=0,short=0;const lp=[[start,0]],sp=[[start,0]];
+ for(const [t,l,s] of f.minuteBuckets||[]){if(t+60000<start||t>end)continue;const stamp=Math.max(start,t);lp.push([stamp,long]);sp.push([stamp,short]);long+=l;short+=s;lp.push([stamp,long]);sp.push([stamp,short]);}
+ lp.push([end,long]);sp.push([end,short]);const original=series;
+ series={...series,liq_long:lp,liq_short:sp};
+ chart('liqchart',[{key:'liq_long',label:'Long liquidations',color:colors[2],daily:true},{key:'liq_short',label:'Short liquidations',color:colors[1],daily:true}],'USDm',true,1);
+ series=original;
+}
+$('liqmarket').onchange=renderLiquidations;$('liqside').onchange=renderLiquidations;
+$('liqdismiss').onclick=()=>{liquidationAlerts=[];$('liqalert').hidden=true;};
