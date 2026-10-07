@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-const ENDPOINTS = new Set(["state", "history", "export.csv"]);
+const ENDPOINTS = new Set(["state", "history", "export.csv", "liquidations.csv"]);
 
 export async function GET(
   request: Request,

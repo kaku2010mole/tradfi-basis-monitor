@@ -15,6 +15,7 @@ import time
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+from monitoring import jupiter_liquidations as liquidation_feed
 
 ROOT = Path(__file__).resolve().parent
 SEED_DB = ROOT / 'data' / 'research.sqlite3'
@@ -28,7 +29,10 @@ HL = 'https://api.hyperliquid.xyz/info'
 LOCK = threading.RLock()
 STATE = {}
 PENDING = {}
-LIVE_SOURCES = {'pool','loan','price','funding','strategy'}
+LIVE_SOURCES = {'pool','loan','price','funding','strategy','activity'}
+MARKETS={'BTC':'3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh',
+         'ETH':'7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs',
+         'SOL':'So11111111111111111111111111111111111111112'}
 RECORD_INTERVAL_MS = 60000
 STOP = threading.Event()
 
@@ -117,7 +121,12 @@ def derive_hedges(d):
         delta_tokens=net_tokens+short_delta
         delta_usd=(number(c['aumUsd'])-number(c['guaranteedUsd'])+number(c['globalShortSizes']))/1e6
         result[symbol]=dict(ratio=delta_usd/aum*100,unitsPerJlp=delta_tokens/supply,
-                            spotWeight=number(c['currentWeightagePct']),deltaUsd=delta_usd)
+                            spotWeight=number(c['currentWeightagePct']),deltaUsd=delta_usd,
+                            ownedTokens=number(c['owned'])/10**decimals,
+                            lockedTokens=number(c['locked'])/10**decimals,
+                            shortUsd=short_size,shortDeltaTokens=short_delta,
+                            guaranteedUsd=number(c['guaranteedUsd'])/1e6,
+                            supply=supply)
     if len(result)!=3: raise ValueError('Incomplete custody data for hedge calculation')
     return result
 
@@ -183,9 +192,60 @@ def pool():
         for coin,h in out['hedges'].items():
             rows.extend([(f'hedge_ratio_{coin}',ts,h['ratio'],'Jupiter first-order custody delta'),
                          (f'hedge_units_{coin}',ts,h['unitsPerJlp'],'Jupiter first-order custody delta')])
+            for field in ['ownedTokens','lockedTokens','shortUsd','shortDeltaTokens','guaranteedUsd','supply']:
+                rows.append((f'custody_{field}_{coin}',ts,h[field],'Jupiter custody state'))
     except Exception as e:
         out['hedges']={};out['hedgesError']=str(e)
     store('pool', out, rows)
+
+def derive_activity(hedges, markets):
+    coins={}
+    for coin in MARKETS:
+        h=hedges[coin];m=markets[coin]
+        px=number(m['price'],True);volume=number(m['volume'])
+        long=number(h['lockedTokens'])*px;short=number(h['shortUsd'])
+        if min(volume,long,short)<0: raise ValueError('Invalid activity values')
+        coins[coin]=dict(price=px,volume24h=volume,longOi=long,shortOi=short,
+                         grossOi=long+short,longShare=long/(long+short)*100 if long+short else None)
+    totals={field:sum(c[field] for c in coins.values()) for field in ['volume24h','longOi','shortOi','grossOi']}
+    totals['oneSidedOi']=totals['grossOi']/2
+    totals['longShare']=totals['longOi']/totals['grossOi']*100 if totals['grossOi'] else None
+    return dict(coins=coins,totals=totals)
+
+def activity():
+    # Join current official market quotes to fresh custody state. Volume is a
+    # trailing-24h counter, not incremental volume; snapshots must not be summed.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        jobs={coin:executor.submit(fetch,PERPS+'market-stats?mint='+mint) for coin,mint in MARKETS.items()}
+        markets={coin:job.result() for coin,job in jobs.items()}
+    now=int(time.time()*1000)
+    with LOCK: p=dict(STATE.get('pool',{}))
+    if p.get('error') or p.get('hedgesError') or not 0<=now-p.get('fetchedAt',0)<45000:
+        raise ValueError('Fresh custody state is required for OI')
+    out=derive_activity(p['hedges'],markets)
+    out.update(fetchedAt=now,custodyAt=p['fetchedAt'],error=None,
+               custodySnapshot=p['hedges'],
+               liquidationCoverage='separate_chain_feed',
+               oiMethod='Long: locked token quantity × current Jupiter quote; short: globalShortSizes. Gross = long + short; one-sided reference = gross / 2.')
+    rows=[]
+    for coin,c in out['coins'].items():
+        for field in ['volume24h','longOi','shortOi','grossOi']:
+            rows.append((f'perps_{field}_{coin}',now,c[field],'Jupiter official; long OI mark-valued approximation'))
+    for field,value in out['totals'].items():
+        if value is not None:rows.append((f'perps_{field}_TOTAL',now,value,'Jupiter official; local gross / one-sided definitions'))
+    store('activity',out,rows)
+
+def liquidations():
+    with liquidation_feed.connect() as db:
+        try:
+            with liquidation_feed.poll_guard():
+                liquidation_feed.poll(db)
+        except Exception as error:
+            if 'Another collector' not in str(error):
+                liquidation_feed.save_state(db,'last_error',str(error))
+                db.commit()
+        snapshot=liquidation_feed.snapshot(db)
+    store('liquidations',snapshot)
 
 def loan():
     d = fetch(PERPS+'lending/info'); ts = int(time.time()*1000)
@@ -277,6 +337,15 @@ class Handler(SimpleHTTPRequestHandler):
             d['now']=int(time.time()*1000)
             with connect() as c: d['collectionStartedAt']=c.execute("SELECT MIN(ts) FROM samples WHERE metric='borrow_apr'").fetchone()[0]
             return self.send(json.dumps(d,allow_nan=False))
+        if p.path=='/api/liquidations.csv':
+            with liquidation_feed.connect() as c:
+                events=[json.loads(row[0]) for row in c.execute('SELECT body FROM events ORDER BY rowid')]
+            buf=io.StringIO();writer=csv.writer(buf)
+            writer.writerow(['event_id','timestamp_utc','market','side','position_size_usd','price_usd','liquidation_fee_usd','decoded','transaction_url'])
+            for event in events:
+                t=event.get('blockTime')
+                writer.writerow([event['eventId'],datetime.fromtimestamp(t,__import__('datetime').timezone.utc).isoformat() if t else '',event.get('market',''),event.get('side',''),event.get('sizeUsd',''),event.get('priceUsd',''),event.get('liquidationFeeUsd',''),event['decoded'],event['txUrl']])
+            return self.send(buf.getvalue(),'text/csv; charset=utf-8')
         if p.path in ['/api/history','/api/export.csv']:
             try:
                 args=parse_qs(p.query)
@@ -316,7 +385,7 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
 if __name__=='__main__':
-    for name,fn,interval in [('pool',pool,10),('loan',loan,15),('price',price,15),('funding',funding,10),('strategy',strategy,10),('history',history,3600),('persistence',persist,60)]:
+    for name,fn,interval in [('pool',pool,10),('loan',loan,15),('price',price,15),('funding',funding,10),('strategy',strategy,10),('activity',activity,20),('liquidations',liquidations,15),('history',history,3600),('persistence',persist,60)]:
         threading.Thread(target=loop,args=(name,fn,interval),daemon=True).start()
     port=int(os.environ.get('JLP_PORT','8788'))
     print(f'JLP research dashboard: http://127.0.0.1:{port}',flush=True)

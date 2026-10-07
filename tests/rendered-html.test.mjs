@@ -67,6 +67,28 @@ test("JLP Research is the homepage and the original Basis Monitor remains availa
   assert.match(jlpApi, /JLP data service unavailable/);
 });
 
+test("exports Jupiter liquidation events through the Render sidecar without allowing arbitrary endpoints", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  const csv = "event_id,market,side\ntx:0:1,SOL,long\n";
+  globalThis.fetch = async (input) => {
+    requests.push(String(input));
+    return new Response(csv, { headers: { "Content-Type": "text/csv; charset=utf-8" } });
+  };
+  try {
+    const response = await render("/api/jlp/liquidations.csv");
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type"), /^text\/csv/);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(await response.text(), csv);
+    assert.deepEqual(requests, ["http://127.0.0.1:8788/api/liquidations.csv"]);
+    assert.equal((await render("/api/jlp/private.sqlite3")).status, 404);
+    assert.equal(requests.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("removes the Leveraged Pair Monitor page, navigation and dedicated API", async () => {
   const [page, quote, switcher, callback] = await Promise.all([
     render("/ewy-koru"),

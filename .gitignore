@@ -47,3 +47,6 @@ __pycache__/
 /services/jlp-research/data/*.sqlite3-wal
 /services/jlp-research/data/*.sqlite3-shm
 /.futu-push-token
+
+/services/jlp-research/data/liquidations.sqlite3*
+/services/jlp-research/data/*.lock
