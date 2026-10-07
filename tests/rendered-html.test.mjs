@@ -303,7 +303,7 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.doesNotMatch(quotes, /delayedAdrBenchmarks/);
   assert.match(auction, /HK\.01211.*BYDUSDT.*BYDDY.*hkSharesPerAdr: 1/);
   assert.match(auction, /ASSET_TIERS/);
-  assert.match(auction, /Tier for \$\{pair\.perpSymbol\}/);
+  assert.match(auction, /Tier for \$\{pair\.perpVenue \?\? "binance"\} \$\{pair\.perpSymbol\}/);
   assert.match(auction, /updateTier/);
   assert.match(auction, /tierGroups/);
   assert.match(auction, /grouped by your tags/);
@@ -346,6 +346,12 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(quotes, /HK\.01347.*HUAHONGUSDT.*perpVenue: "bybit"/);
   assert.match(quotes, /HK\.09999.*NETEASEUSDT.*perpVenue: "bitget"/);
   assert.match(quotes, /getBitgetQuotes/);
+  for (const symbol of ["SMICSTOCK_USDT", "KBLAMSTOCK_USDT", "WUXIBIOSTOCK_USDT", "INNOVENTSTOCK_USDT", "GENSCRIPTSTOCK_USDT", "AKESOSTOCK_USDT"]) {
+    assert.ok(auction.includes(symbol));
+    assert.ok(quotes.includes(symbol));
+  }
+  assert.match(quotes, /getMexcQuotes/);
+  assert.match(pusher, /HK\.01888.*HK\.02269.*HK\.09926/);
   assert.match(quotes, /api\/v2\/mix\/market\/tickers\?productType=usdt-futures/);
   assert.match(history, /getBitgetKlines/);
   assert.match(history, /api\/v2\/mix\/market\/candles/);
@@ -700,6 +706,70 @@ test("routes Tencent aliases to Hyperliquid and computes HK auction and historic
     globalThis.__FUTU_PUSH_SNAPSHOT__ = originalPush;
     if (originalRelay === undefined) delete process.env.FUTU_RELAY_URL;
     else process.env.FUTU_RELAY_URL = originalRelay;
+  }
+});
+
+test("keeps same-symbol Bitget and Bybit SMIC separate and converts MEXC depth contracts", async () => {
+  const source = stripTypeScriptTypes(await readFile(new URL("../app/api/hk-auction/quotes/route.ts", import.meta.url), "utf8"));
+  const { GET } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  const now = Date.now();
+  const originalFetch = globalThis.fetch;
+  const originalPush = globalThis.__FUTU_PUSH_SNAPSHOT__;
+  const originalRelay = process.env.FUTU_RELAY_URL;
+  delete process.env.FUTU_RELAY_URL;
+  globalThis.__FUTU_PUSH_SNAPSHOT__ = {
+    receivedAt: now,
+    payload: { quotes: [
+      { symbol: "HK.00981", marketState: "AUCTION", auctionPrice: 60, bid: 59.9, ask: 60.1, bidSize: 200, askSize: 200, marketTimestamp: now },
+      { symbol: "HK.01888", marketState: "AUCTION", auctionPrice: 53, bid: 52.9, ask: 53.1, bidSize: 200, askSize: 200, marketTimestamp: now },
+    ] },
+  };
+  globalThis.fetch = async (url) => {
+    const path = String(url);
+    if (path.includes("api.bybit.com")) return Response.json({ retCode: 0, time: now, result: { list: [{ symbol: "SMICUSDT", bid1Price: "7.60", ask1Price: "7.62", bid1Size: "20", ask1Size: "30" }] } });
+    if (path.includes("api.bitget.com")) return Response.json({ code: "00000", data: [{ symbol: "SMICUSDT", bidPr: "7.70", askPr: "7.72", bidSz: "15", askSz: "25", ts: String(now) }] });
+    if (path.endsWith("/contract/ticker")) return Response.json({ success: true, code: 0, data: [
+      { symbol: "SMICSTOCK_USDT", bid1: 7.74, ask1: 7.76, timestamp: now, fundingRate: 0.0002 },
+      { symbol: "KBLAMSTOCK_USDT", bid1: 6.80, ask1: 6.82, timestamp: now, fundingRate: 0.0001 },
+    ] });
+    if (path.endsWith("/contract/detail")) return Response.json({ success: true, code: 0, data: [
+      { symbol: "SMICSTOCK_USDT", state: 0, contractSize: 0.01 },
+      { symbol: "KBLAMSTOCK_USDT", state: 0, contractSize: 0.01 },
+    ] });
+    if (path.includes("/contract/depth/SMICSTOCK_USDT")) return Response.json({ success: true, code: 0, data: { bids: [[7.74, 1000]], asks: [[7.76, 1500]], timestamp: now } });
+    if (path.includes("/contract/depth/KBLAMSTOCK_USDT")) return Response.json({ success: true, code: 0, data: { bids: [[6.80, 2000]], asks: [[6.82, 2500]], timestamp: now } });
+    throw new Error(`Unexpected fetch: ${path}`);
+  };
+  try {
+    const query = new URLSearchParams({ usdhkd: "7.84" });
+    for (const pair of [
+      "HK.00981|SMICUSDT|1|bybit", "HK.00981|SMICUSDT|1|bitget",
+      "HK.00981|SMICSTOCK_USDT|1|mexc", "HK.01888|KBLAMSTOCK_USDT|1|mexc",
+    ]) query.append("pair", pair);
+    const response = await GET(new Request(`http://localhost/api/hk-auction/quotes?${query}`));
+    const result = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(result.quotes.length, 4);
+    assert.equal(result.sources.mexc, true);
+    assert.deepEqual(result.quotes.map((quote) => quote.id), [
+      "HK.00981:bybit:SMICUSDT", "HK.00981:bitget:SMICUSDT",
+      "HK.00981:mexc:SMICSTOCK_USDT", "HK.01888:mexc:KBLAMSTOCK_USDT",
+    ]);
+    assert.equal(result.quotes[0].binance.bid, 7.60);
+    assert.equal(result.quotes[1].binance.bid, 7.70);
+    assert.equal(result.quotes[2].binance.bidSize, 10);
+    assert.equal(result.quotes[2].binance.askSize, 15);
+    assert.equal(result.quotes[2].metrics.sellPerpBuyStock.capacityContracts, 10);
+    assert.equal(result.quotes[3].status, "live");
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.__FUTU_PUSH_SNAPSHOT__ = originalPush;
+    if (originalRelay === undefined) delete process.env.FUTU_RELAY_URL;
+    else process.env.FUTU_RELAY_URL = originalRelay;
+    delete globalThis.__MEXC_BATCH_CACHE__;
+    delete globalThis.__MEXC_CONTRACT_CACHE__;
+    delete globalThis.__BITGET_BATCH_CACHE__;
+    delete globalThis.__BYBIT_BATCH_CACHE__;
   }
 });
 

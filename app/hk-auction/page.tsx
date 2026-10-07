@@ -6,7 +6,7 @@ import AdrPerpNightPanel, { type NightBasisPair } from "./AdrPerpNightPanel";
 import styles from "./page.module.css";
 
 type AssetTier = "S" | "A" | "B" | "C";
-type PerpVenue = "binance" | "bybit" | "bitget" | "hyperliquid";
+type PerpVenue = "binance" | "bybit" | "bitget" | "mexc" | "hyperliquid";
 type PairConfig = { stockSymbol: string; perpSymbol: string; sharesPerContract: number; perpVenue?: PerpVenue; adrSymbol?: string; hkSharesPerAdr?: number; tier?: AssetTier };
 type Book = { bid: number; ask: number; bidSize: number | null; askSize: number | null; marketTimestamp: number; stale: boolean | null };
 type FutuBook = Omit<Book, "marketTimestamp"> & {
@@ -43,11 +43,12 @@ type OpenDReference = {
   stale: boolean | null;
   hkCloseAnchor: { price: number; timestamp: number; source: string } | null;
 };
-type Payload = { quotes: Quote[]; references?: Record<string, OpenDReference>; usdHkd: number; timestamp: number; sources: { futu: boolean; binance: boolean; bybit?: boolean; bitget?: boolean; hyperliquid?: boolean }; errors: string[] };
+type Payload = { quotes: Quote[]; references?: Record<string, OpenDReference>; usdHkd: number; timestamp: number; sources: { futu: boolean; binance: boolean; bybit?: boolean; bitget?: boolean; mexc?: boolean; hyperliquid?: boolean }; errors: string[] };
 type LiteAnchor = { price: number; timestamp: number; source: string };
 
-const STORAGE_KEY = "hk-auction-pairs-v8";
-const LEGACY_STORAGE_KEYS = ["hk-auction-pairs-v7", "hk-auction-pairs-v6", "hk-auction-pairs-v5", "hk-auction-pairs-v4", "hk-auction-pairs-v3", "hk-auction-pairs-v2", "hk-auction-pairs-v1"];
+const STORAGE_KEY = "hk-auction-pairs-v9";
+const LEGACY_STORAGE_KEYS = ["hk-auction-pairs-v8", "hk-auction-pairs-v7", "hk-auction-pairs-v6", "hk-auction-pairs-v5", "hk-auction-pairs-v4", "hk-auction-pairs-v3", "hk-auction-pairs-v2", "hk-auction-pairs-v1"];
+const MAX_PAIRS = 48;
 const REMOVED_PERPS = new Set(["XIAOMIUSDT"]);
 const ADR_STALE_MS = 30_000;
 const ADR_BENCHMARK_MAX_AGE_MS = 96 * 60 * 60_000;
@@ -63,7 +64,7 @@ const ASSET_TIERS: Record<string, { grade: AssetTier; label: string; reason: str
   "HK.01024": { grade: "B", label: "SELECTIVE", reason: "Usable cross-venue mapping with thinner ADR liquidity" },
   "HK.03308": { grade: "B", label: "SELECTIVE", reason: "Liquid HK/perp pair; LITE is directional rather than fungible" },
   "HK.03986": { grade: "B", label: "SELECTIVE", reason: "NVDA is a directional semiconductor reference, not a hedge" },
-  "HK.00981": { grade: "A", label: "HIGH QUALITY", reason: "Large-cap semiconductor exposure with a direct Bybit perpetual" },
+  "HK.00981": { grade: "A", label: "HIGH QUALITY", reason: "Large-cap semiconductor exposure across Bybit, Bitget and MEXC" },
   "HK.01347": { grade: "B", label: "SELECTIVE", reason: "Semiconductor exposure with a direct Bybit perpetual" },
   "HK.06181": { grade: "B", label: "SELECTIVE", reason: "Direct Bybit mapping with a shorter trading history" },
   "HK.09999": { grade: "A", label: "HIGH QUALITY", reason: "Large-cap HK stock with a direct Bitget perpetual" },
@@ -94,6 +95,13 @@ const REQUIRED_NEW_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.00992", perpSymbol: "HK0992USDT", sharesPerContract: 7.84 },
   { stockSymbol: "HK.00625", perpSymbol: "HK0625USDT", sharesPerContract: 7.84 },
   { stockSymbol: "HK.00981", perpSymbol: "SMICUSDT", sharesPerContract: 1, perpVenue: "bybit" },
+  { stockSymbol: "HK.00981", perpSymbol: "SMICUSDT", sharesPerContract: 1, perpVenue: "bitget" },
+  { stockSymbol: "HK.00981", perpSymbol: "SMICSTOCK_USDT", sharesPerContract: 1, perpVenue: "mexc" },
+  { stockSymbol: "HK.01888", perpSymbol: "KBLAMSTOCK_USDT", sharesPerContract: 1, perpVenue: "mexc" },
+  { stockSymbol: "HK.02269", perpSymbol: "WUXIBIOSTOCK_USDT", sharesPerContract: 1, perpVenue: "mexc" },
+  { stockSymbol: "HK.01801", perpSymbol: "INNOVENTSTOCK_USDT", sharesPerContract: 1, perpVenue: "mexc" },
+  { stockSymbol: "HK.01548", perpSymbol: "GENSCRIPTSTOCK_USDT", sharesPerContract: 1, perpVenue: "mexc" },
+  { stockSymbol: "HK.09926", perpSymbol: "AKESOSTOCK_USDT", sharesPerContract: 1, perpVenue: "mexc" },
   { stockSymbol: "HK.06181", perpSymbol: "LAOPUUSDT", sharesPerContract: 1, perpVenue: "bybit" },
   { stockSymbol: "HK.01347", perpSymbol: "HUAHONGUSDT", sharesPerContract: 1, perpVenue: "bybit" },
   { stockSymbol: "HK.09999", perpSymbol: "NETEASEUSDT", sharesPerContract: 1, perpVenue: "bitget" },
@@ -112,12 +120,14 @@ const DEFAULT_PAIRS: PairConfig[] = [
 
 const isHkQuotedPerp = (perp: string) => /^HK\d+USDT$/.test(perp.toUpperCase());
 const defaultShares = (perp: string) => isHkQuotedPerp(perp) ? 7.84 : 1;
+const pairKey = (pair: PairConfig) => `${pair.stockSymbol}:${pair.perpVenue ?? "binance"}:${pair.perpSymbol}`;
+const venueMetricClass = (venue: string) => venue === "BINANCE" ? styles.binanceMetric : venue === "BITGET" ? styles.bitgetMetric : venue === "MEXC" ? styles.mexcMetric : venue === "HYPERLIQUID" ? styles.hyperliquidMetric : styles.bybitMetric;
 const number = (value: number | null | undefined, digits = 3) => value === null || value === undefined || !Number.isFinite(value) ? "—" : value.toLocaleString("en-US", { maximumFractionDigits: digits });
 const pct = (value: number | null | undefined, digits = 3) => value === null || value === undefined || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 const time = (value: number | null | undefined) => value ? new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(value) : "—";
 
-function VenueDirection({ shortVenue, longVenue }: { shortVenue: "FUTU" | "BINANCE" | "BYBIT" | "BITGET" | "HYPERLIQUID"; longVenue: "FUTU" | "BINANCE" | "BYBIT" | "BITGET" | "HYPERLIQUID" }) {
-  const venueClass = (venue: "FUTU" | "BINANCE" | "BYBIT" | "BITGET" | "HYPERLIQUID") => venue === "FUTU" ? styles.futuVenue : venue === "BINANCE" ? styles.binanceVenue : venue === "BITGET" ? styles.bitgetVenue : venue === "HYPERLIQUID" ? styles.hyperliquidVenue : styles.bybitVenue;
+function VenueDirection({ shortVenue, longVenue }: { shortVenue: "FUTU" | "BINANCE" | "BYBIT" | "BITGET" | "MEXC" | "HYPERLIQUID"; longVenue: "FUTU" | "BINANCE" | "BYBIT" | "BITGET" | "MEXC" | "HYPERLIQUID" }) {
+  const venueClass = (venue: "FUTU" | "BINANCE" | "BYBIT" | "BITGET" | "MEXC" | "HYPERLIQUID") => venue === "FUTU" ? styles.futuVenue : venue === "BINANCE" ? styles.binanceVenue : venue === "BITGET" ? styles.bitgetVenue : venue === "MEXC" ? styles.mexcVenue : venue === "HYPERLIQUID" ? styles.hyperliquidVenue : styles.bybitVenue;
   return <span className={styles.directionFlow} aria-label={`Short ${shortVenue}, long ${longVenue}`}>
     <span className={styles.directionLeg}><b>SHORT</b><em className={venueClass(shortVenue)}>{shortVenue}</em></span>
     <i aria-hidden="true">→</i>
@@ -171,7 +181,7 @@ export default function HkAuctionPage() {
       if (current !== null) {
         const saved = JSON.parse(current) as PairConfig[];
         if (Array.isArray(saved)) {
-          const cleaned = withoutRemovedPairs(saved).map(normalizeSavedPair).slice(0, 24);
+          const cleaned = withoutRemovedPairs(saved).map(normalizeSavedPair).slice(0, MAX_PAIRS);
           setPairs(cleaned);
           window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
         }
@@ -180,12 +190,12 @@ export default function HkAuctionPage() {
       const legacyRaw = LEGACY_STORAGE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const legacy = JSON.parse(legacyRaw || "[]") as PairConfig[];
       const base = Array.isArray(legacy) && legacy.length ? legacy.map(normalizeSavedPair) : DEFAULT_PAIRS;
-      const merged = new Map(base.map((pair) => [`${pair.stockSymbol}:${pair.perpSymbol}`, pair]));
+      const merged = new Map(base.map((pair) => [pairKey(pair), pair]));
       REQUIRED_NEW_PAIRS.forEach((pair) => {
-        const key = `${pair.stockSymbol}:${pair.perpSymbol}`;
+        const key = pairKey(pair);
         if (!merged.has(key)) merged.set(key, pair);
       });
-      const migrated = withoutRemovedPairs([...merged.values()]).map(normalizeSavedPair).slice(-24);
+      const migrated = withoutRemovedPairs([...merged.values()]).map(normalizeSavedPair).slice(-MAX_PAIRS);
       setPairs(migrated);
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
     } catch { /* Keep safe defaults. */ }
@@ -265,11 +275,12 @@ export default function HkAuctionPage() {
       setPairError("ADR ticker must be valid and HK shares per ADR must be positive.");
       return;
     }
-    if (pairs.some((pair) => pair.stockSymbol === stockSymbol && pair.perpSymbol === perpSymbol)) {
+    const perpVenue = perpSymbol === "io:TCNT" ? "hyperliquid" : draft.perpVenue;
+    if (pairs.some((pair) => pairKey(pair) === pairKey({ stockSymbol, perpSymbol, sharesPerContract, perpVenue }))) {
       setPairError("That mapping is already monitored.");
       return;
     }
-    savePairs([...pairs, { stockSymbol, perpSymbol, sharesPerContract, perpVenue: perpSymbol === "io:TCNT" ? "hyperliquid" : draft.perpVenue, ...(adrSymbol ? { adrSymbol, hkSharesPerAdr } : {}) }].slice(-24));
+    savePairs([...pairs, { stockSymbol, perpSymbol, sharesPerContract, perpVenue, ...(adrSymbol ? { adrSymbol, hkSharesPerAdr } : {}) }].slice(-MAX_PAIRS));
     setDraft({ stockSymbol: "HK.", perpSymbol: "", sharesPerContract: "1", perpVenue: "binance", adrSymbol: "", hkSharesPerAdr: "1" });
     setPairError("");
   };
@@ -278,7 +289,7 @@ export default function HkAuctionPage() {
     setDraft((current) => ({ ...current, perpSymbol, ...(perpSymbol === "io:TCNT" ? { perpVenue: "hyperliquid" as PerpVenue } : {}), sharesPerContract: String(defaultShares(perpSymbol)) }));
   };
   const updateTier = (target: PairConfig, tier: AssetTier) => savePairs(pairs.map((pair) =>
-    pair.stockSymbol === target.stockSymbol && pair.perpSymbol === target.perpSymbol ? { ...pair, tier } : pair
+    pairKey(pair) === pairKey(target) ? { ...pair, tier } : pair
   ));
 
   const quoteById = useMemo(() => new Map(payload?.quotes.map((quote) => [quote.id, quote]) ?? []), [payload]);
@@ -286,7 +297,7 @@ export default function HkAuctionPage() {
   const adrSortActive = hktHour >= 21 || hktHour < 6;
   const orderedPairs = useMemo(() => [...pairs].sort((left, right) => {
     const score = (pair: PairConfig) => {
-      const quote = quoteById.get(`${pair.stockSymbol}:${pair.perpSymbol}`);
+      const quote = quoteById.get(pairKey(pair));
       if (!adrSortActive) return quote?.metrics.midBasisPct === null || quote?.metrics.midBasisPct === undefined ? -1 : Math.abs(quote.metrics.midBasisPct);
       const openDAdr = pair.adrSymbol ? payload?.references?.[pair.adrSymbol] : undefined;
       const timestamp = openDAdr?.marketTimestamp ?? null;
@@ -326,7 +337,7 @@ export default function HkAuctionPage() {
 
   return <main className={styles.shell}>
     <header className={styles.topbar}>
-      <div><p>HKEX PRE-OPEN / CROSS-VENUE BASIS</p><h1>HK Auction Basis</h1><small>Futu auction and US references versus Binance, Bybit and Bitget perpetuals</small></div>
+      <div><p>HKEX PRE-OPEN / CROSS-VENUE BASIS</p><h1>HK Auction Basis</h1><small>Futu auction and US references versus Binance, Bybit, Bitget and MEXC perpetuals</small></div>
       <div className={styles.topActions}><span className={styles.clock}>{time(now)} HKT</span><PageSwitcher active="auction" /></div>
     </header>
 
@@ -339,6 +350,7 @@ export default function HkAuctionPage() {
         <span className={payload?.sources.bybit ? styles.online : ""}><i />Bybit {payload?.sources.bybit ? "live" : "reconnecting"}</span>
         <span className={payload?.sources.hyperliquid ? styles.online : ""}><i />Hyperliquid {payload?.sources.hyperliquid ? "live" : "reconnecting"}</span>
         <span className={payload?.sources.bitget ? styles.online : ""}><i />Bitget {payload?.sources.bitget ? "live" : "reconnecting"}</span>
+        <span className={payload?.sources.mexc ? styles.online : ""}><i />MEXC {payload?.sources.mexc ? "live" : "reconnecting"}</span>
         <button className={freshReferences.length === wantedReferences.length ? styles.online : ""} disabled><i />US references {freshReferences.length}/{wantedReferences.length} fresh</button>
       </div>
     </section>
@@ -353,7 +365,7 @@ export default function HkAuctionPage() {
     {managerOpen && <section className={styles.manager}>
       <label>Futu stock<input value={draft.stockSymbol} onChange={(event) => setDraft((current) => ({ ...current, stockSymbol: event.target.value }))} placeholder="HK.00700" /></label>
       <label>Perp symbol<input value={draft.perpSymbol} onChange={(event) => updatePerpDraft(event.target.value)} placeholder="HK0700USDT" /></label>
-      <label>Perp venue<select value={draft.perpVenue} onChange={(event) => setDraft((current) => ({ ...current, perpVenue: event.target.value as PerpVenue }))}><option value="binance">Binance</option><option value="bybit">Bybit</option><option value="bitget">Bitget</option><option value="hyperliquid">Hyperliquid</option></select></label>
+      <label>Perp venue<select value={draft.perpVenue} onChange={(event) => setDraft((current) => ({ ...current, perpVenue: event.target.value as PerpVenue }))}><option value="binance">Binance</option><option value="bybit">Bybit</option><option value="bitget">Bitget</option><option value="mexc">MEXC</option><option value="hyperliquid">Hyperliquid</option></select></label>
       <label>Shares per contract<input type="number" min="0.000001" step="0.01" value={draft.sharesPerContract} onChange={(event) => setDraft((current) => ({ ...current, sharesPerContract: event.target.value }))} /></label>
       <label>ADR ticker · optional<input value={draft.adrSymbol} onChange={(event) => setDraft((current) => ({ ...current, adrSymbol: event.target.value.toUpperCase() }))} placeholder="TCEHY" /></label>
       <label>HK shares per ADR<input type="number" min="0.000001" step="0.01" value={draft.hkSharesPerAdr} onChange={(event) => setDraft((current) => ({ ...current, hkSharesPerAdr: event.target.value }))} /></label>
@@ -371,9 +383,9 @@ export default function HkAuctionPage() {
       <div className={styles.tierGroups}>{tierGroups.map((group) => <section className={`${styles.tierGroup} ${styles[`tierGroup${group.tier}`]}`} key={group.tier}>
         <header className={styles.tierGroupHead}><div><strong>TAG {group.tier}</strong><span>{TIER_LABELS[group.tier]}</span><small>{TIER_DESCRIPTIONS[group.tier]}</small></div><b>{group.pairs.length} {group.pairs.length === 1 ? "PAIR" : "PAIRS"}</b></header>
         <div className={styles.cards}>{group.pairs.map((pair) => {
-        const id = `${pair.stockSymbol}:${pair.perpSymbol}`;
+        const id = pairKey(pair);
         const quote = quoteById.get(id);
-        const perpVenue = (pair.perpVenue ?? "binance").toUpperCase() as "BINANCE" | "BYBIT" | "BITGET" | "HYPERLIQUID";
+        const perpVenue = (pair.perpVenue ?? "binance").toUpperCase() as "BINANCE" | "BYBIT" | "BITGET" | "MEXC" | "HYPERLIQUID";
         const suggestedTier = ASSET_TIERS[pair.stockSymbol] ?? { grade: "C" as const, label: "TACTICAL", reason: "Smaller or less directly hedgeable cross-venue market" };
         const tier = pair.tier ?? suggestedTier.grade;
         const basisValue = quote?.metrics.midBasisPct ?? null;
@@ -433,16 +445,16 @@ export default function HkAuctionPage() {
           : "Waiting for valid prices";
         const cardHot = hot || (adrActionable && adrBasisPct !== null && Math.abs(adrBasisPct) >= alert);
         return <article key={id} className={`${styles.card} ${cardHot ? styles.hotCard : ""}`}>
-          <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol === "io:TCNT" ? "io:TCNT · Tencent" : pair.perpSymbol}</h3><small>{isHkQuotedPerp(pair.perpSymbol) ? `1 Binance perp ↔ ${pair.sharesPerContract.toLocaleString()} HK shares` : `${pair.sharesPerContract.toLocaleString()} shares / ${perpVenue} perp`}{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={styles.headerMeta}><label className={`${styles.tierControl} ${styles[`tier${tier}`]}`} title={`Suggested: Tier ${suggestedTier.grade} · ${suggestedTier.reason}`}><span>TAG</span><select aria-label={`Tier for ${pair.perpSymbol}`} value={tier} onChange={(event) => updateTier(pair, event.target.value as AssetTier)}><option value="S">S · Top</option><option value="A">A · High quality</option><option value="B">B · Selective</option><option value="C">C · Tactical</option></select><small>{TIER_LABELS[tier]}</small></label><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></div></header>
+          <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol === "io:TCNT" ? "io:TCNT · Tencent" : pair.perpSymbol}</h3><small>{isHkQuotedPerp(pair.perpSymbol) ? `1 Binance perp ↔ ${pair.sharesPerContract.toLocaleString()} HK shares` : pair.perpVenue === "mexc" ? `${pair.sharesPerContract.toLocaleString()} HK share / MEXC base unit · depth converted from contracts` : `${pair.sharesPerContract.toLocaleString()} shares / ${perpVenue} perp`}{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={styles.headerMeta}><label className={`${styles.tierControl} ${styles[`tier${tier}`]}`} title={`Suggested: Tier ${suggestedTier.grade} · ${suggestedTier.reason}`}><span>TAG</span><select aria-label={`Tier for ${pair.perpVenue ?? "binance"} ${pair.perpSymbol}`} value={tier} onChange={(event) => updateTier(pair, event.target.value as AssetTier)}><option value="S">S · Top</option><option value="A">A · High quality</option><option value="B">B · Selective</option><option value="C">C · Tactical</option></select><small>{TIER_LABELS[tier]}</small></label><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></div></header>
           <div className={styles.cardSignals}>
             <section className={`${styles.signalRow} ${styles.hkSignal} ${!signalReady ? styles.signalWaiting : ""}`}>
               <div className={styles.signalBasis}><span>PRIMARY · FUTU ↔ {perpVenue}</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>MID BASIS · {quote?.metrics.stockReferenceSource === "close-price" ? "official close" : quote?.metrics.stockReferenceSource === "auction-price" ? "auction / IEP" : quote?.metrics.stockReferenceSource === "book-mid" ? "live BBO" : "waiting"}</small></div>
               <div className={styles.signalDirection}><span>TRADE DIRECTION</span><strong>{signalReady ? <VenueDirection shortVenue={shortVenue} longVenue={longVenue} /> : "SIGNAL UNAVAILABLE"}</strong><small>{signalReady ? `${shortSymbol} → ${longSymbol} · executable edge ${pct(signalEdge)}` : `${waitingReason} · stale prices excluded`}</small></div>
               <dl className={styles.signalMetrics}>
                 <div><dt className={styles.futuMetric}>Futu · HKD</dt><dd>{number(quote?.metrics.stockReferenceHkd)}</dd></div>
-                <div><dt className={perpVenue === "BINANCE" ? styles.binanceMetric : perpVenue === "BITGET" ? styles.bitgetMetric : perpVenue === "HYPERLIQUID" ? styles.hyperliquidMetric : styles.bybitMetric}>Fair perp · USD</dt><dd>{number(quote?.metrics.fairUsdt)}</dd></div>
-                <div><dt className={perpVenue === "BINANCE" ? styles.binanceMetric : perpVenue === "BITGET" ? styles.bitgetMetric : perpVenue === "HYPERLIQUID" ? styles.hyperliquidMetric : styles.bybitMetric}>{perpVenue} midpoint</dt><dd>{number(quote?.metrics.binanceMid)}</dd></div>
-                <div><dt className={perpVenue === "BINANCE" ? styles.binanceMetric : perpVenue === "BITGET" ? styles.bitgetMetric : perpVenue === "HYPERLIQUID" ? styles.hyperliquidMetric : styles.bybitMetric}>Funding</dt><dd className={fundingPct !== null && fundingPct < 0 ? styles.negative : styles.positive}>{pct(fundingPct, 4)}</dd><small>Next {time(quote?.binance?.nextFundingTime)}</small></div>
+                <div><dt className={venueMetricClass(perpVenue)}>Fair perp · USD</dt><dd>{number(quote?.metrics.fairUsdt)}</dd></div>
+                <div><dt className={venueMetricClass(perpVenue)}>{perpVenue} midpoint</dt><dd>{number(quote?.metrics.binanceMid)}</dd></div>
+                <div><dt className={venueMetricClass(perpVenue)}>Funding</dt><dd className={fundingPct !== null && fundingPct < 0 ? styles.negative : styles.positive}>{pct(fundingPct, 4)}</dd><small>Next {time(quote?.binance?.nextFundingTime)}</small></div>
               </dl>
             </section>
             {pair.perpSymbol === "ZHONGJIUSDT" ? <section className={`${styles.liteReference} ${liteMoveFromHkClose === null ? styles.signalWaiting : ""}`}>
@@ -469,7 +481,7 @@ export default function HkAuctionPage() {
               </dl>
             </section> : null}
           </div>
-          <footer><span>Futu {time(quote?.futu?.marketTimestamp)} HKT</span><span>{perpVenue} {time(quote?.binance?.marketTimestamp)} HKT</span><button aria-label={`Remove ${pair.perpSymbol}`} onClick={() => savePairs(pairs.filter((item) => item.stockSymbol !== pair.stockSymbol || item.perpSymbol !== pair.perpSymbol))}>Remove</button></footer>
+          <footer><span>Futu {time(quote?.futu?.marketTimestamp)} HKT</span><span>{perpVenue} {time(quote?.binance?.marketTimestamp)} HKT</span><button aria-label={`Remove ${perpVenue} ${pair.perpSymbol}`} onClick={() => savePairs(pairs.filter((item) => pairKey(item) !== id))}>Remove</button></footer>
         </article>;
         })}</div>
       </section>)}</div>

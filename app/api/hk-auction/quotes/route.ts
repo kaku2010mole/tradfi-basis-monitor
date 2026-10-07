@@ -6,8 +6,9 @@ const BINANCE_FUTURES_APIS = [
 ];
 const BYBIT_API = "https://api.bybit.com";
 const BITGET_TICKERS = "https://api.bitget.com/api/v2/mix/market/tickers?productType=usdt-futures";
+const MEXC_API = "https://api.mexc.com/api/v1/contract";
 const DEFAULT_USD_HKD = 7.83;
-const MAX_PAIRS = 24;
+const MAX_PAIRS = 48;
 const FETCH_TIMEOUT_MS = 5_000;
 const FUTU_STALE_MS = 20_000;
 const BINANCE_STALE_MS = 30_000;
@@ -24,13 +25,16 @@ type FutuPushStore = typeof globalThis & {
   __BYBIT_BATCH_PROMISE__?: Promise<Map<string, BinanceQuote>>;
   __BITGET_BATCH_CACHE__?: { quotes: Map<string, BinanceQuote>; receivedAt: number };
   __BITGET_BATCH_PROMISE__?: Promise<Map<string, BinanceQuote>>;
+  __MEXC_BATCH_CACHE__?: { quotes: Map<string, BinanceQuote>; receivedAt: number };
+  __MEXC_BATCH_PROMISE__?: Promise<Map<string, BinanceQuote>>;
+  __MEXC_CONTRACT_CACHE__?: { sizes: Map<string, number>; receivedAt: number };
 };
 
 type PairConfig = {
   stockSymbol: string;
   perpSymbol: string;
   sharesPerContract: number;
-  perpVenue: "binance" | "bybit" | "bitget" | "hyperliquid";
+  perpVenue: "binance" | "bybit" | "bitget" | "mexc" | "hyperliquid";
 };
 
 type Level = { price: number; size: number };
@@ -95,6 +99,10 @@ type BybitTickerResponse = {
   result?: { list?: Array<{ symbol?: string; bid1Price?: string; bid1Size?: string; ask1Price?: string; ask1Size?: string; fundingRate?: string; nextFundingTime?: string }> };
 };
 type BitgetTickerResponse = { code?: string; data?: Array<{ symbol?: string; bidPr?: string; askPr?: string; bidSz?: string; askSz?: string; fundingRate?: string; ts?: string }> };
+type MexcResponse<T> = { success?: boolean; code?: number; data?: T };
+type MexcTicker = { symbol?: string; bid1?: number; ask1?: number; fundingRate?: number; timestamp?: number };
+type MexcContract = { symbol?: string; state?: number; contractSize?: number };
+type MexcDepth = { bids?: number[][]; asks?: number[][]; timestamp?: number };
 
 const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.00700", perpSymbol: "io:TCNT", sharesPerContract: 1, perpVenue: "hyperliquid" },
@@ -112,6 +120,13 @@ const DEFAULT_PAIRS: PairConfig[] = [
   { stockSymbol: "HK.00700", perpSymbol: "HK0700USDT", sharesPerContract: 7.84, perpVenue: "binance" },
   { stockSymbol: "HK.01810", perpSymbol: "HK1810USDT", sharesPerContract: 7.84, perpVenue: "binance" },
   { stockSymbol: "HK.00981", perpSymbol: "SMICUSDT", sharesPerContract: 1, perpVenue: "bybit" },
+  { stockSymbol: "HK.00981", perpSymbol: "SMICUSDT", sharesPerContract: 1, perpVenue: "bitget" },
+  { stockSymbol: "HK.00981", perpSymbol: "SMICSTOCK_USDT", sharesPerContract: 1, perpVenue: "mexc" },
+  { stockSymbol: "HK.01888", perpSymbol: "KBLAMSTOCK_USDT", sharesPerContract: 1, perpVenue: "mexc" },
+  { stockSymbol: "HK.02269", perpSymbol: "WUXIBIOSTOCK_USDT", sharesPerContract: 1, perpVenue: "mexc" },
+  { stockSymbol: "HK.01801", perpSymbol: "INNOVENTSTOCK_USDT", sharesPerContract: 1, perpVenue: "mexc" },
+  { stockSymbol: "HK.01548", perpSymbol: "GENSCRIPTSTOCK_USDT", sharesPerContract: 1, perpVenue: "mexc" },
+  { stockSymbol: "HK.09926", perpSymbol: "AKESOSTOCK_USDT", sharesPerContract: 1, perpVenue: "mexc" },
   { stockSymbol: "HK.06181", perpSymbol: "LAOPUUSDT", sharesPerContract: 1, perpVenue: "bybit" },
   { stockSymbol: "HK.01347", perpSymbol: "HUAHONGUSDT", sharesPerContract: 1, perpVenue: "bybit" },
   { stockSymbol: "HK.09999", perpSymbol: "NETEASEUSDT", sharesPerContract: 1, perpVenue: "bitget" },
@@ -170,7 +185,7 @@ const normalizePerpSymbol = (value: string) => {
   const raw = value.trim();
   if (/^io:(TCNT|TENCENT)$/i.test(raw)) return "io:TCNT";
   const symbol = raw.toUpperCase();
-  if (!/^[A-Z0-9_]{3,32}USDT$/.test(symbol)) throw new Error(`Invalid Binance perp symbol: ${value}`);
+  if (!/^[A-Z0-9_]{3,32}USDT$/.test(symbol)) throw new Error(`Invalid perp symbol: ${value}`);
   if (symbol === "XIAOMIUSDT") throw new Error("XIAOMIUSDT has been removed from this monitor.");
   return symbol;
 };
@@ -190,7 +205,7 @@ const parsePair = (raw: string): PairConfig => {
   if (!Number.isFinite(sharesPerContract) || sharesPerContract <= 0 || sharesPerContract > 100_000) {
     throw new Error(`Invalid sharesPerContract for ${stockSymbol}.`);
   }
-  const perpVenue = perpSymbol === "io:TCNT" ? "hyperliquid" : parts[3]?.toLowerCase() === "bybit" ? "bybit" : parts[3]?.toLowerCase() === "bitget" ? "bitget" : "binance";
+  const perpVenue = perpSymbol === "io:TCNT" ? "hyperliquid" : parts[3]?.toLowerCase() === "bybit" ? "bybit" : parts[3]?.toLowerCase() === "bitget" ? "bitget" : parts[3]?.toLowerCase() === "mexc" ? "mexc" : "binance";
   return { stockSymbol, perpSymbol, sharesPerContract, perpVenue };
 };
 
@@ -201,7 +216,7 @@ const parsePairs = (params: URLSearchParams) => {
   if (!raw.length) return DEFAULT_PAIRS;
   if (raw.length > MAX_PAIRS) throw new Error(`At most ${MAX_PAIRS} pairs may be requested.`);
   const unique = new Map<string, PairConfig>();
-  raw.map(parsePair).forEach((pair) => unique.set(`${pair.stockSymbol}:${pair.perpSymbol}`, pair));
+  raw.map(parsePair).forEach((pair) => unique.set(`${pair.stockSymbol}:${pair.perpVenue}:${pair.perpSymbol}`, pair));
   return [...unique.values()];
 };
 
@@ -569,6 +584,88 @@ async function getBitgetQuotes(symbols: string[]) {
   finally { if (store.__BITGET_BATCH_PROMISE__ === promise) delete store.__BITGET_BATCH_PROMISE__; }
 }
 
+async function getMexcQuotes(symbols: string[]) {
+  if (!symbols.length) return new Map<string, BinanceQuote>();
+  const store = globalThis as FutuPushStore;
+  const cached = store.__MEXC_BATCH_CACHE__;
+  if (cached && Date.now() - cached.receivedAt < BINANCE_BATCH_CACHE_MS && symbols.every((symbol) => cached.quotes.has(symbol))) {
+    return cached.quotes;
+  }
+  if (store.__MEXC_BATCH_PROMISE__) return store.__MEXC_BATCH_PROMISE__;
+
+  const request = async <T,>(path: string): Promise<T> => {
+    const response = await fetch(`${MEXC_API}${path}`, { cache: "no-store", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!response.ok) throw new Error(`MEXC ${path} HTTP ${response.status}.`);
+    const payload = await response.json() as MexcResponse<T>;
+    if (payload.success !== true || payload.code !== 0 || payload.data == null) throw new Error(`MEXC ${path} returned an invalid payload.`);
+    return payload.data;
+  };
+
+  const promise = (async () => {
+    const now = Date.now();
+    const contractCache = store.__MEXC_CONTRACT_CACHE__;
+    const [tickers, contractSizes] = await Promise.all([
+      request<MexcTicker[]>("/ticker"),
+      contractCache && now - contractCache.receivedAt < 10 * 60_000
+        ? Promise.resolve(contractCache.sizes)
+        : request<MexcContract[]>("/detail").then((contracts) => {
+          const sizes = new Map(contracts.flatMap((contract) => {
+            const size = positive(contract.contractSize);
+            return contract.symbol && contract.state === 0 && size !== null ? [[contract.symbol, size] as const] : [];
+          }));
+          store.__MEXC_CONTRACT_CACHE__ = { sizes, receivedAt: Date.now() };
+          return sizes;
+        }).catch((error) => {
+          if (contractCache && now - contractCache.receivedAt < 24 * 60 * 60_000) return contractCache.sizes;
+          throw error;
+        }),
+    ]);
+    if (!Array.isArray(tickers)) throw new Error("MEXC returned no ticker list.");
+    const tickerBySymbol = new Map(tickers.flatMap((ticker) => ticker.symbol ? [[ticker.symbol, ticker] as const] : []));
+    const depths = await Promise.allSettled(symbols.map((symbol) =>
+      request<MexcDepth>(`/depth/${encodeURIComponent(symbol)}?limit=5`),
+    ));
+    const receivedAt = Date.now();
+    const quotes = new Map<string, BinanceQuote>();
+    symbols.forEach((symbol, index) => {
+      const ticker = tickerBySymbol.get(symbol);
+      const contractSize = contractSizes.get(symbol);
+      const bid = positive(ticker?.bid1);
+      const ask = positive(ticker?.ask1);
+      const marketTimestamp = timestamp(ticker?.timestamp);
+      if (!contractSize || bid === null || ask === null || ask < bid || marketTimestamp === null) return;
+
+      // MEXC depth quantities are contract counts, not underlying shares.
+      // Convert by the live contractSize before comparing them to Futu share depth.
+      const depthResult = depths[index];
+      const depth = depthResult.status === "fulfilled" ? depthResult.value : null;
+      const depthTimestamp = timestamp(depth?.timestamp);
+      const depthFresh = depthTimestamp !== null && receivedAt - depthTimestamp <= BINANCE_STALE_MS;
+      const depthBid = depthFresh ? depth?.bids?.[0] : null;
+      const depthAsk = depthFresh ? depth?.asks?.[0] : null;
+      const sameBid = Boolean(depthBid && positive(depthBid[0]) !== null && Math.abs(depthBid[0] / bid - 1) < 0.005);
+      const sameAsk = Boolean(depthAsk && positive(depthAsk[0]) !== null && Math.abs(depthAsk[0] / ask - 1) < 0.005);
+      const bidSize = sameBid ? positive(depthBid?.[1]) : null;
+      const askSize = sameAsk ? positive(depthAsk?.[1]) : null;
+      const funding = Number(ticker?.fundingRate);
+      quotes.set(symbol, {
+        symbol, bid, ask, mid: (bid + ask) / 2,
+        bidSize: bidSize === null ? null : bidSize * contractSize,
+        askSize: askSize === null ? null : askSize * contractSize,
+        fundingRate: Number.isFinite(funding) ? funding : null,
+        nextFundingTime: null,
+        marketTimestamp, receivedAt,
+        stale: stale(marketTimestamp, receivedAt, BINANCE_STALE_MS) ?? true,
+      });
+    });
+    store.__MEXC_BATCH_CACHE__ = { quotes, receivedAt };
+    return quotes;
+  })();
+  store.__MEXC_BATCH_PROMISE__ = promise;
+  try { return await promise; }
+  finally { if (store.__MEXC_BATCH_PROMISE__ === promise) delete store.__MEXC_BATCH_PROMISE__; }
+}
+
 const midpoint = (bid: number | null, ask: number | null) =>
   bid !== null && ask !== null ? (bid + ask) / 2 : null;
 
@@ -631,12 +728,14 @@ export async function GET(request: Request) {
   const binanceSymbols = pairConfigs.filter((pair) => pair.perpVenue === "binance").map((pair) => pair.perpSymbol);
   const bybitSymbols = pairConfigs.filter((pair) => pair.perpVenue === "bybit").map((pair) => pair.perpSymbol);
   const bitgetSymbols = pairConfigs.filter((pair) => pair.perpVenue === "bitget").map((pair) => pair.perpSymbol);
+  const mexcSymbols = pairConfigs.filter((pair) => pair.perpVenue === "mexc").map((pair) => pair.perpSymbol);
   const hyperliquidSymbols = pairConfigs.filter((pair) => pair.perpVenue === "hyperliquid").map((pair) => pair.perpSymbol);
-  const [futuResult, binanceResult, bybitResult, bitgetResult, hyperliquidResult] = await Promise.allSettled([
+  const [futuResult, binanceResult, bybitResult, bitgetResult, mexcResult, hyperliquidResult] = await Promise.allSettled([
     getFutuQuotes([...pairConfigs.map((pair) => pair.stockSymbol), ...referenceSymbols]),
     getBinanceQuotes(binanceSymbols),
     getBybitQuotes(bybitSymbols),
     getBitgetQuotes(bitgetSymbols),
+    getMexcQuotes(mexcSymbols),
     getHyperliquidQuotes(hyperliquidSymbols),
   ]);
   const futuBySymbol = new Map(
@@ -647,9 +746,11 @@ export async function GET(request: Request) {
   if (binanceResult.status === "rejected") errors.push(errorMessage(binanceResult.reason));
   if (bybitResult.status === "rejected") errors.push(errorMessage(bybitResult.reason));
   if (bitgetResult.status === "rejected") errors.push(errorMessage(bitgetResult.reason));
+  if (mexcResult.status === "rejected") errors.push(errorMessage(mexcResult.reason));
   const binanceBySymbol = binanceResult.status === "fulfilled" ? binanceResult.value : new Map<string, BinanceQuote>();
   const bybitBySymbol = bybitResult.status === "fulfilled" ? bybitResult.value : new Map<string, BinanceQuote>();
   const bitgetBySymbol = bitgetResult.status === "fulfilled" ? bitgetResult.value : new Map<string, BinanceQuote>();
+  const mexcBySymbol = mexcResult.status === "fulfilled" ? mexcResult.value : new Map<string, BinanceQuote>();
 
   if (hyperliquidResult.status === "rejected") errors.push(errorMessage(hyperliquidResult.reason));
   const hyperliquidBySymbol = hyperliquidResult.status === "fulfilled" ? hyperliquidResult.value : new Map<string, BinanceQuote>();
@@ -660,7 +761,7 @@ export async function GET(request: Request) {
   }));
   const quotes = pairConfigs.map((pair) => {
     const futu = futuBySymbol.get(pair.stockSymbol) ?? null;
-    const binance = (pair.perpVenue === "hyperliquid" ? hyperliquidBySymbol : pair.perpVenue === "bybit" ? bybitBySymbol : pair.perpVenue === "bitget" ? bitgetBySymbol : binanceBySymbol).get(pair.perpSymbol) ?? null;
+    const binance = (pair.perpVenue === "hyperliquid" ? hyperliquidBySymbol : pair.perpVenue === "bybit" ? bybitBySymbol : pair.perpVenue === "bitget" ? bitgetBySymbol : pair.perpVenue === "mexc" ? mexcBySymbol : binanceBySymbol).get(pair.perpSymbol) ?? null;
 
     // A missing exchange timestamp is not proof of freshness. Keep the raw
     // record for link diagnostics, but exclude it from every trading metric.
@@ -702,7 +803,7 @@ export async function GET(request: Request) {
     );
 
     return {
-      id: `${pair.stockSymbol}:${pair.perpSymbol}`,
+      id: `${pair.stockSymbol}:${pair.perpVenue}:${pair.perpSymbol}`,
       ...pair,
       usdHkd,
       futu,
@@ -749,6 +850,7 @@ export async function GET(request: Request) {
       bybit: bybitResult.status === "fulfilled" && bybitBySymbol.size > 0,
       hyperliquid: hyperliquidResult.status === "fulfilled" && hyperliquidBySymbol.size > 0,
       bitget: bitgetResult.status === "fulfilled" && bitgetBySymbol.size > 0,
+      mexc: mexcResult.status === "fulfilled" && mexcBySymbol.size > 0,
     },
     errors: [...new Set(errors)],
   }, { headers: { "Cache-Control": "no-store, max-age=0" } });

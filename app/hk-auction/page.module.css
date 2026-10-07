@@ -130,6 +130,7 @@
 .binanceVenue { color:#9b7400; border-bottom-color:#f0b90b!important; }
 .bybitVenue { color:#a95e00; border-bottom-color:#f7a600!important; }
 .bitgetVenue { color:#087f74; border-bottom-color:#00b99a!important; }
+.mexcVenue { color:#2367bb; border-bottom-color:#337fe0!important; }
 .signalMetrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); align-items:stretch; gap:7px; margin:0; background:rgba(245,248,245,.7); }
 .signalMetrics>div { min-width:0; padding:10px 11px; border:1px solid #dce4de; border-radius:6px; background:rgba(255,255,255,.88); }
 .signalMetrics>div:last-child { border-right:0; }
@@ -138,6 +139,7 @@
 .signalMetrics dt.binanceMetric { color:#9a7200; }
 .signalMetrics dt.bybitMetric { color:#b36300; }
 .signalMetrics dt.bitgetMetric { color:#087f74; }
+.signalMetrics dt.mexcMetric { color:#2367bb; }
 .signalMetrics dd { margin:8px 0 0; color:#172a21; font:950 clamp(14px,1.25vw,18px)/1.1 monospace; letter-spacing:-.025em; white-space:nowrap; }
 .signalMetrics dd.positive { color:#11825e; }
 .signalMetrics dd.negative { color:#cf4c45; }
