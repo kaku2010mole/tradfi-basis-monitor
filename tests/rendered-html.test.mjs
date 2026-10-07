@@ -237,6 +237,31 @@ test("accepts verified Japanese ADR symbols from the Futu relay", async () => {
   }
 });
 
+test("accepts a Futu relay payload with more than thirty HK symbols", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("hk-capacity-test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  const previous = globalThis.__FUTU_PUSH_SNAPSHOT__;
+  const credential = "test-futu-push-token";
+  const now = Date.now();
+  const symbols = Array.from({ length: 31 }, (_, index) => `HK.${String(index + 1).padStart(5, "0")}`);
+  const quotes = symbols.map((symbol) => ({ symbol, bid: 20, ask: 21, bidSize: 10, askSize: 10, marketState: "AFTERNOON", marketTimestamp: now }));
+  const orderbooks = symbols.map((symbol) => ({ symbol, bids: [{ price: 20, size: 10 }], asks: [{ price: 21, size: 10 }], marketTimestamp: now }));
+  const history = Object.fromEntries(symbols.map((symbol) => [symbol, [[now, 20]]]));
+  try {
+    const response = await worker.fetch(new Request("http://localhost/api/hk-auction/ingest", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ generatedAt: now, quotes, orderbooks, history }),
+    }), { FUTU_PUSH_TOKEN: credential }, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(response.status, 202);
+    assert.ok(globalThis.__FUTU_PUSH_SNAPSHOT__?.payload.quotes.some((item) => item.symbol === symbols.at(-1)));
+  } finally {
+    if (previous) globalThis.__FUTU_PUSH_SNAPSHOT__ = previous;
+    else delete globalThis.__FUTU_PUSH_SNAPSHOT__;
+  }
+});
+
 test("restores the Relative Value Monitor and its global prediction-error broadcast", async () => {
   const [response, alerts, config, relativeValue] = await Promise.all([
     render("/blog"),

@@ -154,12 +154,12 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
   const now = Date.now();
   if (
     !payload || !Number.isFinite(payload.generatedAt) || Math.abs(now - payload.generatedAt) > 30_000 ||
-    !Array.isArray(payload.quotes) || payload.quotes.length < 1 || payload.quotes.length > 30 ||
+    !Array.isArray(payload.quotes) || payload.quotes.length < 1 || payload.quotes.length > 64 ||
     payload.quotes.some((quote) => typeof quote?.symbol !== "string" || !/^(?:FX\.(?:USDKRW|USDJPY)|HK\.(?:\d{5}|800000|HSImain)|KRX\.(?:034020|035420|042700|066570|454910)|TSE\.(?:285A|5802|6758|6857|6920|7203|8035|8306|9984)|US\.(?:TCEHY|XIACY|KSHTY|MPNGY|PMRTY|MMXGY|LNVGY|BYDDY|LITE|NVDA|SONY|TM|MUFG|Z[TFNB]main))$/.test(quote.symbol)) ||
-    (payload.orderbooks !== undefined && (!Array.isArray(payload.orderbooks) || payload.orderbooks.length > 30)) ||
+    (payload.orderbooks !== undefined && (!Array.isArray(payload.orderbooks) || payload.orderbooks.length > 64)) ||
     (payload.history !== undefined && (
       !payload.history || typeof payload.history !== "object" ||
-      Object.keys(payload.history).length > 30 ||
+      Object.keys(payload.history).length > 64 ||
       Object.entries(payload.history).some(([symbol, points]) =>
         !/^(?:FX\.USDKRW|HK\.(?:\d{5}|800000|HSImain)|US\.(?:TCEHY|XIACY|KSHTY|MPNGY|PMRTY|MMXGY|LNVGY|BYDDY|LITE|NVDA|Z[TFNB]main))$/.test(symbol) || !Array.isArray(points) || points.length > 2500 ||
         points.some((point) => !Array.isArray(point) || point.length !== 2 || !Number.isFinite(point[0]) || !Number.isFinite(point[1]))
