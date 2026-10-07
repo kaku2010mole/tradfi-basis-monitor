@@ -171,6 +171,7 @@ export default function HkAuctionPage() {
   const [managerOpen, setManagerOpen] = useState(false);
   const [draft, setDraft] = useState({ stockSymbol: "HK.", perpSymbol: "", sharesPerContract: "1", perpVenue: "binance" as PerpVenue, adrSymbol: "", hkSharesPerAdr: "1" });
   const [pairError, setPairError] = useState("");
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(() => new Set());
   const [liteAnchor, setLiteAnchor] = useState<LiteAnchor | null>(null);
   const [liteAnchorError, setLiteAnchorError] = useState("");
   const requestRef = useRef(false);
@@ -291,6 +292,12 @@ export default function HkAuctionPage() {
   const updateTier = (target: PairConfig, tier: AssetTier) => savePairs(pairs.map((pair) =>
     pairKey(pair) === pairKey(target) ? { ...pair, tier } : pair
   ));
+  const toggleCard = (id: string) => setExpandedCards((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
 
   const quoteById = useMemo(() => new Map(payload?.quotes.map((quote) => [quote.id, quote]) ?? []), [payload]);
   const hktHour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", hour12: false }).format(now));
@@ -358,7 +365,7 @@ export default function HkAuctionPage() {
     <section className={styles.controls}>
       <label><span>USD / HKD</span><input type="number" min="1" max="20" step="0.0001" value={usdHkd} onChange={(event) => setUsdHkd(event.target.value)} /><small>FX conversion · separate from shares/contract</small></label>
       <label><span>Alert threshold</span><input type="number" min="0" max="100" step="0.05" value={threshold} onChange={(event) => setThreshold(event.target.value)} /><small>Absolute midpoint basis %</small></label>
-      <div className={styles.formula}><span>CROSS-VENUE NORMALIZATION</span><strong>HK basis: Futu stock ↔ selected perp venue · ADR basis: US reference ↔ Binance perp</strong><small>HK stocks, LITE and NVDA use OpenD; eight OTC ADRs use the Posley office feed.</small></div>
+      <div className={styles.formula}><span>CROSS-VENUE NORMALIZATION</span><strong>HK basis: Futu stock ↔ selected perp venue · ADR basis: US reference ↔ selected perp venue</strong><small>HK stocks, LITE and NVDA use OpenD; eight OTC ADRs use the Posley office feed.</small></div>
       <button onClick={() => setManagerOpen((open) => !open)}>{managerOpen ? "Close pair setup" : "Manage pairs"}</button>
     </section>
 
@@ -379,7 +386,7 @@ export default function HkAuctionPage() {
     <AdrPerpNightPanel pairs={nightBasisPairs} />
 
     <section className={styles.board}>
-      <div className={styles.boardHead}><div><span>MONITORED MAPPINGS</span><h2>Executable auction basis</h2></div><p>{loading ? "Connecting…" : `${payload?.quotes.filter((quote) => quote.status === "live").length ?? 0}/${pairs.length} fully live`} · grouped by your tags · {adrSortActive ? "night ranking by |ADR/Binance basis|" : "ranking by |Futu/perp basis|"}</p></div>
+      <div className={styles.boardHead}><div><span>MONITORED MAPPINGS</span><h2>Executable auction basis</h2></div><div className={styles.boardActions}><p>{loading ? "Connecting…" : `${payload?.quotes.filter((quote) => quote.status === "live").length ?? 0}/${pairs.length} fully live`} · grouped by your tags · {adrSortActive ? "night ranking by |ADR/perp basis|" : "ranking by |Futu/perp basis|"}</p><button type="button" onClick={() => setExpandedCards(new Set(pairs.map(pairKey)))}>Expand all</button><button type="button" onClick={() => setExpandedCards(new Set())}>Collapse all</button></div></div>
       <div className={styles.tierGroups}>{tierGroups.map((group) => <section className={`${styles.tierGroup} ${styles[`tierGroup${group.tier}`]}`} key={group.tier}>
         <header className={styles.tierGroupHead}><div><strong>TAG {group.tier}</strong><span>{TIER_LABELS[group.tier]}</span><small>{TIER_DESCRIPTIONS[group.tier]}</small></div><b>{group.pairs.length} {group.pairs.length === 1 ? "PAIR" : "PAIRS"}</b></header>
         <div className={styles.cards}>{group.pairs.map((pair) => {
@@ -441,11 +448,21 @@ export default function HkAuctionPage() {
         const adrWaitingReason = !openDAdr ? `${pair.adrSymbol} reference missing`
           : !adrUsable ? `${pair.adrSymbol} reference expired`
           : adrMid === null ? `${pair.adrSymbol} price unavailable`
-          : binanceImpliedAdrUsd === null ? "Binance perp price unavailable"
+          : binanceImpliedAdrUsd === null ? `${perpVenue} perp price unavailable`
           : "Waiting for valid prices";
         const cardHot = hot || (adrActionable && adrBasisPct !== null && Math.abs(adrBasisPct) >= alert);
+        const expanded = expandedCards.has(id);
+        const detailsId = `hk-card-details-${id}`;
         return <article key={id} className={`${styles.card} ${cardHot ? styles.hotCard : ""}`}>
           <header><div><span>FUTU {pair.stockSymbol}</span><h3>{pair.perpSymbol === "io:TCNT" ? "io:TCNT · Tencent" : pair.perpSymbol}</h3><small>{isHkQuotedPerp(pair.perpSymbol) ? `1 Binance perp ↔ ${pair.sharesPerContract.toLocaleString()} HK shares` : pair.perpVenue === "mexc" ? `${pair.sharesPerContract.toLocaleString()} HK share / MEXC base unit · depth converted from contracts` : `${pair.sharesPerContract.toLocaleString()} shares / ${perpVenue} perp`}{pair.adrSymbol ? ` · ${pair.adrSymbol} ${pair.hkSharesPerAdr} shares / ADR` : ""}</small></div><div className={styles.headerMeta}><label className={`${styles.tierControl} ${styles[`tier${tier}`]}`} title={`Suggested: Tier ${suggestedTier.grade} · ${suggestedTier.reason}`}><span>TAG</span><select aria-label={`Tier for ${pair.perpVenue ?? "binance"} ${pair.perpSymbol}`} value={tier} onChange={(event) => updateTier(pair, event.target.value as AssetTier)}><option value="S">S · Top</option><option value="A">A · High quality</option><option value="B">B · Selective</option><option value="C">C · Tactical</option></select><small>{TIER_LABELS[tier]}</small></label><div className={`${styles.status} ${quote?.status === "live" ? styles.live : quote?.status === "stale" ? styles.stale : ""}`}><i />{quote?.status ?? "waiting"}</div></div></header>
+          <button type="button" className={styles.cardSummary} aria-expanded={expanded} aria-controls={detailsId} onClick={() => toggleCard(id)}>
+            <span className={styles.summaryRows}>
+              <span className={styles.summaryRow}><span className={styles.summaryType}>HK CASH / {perpVenue}</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><span className={styles.summaryDirection}>{signalReady ? `SHORT ${shortVenue} → LONG ${longVenue}` : "DIRECTION UNAVAILABLE"}</span></span>
+              {pair.adrSymbol ? <span className={`${styles.summaryRow} ${styles.summaryAdr}`}><span className={styles.summaryType}>ADR {pair.adrSymbol} / {perpVenue}</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><span className={styles.summaryDirection}>{adrBasisPct === null ? "DIRECTION UNAVAILABLE" : `${adrActionable ? "LIVE" : "INDICATIVE"} · ${adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}`}`}</span></span> : null}
+            </span>
+            <span className={styles.summaryToggle} aria-hidden="true">{expanded ? "Less ▲" : "Details ▼"}</span>
+          </button>
+          <div id={detailsId} className={styles.cardDetails} hidden={!expanded}>
           <div className={styles.cardSignals}>
             <section className={`${styles.signalRow} ${styles.hkSignal} ${!signalReady ? styles.signalWaiting : ""}`}>
               <div className={styles.signalBasis}><span>PRIMARY · FUTU ↔ {perpVenue}</span><strong className={basisValue !== null && basisValue < 0 ? styles.negative : styles.positive}>{pct(basisValue)}</strong><small>MID BASIS · {quote?.metrics.stockReferenceSource === "close-price" ? "official close" : quote?.metrics.stockReferenceSource === "auction-price" ? "auction / IEP" : quote?.metrics.stockReferenceSource === "book-mid" ? "live BBO" : "waiting"}</small></div>
@@ -472,16 +489,17 @@ export default function HkAuctionPage() {
               </dl>
             </section> : null}
             {pair.adrSymbol ? <section className={`${styles.signalRow} ${styles.adrSignal} ${adrBasisPct === null ? styles.signalWaiting : ""} ${adrActionable && adrBasisPct !== null && Math.abs(adrBasisPct) >= alert ? styles.signalRowHot : ""}`}>
-              <div className={styles.signalBasis}><span>OVERNIGHT · {(openDAdr?.source ?? "US REFERENCE").toUpperCase()} ↔ BINANCE</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small>{adrFresh ? `LIVE ADR · ${time(adrTimestamp)}` : adrUsable ? `US BENCHMARK · ${time(adrTimestamp)}` : adrTimestamp ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
-              <div className={styles.signalDirection}><span>{adrActionable ? "TRADE DIRECTION" : "REFERENCE DIRECTION"}</span><strong>{adrBasisPct !== null ? adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}` : "SIGNAL UNAVAILABLE"}</strong><small>{adrActionable ? `Live ADR BBO versus Binance · gap ${pct(Math.abs(adrBasisPct))}` : adrBasisPct !== null ? `INDICATIVE ONLY · gap ${pct(Math.abs(adrBasisPct))} · delayed or stale ADR / no live bid-ask` : `${adrWaitingReason} · expired data excluded`}</small></div>
+              <div className={styles.signalBasis}><span>OVERNIGHT · {(openDAdr?.source ?? "US REFERENCE").toUpperCase()} ↔ {perpVenue}</span><strong className={adrBasisPct !== null && adrBasisPct < 0 ? styles.negative : styles.positive}>{pct(adrBasisPct)}</strong><small>{adrFresh ? `LIVE ADR · ${time(adrTimestamp)}` : adrUsable ? `US BENCHMARK · ${time(adrTimestamp)}` : adrTimestamp ? "ADR TOO OLD" : "ADR STREAM MISSING"}</small></div>
+              <div className={styles.signalDirection}><span>{adrActionable ? "TRADE DIRECTION" : "REFERENCE DIRECTION"}</span><strong>{adrBasisPct !== null ? adrRich ? `SHORT ${pair.adrSymbol} → LONG ${pair.perpSymbol}` : `LONG ${pair.adrSymbol} → SHORT ${pair.perpSymbol}` : "SIGNAL UNAVAILABLE"}</strong><small>{adrActionable ? `Live ADR BBO versus ${perpVenue} · gap ${pct(Math.abs(adrBasisPct))}` : adrBasisPct !== null ? `INDICATIVE ONLY · gap ${pct(Math.abs(adrBasisPct))} · delayed or stale ADR / no live bid-ask` : `${adrWaitingReason} · expired data excluded`}</small></div>
               <dl className={`${styles.signalMetrics} ${styles.adrMetrics}`}>
                 <div><dt>{pair.adrSymbol} · USD</dt><dd>{number(adrMid, 4)}</dd></div>
-                <div><dt>Binance-implied ADR</dt><dd>{number(binanceImpliedAdrUsd, 4)}</dd></div>
+                <div><dt>{perpVenue}-implied ADR</dt><dd>{number(binanceImpliedAdrUsd, 4)}</dd></div>
                 <div><dt>Market-neutral hedge</dt><dd>1 ADR ↔ {number(perpsPerAdr, 4)} perp</dd><small>{pair.perpSymbol}</small></div>
               </dl>
             </section> : null}
           </div>
           <footer><span>Futu {time(quote?.futu?.marketTimestamp)} HKT</span><span>{perpVenue} {time(quote?.binance?.marketTimestamp)} HKT</span><button aria-label={`Remove ${perpVenue} ${pair.perpSymbol}`} onClick={() => savePairs(pairs.filter((item) => pairKey(item) !== id))}>Remove</button></footer>
+          </div>
         </article>;
         })}</div>
       </section>)}</div>

@@ -320,7 +320,7 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(auction, /MMXGY/);
   assert.match(auction, /LNVGY/);
   assert.match(auction, /"HK\.00992".*hkSharesPerAdr: 20/);
-  assert.match(auction, /Binance-implied ADR/);
+  assert.match(auction, /\{perpVenue\}-implied ADR/);
   assert.match(auction, /FUTU ↔ \{perpVenue\}/);
   assert.match(auction, /US references \{freshReferences\.length\}/);
   assert.match(auction, /const adrActionable = adrBasisPct !== null && adrFresh && adrBid !== null && adrAsk !== null/);
@@ -334,7 +334,7 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(auction, /grouped by your tags/);
   assert.match(auction, /NVDA REFERENCE · SINCE HK CLOSE/);
   assert.match(auction, /hktHour >= 21 \|\| hktHour < 6/);
-  assert.match(auction, /night ranking by \|ADR\/Binance basis\|/);
+  assert.match(auction, /night ranking by \|ADR\/perp basis\|/);
   assert.doesNotMatch(auction, /perpSymbol: "XIAOMIUSDT"/);
   assert.match(auction, /withoutRemovedPairs/);
   assert.doesNotMatch(auction, /className=\{styles\.tradeSignal\}/);
@@ -802,10 +802,15 @@ test("keeps same-symbol Bitget and Bybit SMIC separate and converts MEXC depth c
 test("server-renders HK auction after removing the card history controls", async () => {
   const response = await render("/hk-auction");
   const html = await response.text();
+  const visibleText = html.replace(/<!-- -->/g, "");
   assert.equal(response.status, 200);
   assert.match(html, /HK Auction Basis/);
   assert.match(html, /io:TCNT/);
   assert.match(html, /HK CLOSE ANCHOR/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(visibleText, /HK CASH \/ /);
+  assert.match(visibleText, /ADR TCEHY \/ /);
+  assert.match(html, /DIRECTION UNAVAILABLE/);
   assert.doesNotMatch(html, /Open spread history|>Overview</);
 });
 
