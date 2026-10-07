@@ -113,7 +113,7 @@
 .summaryRow { display:grid; grid-template-columns:minmax(100px,145px) minmax(76px,95px) minmax(0,1fr); align-items:center; gap:9px; min-width:0; }
 .summaryType { color:#0d7455; font:900 10px/1.25 monospace; letter-spacing:.02em; }
 .summaryRow strong { font:950 18px/1 monospace; white-space:nowrap; }
-.summaryDirection { overflow:hidden; color:#263a2f; font:850 10px/1.3 monospace; text-overflow:ellipsis; white-space:nowrap; }
+.summaryDirection { min-width:0; color:#263a2f; font:850 10px/1.3 monospace; overflow-wrap:anywhere; }
 .summaryAdr { padding-top:6px; border-top:1px solid #e7e5dc; }
 .summaryAdr .summaryType { color:#957024; }
 .summaryToggle { flex:0 0 auto; color:#4f675a; font:850 9px monospace; white-space:nowrap; }
