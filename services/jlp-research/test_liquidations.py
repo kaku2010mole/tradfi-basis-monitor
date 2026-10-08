@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -22,8 +23,21 @@ class LiquidationTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.dbpatch=patch.object(feed,'DB',Path(self.temp.name)/'events.sqlite3');self.dbpatch.start()
+        self.seedpatch=patch.object(feed,'RECOVERY_SEED',Path(self.temp.name)/'recovery.json');self.seedpatch.start()
     def tearDown(self):
+        self.seedpatch.stop()
         self.dbpatch.stop();self.temp.cleanup()
+    def test_recovery_seed_only_initializes_empty_database(self):
+        feed.RECOVERY_SEED.write_text(json.dumps({'state':{'cursor':'saved','coverage_since':'100'},
+            'events':[{'eventId':'saved:1','observedAt':110,'decoded':False}]}))
+        with feed.connect() as db:
+            self.assertEqual(feed.state(db,'cursor'),'saved')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM events').fetchone()[0],1)
+            feed.save_state(db,'cursor','advanced')
+            db.commit()
+        with feed.connect() as db:
+            self.assertEqual(feed.state(db,'cursor'),'advanced')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM events').fetchone()[0],1)
     def test_units_and_verified_program(self):
         tx=fixture();event=feed.extract(tx,'signature')[0]
         self.assertEqual((event['market'],event['side'],event['sizeUsd'],event['priceUsd'],event['liquidationFeeUsd']),('SOL','short',25000,118.526326,7.5))
@@ -46,6 +60,30 @@ class LiquidationTests(unittest.TestCase):
                 self.assertEqual(feed.poll(db)['newEvents'],0)
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM events').fetchone()[0],1)
                 self.assertEqual(feed.state(db,'cursor'),'new')
+    def test_v1_transaction_is_read_and_checkpointed(self):
+        with feed.connect() as db:
+            feed.save_state(db,'cursor','old');db.commit()
+        def rpc(method,params):
+            if method=='getSignaturesForAddress':
+                return [dict(signature='v1',err=None,blockTime=1000),dict(signature='old',err=None,blockTime=999)]
+            self.assertEqual(method,'getTransaction')
+            self.assertEqual(params[1]['maxSupportedTransactionVersion'],1)
+            tx=fixture();tx['version']=1
+            tx['transaction']['message']['transactionConfig']={'computeUnitLimit':30000}
+            return tx
+        with patch.object(feed,'rpc',side_effect=rpc),patch.object(feed.time,'sleep'):
+            with feed.connect() as db:
+                self.assertEqual(feed.poll(db)['newEvents'],1)
+                self.assertEqual(feed.state(db,'cursor'),'v1')
+    def test_rate_limit_backs_off_without_advancing_checkpoint(self):
+        with feed.connect() as db:
+            feed.save_state(db,'cursor','old');db.commit()
+            with patch.object(feed,'poll',side_effect=feed.RateLimited('RPC HTTP 429')) as poller,patch.object(feed.time,'time',return_value=1000):
+                with self.assertRaises(feed.RateLimited):feed.poll_with_backoff(db)
+                self.assertEqual(feed.state(db,'cursor'),'old')
+                self.assertEqual(feed.state(db,'retry_after'),'1120')
+                self.assertTrue(feed.poll_with_backoff(db)['rateLimited'])
+                self.assertEqual(poller.call_count,1)
     def test_unavailable_transaction_keeps_checkpoint(self):
         with feed.connect() as db:
             feed.save_state(db,'cursor','old');db.commit()

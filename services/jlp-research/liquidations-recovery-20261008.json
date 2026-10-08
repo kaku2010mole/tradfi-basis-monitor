@@ -1,0 +1,18 @@
+{
+  "state": {
+    "started_at": "1791424455",
+    "coverage_since": "1791424439",
+    "last_success": "1791425853",
+    "backlog": "0",
+    "cursor": "4w5P56ziYiaR8bMnNd6LZMtmCMkLaZAayh4jkbaJRqFFnAdgBRBhoQnXF21n2TTwkxrC7QU7NgXLW5eYdrNbGys3",
+    "checkpoint_time": "1791425850",
+    "last_error": "Recovering from previous RPC error -32015"
+  },
+  "events": [
+    {"eventId":"2C38AsDsCPudWXakyeFotCqJ4rd1zbE5sLviVmCAgLxu4ubFEcvDe237LHDk9BugbxLD11iFrKgrMoExeMV5UFCL:4:0","signature":"2C38AsDsCPudWXakyeFotCqJ4rd1zbE5sLviVmCAgLxu4ubFEcvDe237LHDk9BugbxLD11iFrKgrMoExeMV5UFCL","slot":454403274,"blockTime":1791424642,"observedAt":1791424664,"market":"SOL","side":"long","sizeUsd":3606.59225,"priceUsd":116.047761,"liquidationFeeUsd":7.114063,"decoded":true,"txUrl":"https://solscan.io/tx/2C38AsDsCPudWXakyeFotCqJ4rd1zbE5sLviVmCAgLxu4ubFEcvDe237LHDk9BugbxLD11iFrKgrMoExeMV5UFCL"},
+    {"eventId":"4kKiUznmacENrU17JqRLSgXoCbQVYMboDE2k62HPaLXkoudUfLxeobsVYRMEyda4SunHcxqTs1gTioWKGopmXKap:5:0","signature":"4kKiUznmacENrU17JqRLSgXoCbQVYMboDE2k62HPaLXkoudUfLxeobsVYRMEyda4SunHcxqTs1gTioWKGopmXKap","slot":454403361,"blockTime":1791424666,"observedAt":1791424680,"market":"BTC","side":"long","sizeUsd":6657.98295,"priceUsd":83069.55,"liquidationFeeUsd":13.012326,"decoded":true,"txUrl":"https://solscan.io/tx/4kKiUznmacENrU17JqRLSgXoCbQVYMboDE2k62HPaLXkoudUfLxeobsVYRMEyda4SunHcxqTs1gTioWKGopmXKap"},
+    {"eventId":"3RRcA4WgJoDSLkF1bearjitTLkvSApLrV7hN2DzZx2oA8a1Pcqs9HaS76v6qpzsf4cVaCBRknB83mjNBD6ozKy4K:4:0","signature":"3RRcA4WgJoDSLkF1bearjitTLkvSApLrV7hN2DzZx2oA8a1Pcqs9HaS76v6qpzsf4cVaCBRknB83mjNBD6ozKy4K","slot":454406176,"blockTime":1791425415,"observedAt":1791425432,"market":"BTC","side":"long","sizeUsd":1809.63124,"priceUsd":82961.35,"liquidationFeeUsd":3.611811,"decoded":true,"txUrl":"https://solscan.io/tx/3RRcA4WgJoDSLkF1bearjitTLkvSApLrV7hN2DzZx2oA8a1Pcqs9HaS76v6qpzsf4cVaCBRknB83mjNBD6ozKy4K"},
+    {"eventId":"2LYibyDhcMsGUqBqMYe5aVSmGGZMdjMbk8ehyefHTJPgCex2exvrcY48gvpiHm7fvokW3c3t6HMmFBrUvAH92GRT:5:0","signature":"2LYibyDhcMsGUqBqMYe5aVSmGGZMdjMbk8ehyefHTJPgCex2exvrcY48gvpiHm7fvokW3c3t6HMmFBrUvAH92GRT","slot":454406376,"blockTime":1791425468,"observedAt":1791425479,"market":"BTC","side":"long","sizeUsd":76187.769552,"priceUsd":82906.385,"liquidationFeeUsd":150.392962,"decoded":true,"txUrl":"https://solscan.io/tx/2LYibyDhcMsGUqBqMYe5aVSmGGZMdjMbk8ehyefHTJPgCex2exvrcY48gvpiHm7fvokW3c3t6HMmFBrUvAH92GRT"},
+    {"eventId":"2UwMRNkpPaAwNjCwuD9ZMsX2C664gg6gCoRuzuNdqVMxF7nN6i4ASoMjDExcHWm2ERCuVPRrg2YEktNJskk4ev5Q:5:0","signature":"2UwMRNkpPaAwNjCwuD9ZMsX2C664gg6gCoRuzuNdqVMxF7nN6i4ASoMjDExcHWm2ERCuVPRrg2YEktNJskk4ev5Q","slot":454406376,"blockTime":1791425468,"observedAt":1791425480,"market":"BTC","side":"long","sizeUsd":6562.031064,"priceUsd":82890.646646,"liquidationFeeUsd":12.585413,"decoded":true,"txUrl":"https://solscan.io/tx/2UwMRNkpPaAwNjCwuD9ZMsX2C664gg6gCoRuzuNdqVMxF7nN6i4ASoMjDExcHWm2ERCuVPRrg2YEktNJskk4ev5Q"}
+  ]
+}

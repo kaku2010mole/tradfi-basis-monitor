@@ -239,7 +239,7 @@ def liquidations():
     with liquidation_feed.connect() as db:
         try:
             with liquidation_feed.poll_guard():
-                liquidation_feed.poll(db)
+                liquidation_feed.poll_with_backoff(db)
         except Exception as error:
             if 'Another collector' not in str(error):
                 liquidation_feed.save_state(db,'last_error',str(error))

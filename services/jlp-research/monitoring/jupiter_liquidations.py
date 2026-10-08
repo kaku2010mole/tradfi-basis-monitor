@@ -16,10 +16,12 @@ ROOT = Path(__file__).resolve().parent
 DATA_ROOT = Path(os.environ.get('JLP_DATA_DIR', str(ROOT.parent / 'data')))
 DATA_ROOT.mkdir(parents=True, exist_ok=True)
 DB = DATA_ROOT / 'liquidations.sqlite3'
+RECOVERY_SEED = ROOT.parent / 'liquidations-recovery-20261008.json'
 PROGRAM = 'PERPHjGBqRHArX4DySjwM6UJHiR3sWAatqfdBS2qQJu'
 AUTHORITY = '37hJBDnntwqhGbK7L6M1bLyvccj4u55CCUiLPdYkiqBN'
 POOL = '5BUwFW4nRbftYTDMbgxykoFWqWHPzahFSNAaaaJtVKsq'
 RPC = os.environ.get('JUPITER_MONITOR_RPC_URL', 'https://api.mainnet-beta.solana.com')
+MAX_SUPPORTED_TRANSACTION_VERSION = 1
 ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 MINTS = {'So11111111111111111111111111111111111111112': 'SOL',
          '3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh': 'BTC',
@@ -27,6 +29,9 @@ MINTS = {'So11111111111111111111111111111111111111112': 'SOL',
 IDL = json.loads((ROOT / 'jupiter-perps-idl.json').read_text())
 SCHEMAS = {hashlib.sha256(('event:' + e['name']).encode()).digest()[:8]: e
            for e in IDL['events']}
+
+class RateLimited(RuntimeError):
+    pass
 
 def unbase58(text):
     n = 0
@@ -126,12 +131,17 @@ def rpc(method, params):
             '--data-binary',request],capture_output=True,text=True,timeout=22)
         try:
             body, status = result.stdout.rsplit('\n',1)
+            if status == '429':
+                raise RateLimited('RPC HTTP 429: shared Solana endpoint rate limited')
             if result.returncode or status != '200':
                 raise RuntimeError('RPC HTTP '+status)
             parsed = json.loads(body)
             if 'error' in parsed:
-                raise RuntimeError('RPC error '+str(parsed['error'].get('code')))
+                detail = parsed['error']
+                raise RuntimeError('RPC error '+str(detail.get('code'))+': '+str(detail.get('message','unknown error'))[:200])
             return parsed['result']
+        except RateLimited:
+            raise
         except (ValueError, KeyError, RuntimeError) as error:
             last_error = str(error)
             if attempt < 2:
@@ -150,6 +160,16 @@ def connect():
     db.execute('PRAGMA journal_mode=WAL')
     db.executescript('''CREATE TABLE IF NOT EXISTS state(key TEXT PRIMARY KEY,value TEXT);
         CREATE TABLE IF NOT EXISTS events(event_id TEXT PRIMARY KEY,body TEXT,reported_at INTEGER);''')
+    # Render currently has no persistent disk. Preserve the last verified on-chain
+    # checkpoint across this deployment, then let the normal poller fill the gap.
+    if RECOVERY_SEED.exists():
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute('SELECT 1 FROM state LIMIT 1').fetchone() and not db.execute('SELECT 1 FROM events LIMIT 1').fetchone():
+            seed = json.loads(RECOVERY_SEED.read_text())
+            db.executemany('INSERT INTO state VALUES(?,?)', seed['state'].items())
+            db.executemany('INSERT INTO events VALUES(?,?,?)',
+                ((event['eventId'], json.dumps(event), None) for event in seed['events']))
+        db.commit()
     return db
 
 def state(db, key):
@@ -201,12 +221,13 @@ def poll(db, max_transactions=40):
         if not page:
             raise RuntimeError('Checkpoint not found in RPC history; coverage gap requires repair')
         before = page[-1]['signature']
+        time.sleep(1)
     if not reached:
         raise RuntimeError('Catch-up pagination cap reached; checkpoint was not advanced')
     checked, found = 0, 0
     for info in list(reversed(signatures))[:max_transactions]:
         if info['err'] is None:
-            tx = rpc('getTransaction',[info['signature'],dict(encoding='json',commitment='finalized',maxSupportedTransactionVersion=0)])
+            tx = rpc('getTransaction',[info['signature'],dict(encoding='json',commitment='finalized',maxSupportedTransactionVersion=MAX_SUPPORTED_TRANSACTION_VERSION)])
             if not tx:
                 raise RuntimeError('Transaction unavailable; checkpoint retained for retry')
             for event in extract(tx,info['signature']):
@@ -218,13 +239,31 @@ def poll(db, max_transactions=40):
             save_state(db,'checkpoint_time',info['blockTime'])
         db.commit()
         checked += 1
-        time.sleep(0.35)
+        time.sleep(1)
     save_state(db,'last_success',int(time.time()))
     save_state(db,'last_error','')
     save_state(db,'backlog',max(0,len(signatures)-checked))
     db.commit()
     return dict(initialized=False,checkedTransactions=checked,newEvents=found,
                 catchupRemaining=max(0,len(signatures)-checked))
+
+def poll_with_backoff(db, max_transactions=40):
+    now = int(time.time())
+    retry_after = int(state(db,'retry_after') or 0)
+    if retry_after > now:
+        return dict(rateLimited=True,retryAfter=retry_after)
+    try:
+        result = poll(db,max_transactions)
+    except RateLimited:
+        streak = int(state(db,'rate_limit_streak') or 0) + 1
+        save_state(db,'rate_limit_streak',streak)
+        save_state(db,'retry_after',now + min(1800,60 * 2 ** min(streak,5)))
+        db.commit()
+        raise
+    save_state(db,'rate_limit_streak',0)
+    save_state(db,'retry_after',0)
+    db.commit()
+    return result
 
 def snapshot(db, now=None):
     now=int(time.time()) if now is None else now
@@ -275,7 +314,7 @@ def main():
         if args.poll:
             try:
                 with poll_guard():
-                    output['poll']=poll(db)
+                    output['poll']=poll_with_backoff(db)
             except Exception as error:
                 if 'Another collector' in str(error):
                     output['poll']=dict(busy=True)
@@ -287,7 +326,7 @@ def main():
             events=[]
             for info in recent:
                 if info['err'] is None:
-                    tx=rpc('getTransaction',[info['signature'],dict(encoding='json',commitment='finalized',maxSupportedTransactionVersion=0)])
+                    tx=rpc('getTransaction',[info['signature'],dict(encoding='json',commitment='finalized',maxSupportedTransactionVersion=MAX_SUPPORTED_TRANSACTION_VERSION)])
                     if tx: events.extend(extract(tx,info['signature']))
                     time.sleep(0.35)
             output['audit']=dict(transactions=len(recent),events=events)
