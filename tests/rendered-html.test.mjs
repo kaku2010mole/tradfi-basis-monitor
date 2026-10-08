@@ -144,6 +144,10 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(component, /KRX \$\{payload\.sessions\.KRX\} · TSE \$\{payload\.sessions\.TSE\} · US \$\{payload\.sessions\.US\}/);
   assert.match(component, /U\.S\. ADR ↔ BITGET/);
   assert.match(component, /LIVE QUOTE RADAR/);
+  assert.match(component, /cash BBO stale or missing/);
+  assert.match(component, /executable FX BBO stale or missing/);
+  assert.match(component, /INDEX \/ INDICATIVE/);
+  assert.doesNotMatch(component, /Waiting for a positive edge with fresh cash\/FX/);
   assert.match(component, /USD\/JPY/);
   assert.match(component, /INDICATIVE/);
   assert.match(component, /Connect Posley/);
@@ -171,6 +175,9 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(route, /quote\.symbol === "FX\.USDJPY"/);
   assert.match(route, /DISPLAY_MAX_AGE_MS/);
   assert.match(route, /marketSession/);
+  assert.match(route, /officeCoversActiveMarkets/);
+  assert.match(route, /QUOTE_MAX_AGE_MS && book\.timestamp - nowForSession < 5_000/);
+  assert.match(route, /activeOfficeSymbols\.some\(\(symbol\) => unavailable\.includes\(symbol\)\) \? remote\.error : ""/);
   assert.match(route, /"PRE-MARKET"/);
   assert.match(route, /"AFTER-HOURS"/);
   assert.match(route, /14 \* 60 \+ 40\) return "AFTER-HOURS OPENING"/);

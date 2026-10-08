@@ -91,7 +91,17 @@ export async function GET(request: Request) {
     const authorization = request.headers.get("authorization") ?? "";
     const suppliedIdToken = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : undefined;
     const office = officeRelaySnapshot();
-    const remoteRequest = office && marketSession("KRX", Date.now()) !== "REGULAR" && !suppliedIdToken
+    const nowForSession = Date.now();
+    const krxSession = marketSession("KRX", nowForSession);
+    const tseSession = marketSession("TSE", nowForSession);
+    const activeOfficeSymbols = [
+      ...(["PRE-MARKET", "REGULAR", "AFTER-HOURS OPENING", "AFTER-HOURS"].includes(krxSession) ? [...KOREAN_STOCKS.map((stock) => stock.code), "USDKRW"] : []),
+      ...(["OPENING AUCTION", "REGULAR"].includes(tseSession) ? [...JAPANESE_STOCKS.map((stock) => stock.code), "USDJPY"] : []),
+      ...(usSession(nowForSession) === "REGULAR" ? ADR_SYMBOLS : []),
+    ];
+    const officeFreshSymbols = new Set(office?.books.filter((book) => nowForSession - book.timestamp <= QUOTE_MAX_AGE_MS && book.timestamp - nowForSession < 5_000).map((book) => book.symbol));
+    const officeCoversActiveMarkets = activeOfficeSymbols.every((symbol) => officeFreshSymbols.has(symbol));
+    const remoteRequest = office && !suppliedIdToken && officeCoversActiveMarkets
       ? Promise.resolve({ configured: false, state: "idle", error: "", books: [], missing: [], timestamp: Date.now() })
       : posleyAdrSnapshot([...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), ...ADR_SYMBOLS, "USDKRW", "USDJPY"], suppliedIdToken);
     const [remote, bitgetResponse, binanceResponse] = await Promise.all([
@@ -117,7 +127,7 @@ export async function GET(request: Request) {
     const sessions = { KRX: marketSession("KRX", Date.now()), TSE: marketSession("TSE", Date.now()), US: usSession(Date.now()) };
     const hasCashQuote = [...KOREAN_STOCKS, ...JAPANESE_STOCKS].some((stock) => mergedBooks.has(stock.code));
     const posley = { ...remote, books: [...mergedBooks.values()], configured: remote.configured || Boolean(office), missing: unavailable,
-      state: !remote.configured && !office ? "unconfigured" : sessions.KRX === "CLOSED" && sessions.TSE === "CLOSED" && sessions.US === "CLOSED" && hasCashQuote ? "closed" : unavailable.length ? "partial" : "live", error: unavailable.length && !office ? remote.error : "",
+      state: !remote.configured && !office ? "unconfigured" : sessions.KRX === "CLOSED" && sessions.TSE === "CLOSED" && sessions.US === "CLOSED" && hasCashQuote ? "closed" : unavailable.length ? "partial" : "live", error: activeOfficeSymbols.some((symbol) => unavailable.includes(symbol)) ? remote.error : "",
       source: office && !remote.books.length ? "office relay" : remote.configured && office ? "Posley + office relay" : remote.configured ? "remote gateway" : office ? "office relay" : "unavailable" };
 
     const books = new Map(posley.books.map((book) => [book.symbol, book]));

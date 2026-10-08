@@ -137,6 +137,28 @@ export default function KoreanPerpMonitor() {
         { value: adrBasis?.buyPerpSellAdr ?? null, direction: `Buy Bitget · sell ${adr.symbol}`, name: row.name, code: row.code, source: "Live U.S. ADR BBO" }] : [];
     return [...cashEdges, ...adrEdges].flatMap((edge) => edge.value !== null && edge.value > 0 ? [{ ...edge, value: edge.value }] : []);
   }).sort((left, right) => right.value - left.value);
+  const activeCashRows = (payload.rows ?? []).filter((row) => row.session === "REGULAR" || row.market === "KRX" && row.session === "AFTER-HOURS");
+  const activeAdrRows = payload.sessions?.US === "REGULAR" ? (payload.rows ?? []).filter((row) => row.adr) : [];
+  const staleMarkets = (["KRX", "TSE"] as const).filter((market) => activeCashRows.some((row) => row.market === market) &&
+    !activeCashRows.some((row) => row.market === market && row.cashBidKrw && row.cashAskKrw && row.cashBidQty && row.cashAskQty && isFresh(row.cashUpdatedAt, clock)));
+  const requiredFx = (["KRX", "TSE"] as const).filter((market) => activeCashRows.some((row) => row.market === market)).flatMap((market) => {
+    const fx = market === "KRX" ? payload.fx : payload.yenFx;
+    return fx?.bid && fx.ask && isFresh(fx.updatedAt, clock) ? [] : [market === "KRX" ? "USD/KRW" : "USD/JPY"];
+  });
+  const staleAdr = activeAdrRows.length > 0 && !activeAdrRows.some((row) => row.adr?.bid && row.adr.ask && row.adr.bidQty && row.adr.askQty && isFresh(row.adr.updatedAt, clock));
+  const activeRows = [...activeCashRows, ...activeAdrRows];
+  const stalePerps = activeRows.length > 0 && !activeRows.some((row) => row.venues.some((quote) => quote.bid && quote.ask && quote.bidQty && quote.askQty && isFresh(quote.updatedAt, clock)));
+  const feedProblems = [
+    ...staleMarkets.map((market) => `${market} cash BBO stale or missing`),
+    ...requiredFx.map((pair) => `${pair} executable FX BBO stale or missing`),
+    ...(staleAdr ? ["U.S. ADR BBO stale or missing"] : []),
+    ...(stalePerps ? ["perpetual BBO stale or missing"] : []),
+  ];
+  const radarMessage = feedProblems.length
+    ? `Live comparison limited: ${feedProblems.join(" · ")}. Prices below are indicative until those feeds resume.`
+    : activeCashRows.length || activeAdrRows.length
+      ? "No positive edge on the currently fresh bid/ask routes. Fees and routing are not included."
+      : "Cash and U.S. ADR markets are closed. Last quoted differences below are indicative.";
   const effectiveMarket = marketFilter === "AUTO" ? payload.sessions?.US === "REGULAR" && payload.sessions.TSE === "CLOSED" && payload.sessions.KRX === "CLOSED" ? "TSE" : "ALL" : marketFilter;
   const shownRows = (payload.rows ?? []).filter((row) => effectiveMarket === "ALL" || row.market === effectiveMarket);
   const koreaRows = shownRows.filter((row) => row.market === "KRX");
@@ -177,8 +199,8 @@ export default function KoreanPerpMonitor() {
 
   return <section className={styles.monitor} aria-label="Korean and Japanese stock cross-venue basis">
     <header className={styles.monitorHeader}><div><p>KRX · TSE · U.S. ADR / PERPETUALS</p><h2>Stock cross-venue basis</h2><span>Live quote edges first. Closed-market comparisons remain visible and explicitly indicative.</span></div><div className={styles.status}><i />{payload.sessions ? `KRX ${payload.sessions.KRX} · TSE ${payload.sessions.TSE} · US ${payload.sessions.US}` : "CONNECTING"}</div></header>
-    <div className={styles.signalDeck}><div className={styles.signalIntro}><span>LIVE QUOTE RADAR</span><strong>{liveEdges.length ? `${liveEdges.length} positive edges` : "No live positive edge"}</strong><small>Ranked from fresh bid/ask books only. Fees and routing are not included.</small></div><div className={styles.signalList}>{liveEdges.slice(0, 3).map((edge, index) => <div key={`${edge.code}:${edge.direction}`} className={styles.signalItem}><small>0{index + 1} · {edge.source}</small><strong>{edge.name}<b>{pct(edge.value)}</b></strong><span>{edge.direction}</span></div>)}{!liveEdges.length && <p>Waiting for a positive edge with fresh cash/FX or U.S. ADR and perp books.</p>}</div></div>
-    <div className={styles.toolRow}><div className={styles.filters} role="group" aria-label="Filter stock market">{(["ALL", "KRX", "TSE"] as const).map((market) => <button key={market} className={effectiveMarket === market ? styles.activeFilter : ""} onClick={() => setMarketFilter(market)}>{market === "ALL" ? "All stocks" : market === "KRX" ? "Korea" : "Japan + ADR"}</button>)}</div><div className={styles.fxGroup}><span>USD/KRW <b>{payload.fx?.bid != null && payload.fx?.ask != null ? `${fmt(payload.fx.bid)} / ${fmt(payload.fx.ask)}` : fmt(payload.fx?.last ?? null)}</b><small>{isFresh(payload.fx?.updatedAt, clock) ? "LIVE" : "LAST"}</small></span><span>USD/JPY <b>{payload.yenFx?.bid != null && payload.yenFx?.ask != null ? `${fmt(payload.yenFx.bid)} / ${fmt(payload.yenFx.ask)}` : fmt(payload.yenFx?.last ?? null)}</b><small>{isFresh(payload.yenFx?.updatedAt, clock) ? "LIVE" : "LAST"}</small></span></div></div>
+    <div className={styles.signalDeck}><div className={styles.signalIntro}><span>LIVE QUOTE RADAR</span><strong>{liveEdges.length ? `${liveEdges.length} positive edges` : "No live positive edge"}</strong><small>Ranked from fresh bid/ask books only. Fees and routing are not included.</small></div><div className={styles.signalList}>{liveEdges.slice(0, 3).map((edge, index) => <div key={`${edge.code}:${edge.direction}`} className={styles.signalItem}><small>0{index + 1} · {edge.source}</small><strong>{edge.name}<b>{pct(edge.value)}</b></strong><span>{edge.direction}</span></div>)}{!liveEdges.length && <p>{radarMessage}</p>}</div></div>
+    <div className={styles.toolRow}><div className={styles.filters} role="group" aria-label="Filter stock market">{(["ALL", "KRX", "TSE"] as const).map((market) => <button key={market} className={effectiveMarket === market ? styles.activeFilter : ""} onClick={() => setMarketFilter(market)}>{market === "ALL" ? "All stocks" : market === "KRX" ? "Korea" : "Japan + ADR"}</button>)}</div><div className={styles.fxGroup}><span>USD/KRW <b>{payload.fx?.bid != null && payload.fx?.ask != null ? `${fmt(payload.fx.bid)} / ${fmt(payload.fx.ask)}` : fmt(payload.fx?.last ?? null)}</b><small>{isFresh(payload.fx?.updatedAt, clock) && payload.fx?.bid && payload.fx.ask ? "LIVE BBO" : "LAST / INDICATIVE"}</small></span><span>USD/JPY <b>{payload.yenFx?.bid != null && payload.yenFx?.ask != null ? `${fmt(payload.yenFx.bid)} / ${fmt(payload.yenFx.ask)}` : fmt(payload.yenFx?.last ?? null)}</b><small>{isFresh(payload.yenFx?.updatedAt, clock) && payload.yenFx?.bid && payload.yenFx.ask ? "LIVE BBO" : payload.yenFx?.source.includes("index") ? "INDEX / INDICATIVE" : "LAST / INDICATIVE"}</small></span></div></div>
     {(loginError || error || payload.posley?.error) && <div className={styles.notice}><span>{loginError || error || payload.posley?.error}</span><button disabled={loginBusy} onClick={() => void connect()}>{loginBusy ? "Checking…" : "Connect Posley"}</button></div>}
     {koreaRows.length > 0 && <div className={styles.marketGroup}><div className={styles.groupHead}><div><span>01 / KOREA</span><h3>KRX cash vs perpetuals</h3></div><small>{payload.sessions?.KRX ?? "—"} · {koreaRows.length} names</small></div><div className={styles.rows}>{koreaRows.map(renderRow)}</div></div>}
     {japanRows.length > 0 && <div className={styles.marketGroup}><div className={styles.groupHead}><div><span>02 / JAPAN + U.S. NIGHT</span><h3>TSE cash &amp; U.S. ADR vs Bitget</h3></div><small>TSE {payload.sessions?.TSE ?? "—"} · US {payload.sessions?.US ?? "—"} · {japanRows.length} names</small></div><div className={styles.rows}>{japanRows.map(renderRow)}</div></div>}
