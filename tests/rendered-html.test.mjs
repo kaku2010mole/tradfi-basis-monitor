@@ -329,6 +329,10 @@ test("isolates SK Hynix / 7709 with Futu cash and Binance perp choices and a fai
   assert.match(html, /SK Hynix ↔ 7709/);
   assert.match(html, /Futu · HK\.07709 cash/);
   assert.match(html, /Binance · 7709 perp/);
+  assert.match(html, /LIVE MONITORING/);
+  assert.match(html, /Prices refresh automatically every 2 seconds/);
+  assert.match(html, /View history/);
+  assert.doesNotMatch(html, /History start · HKT|Backtest start · HKT/);
   assert.match(switcher, /href="\/skhynix-7709"/);
   assert.match(page, /7709 THEORETICAL FAIR PRICE/);
   assert.match(page, /FairPriceChart/);

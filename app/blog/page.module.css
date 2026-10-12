@@ -80,6 +80,21 @@
 .scanBreakdown p { color:#7c8982; font:8px/1.7 monospace; word-break:break-word; }
 .analysisColumn { min-width:0; display:grid; gap:12px; }
 .controls { display:grid; grid-template-columns:auto minmax(195px,.65fr) minmax(195px,.65fr) auto; align-items:end; gap:10px; padding:14px; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,.94); }
+.pairLiveControls { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:14px 16px; border:1px solid #b9dfd0; border-radius:10px; background:#f2faf5; }
+.pairLiveStatus { flex:1 1 250px; display:grid; gap:5px; min-width:0; }
+.pairLiveStatus span { display:flex; align-items:center; gap:7px; color:#087f5b; font:900 9px monospace; letter-spacing:.12em; }
+.pairLiveStatus span i { width:7px; height:7px; border-radius:50%; background:#16a777; box-shadow:0 0 0 4px rgba(22,167,119,.13); }
+.pairLiveStatus strong { color:var(--ink); font-size:13px; }
+.pairLiveStatus small { color:#61796b; font-size:10px; line-height:1.4; }
+.pairLiveControls .quickWindows { max-width:100%; overflow-x:auto; }
+.historyToggle,.historyModeBar button { min-height:41px; padding:0 15px; border:1px solid #99cbb5; border-radius:7px; background:#fff; color:#087f5b; cursor:pointer; font-size:10px; font-weight:850; white-space:nowrap; }
+.historyToggle:hover,.historyModeBar button:hover { background:#e3f4eb; }
+.pairHistoryControls { grid-template-columns:minmax(195px,1fr) minmax(195px,1fr) auto; }
+.historyModeBar { grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding-bottom:11px; border-bottom:1px solid var(--line); }
+.historyModeBar>div { display:grid; gap:3px; }
+.historyModeBar span { color:#7b6caa; font:850 9px monospace; letter-spacing:.1em; }
+.historyModeBar strong { font-size:13px; }
+.historyModeBar small { color:var(--muted); font-size:9px; }
 .quickWindows { display:flex; gap:4px; padding:3px; border:1px solid var(--line); border-radius:7px; background:#f4f7f4; }
 .quickWindows button { min-width:42px; height:42px; border:0; border-radius:5px; background:transparent; color:#77857d; font:800 9px monospace; cursor:pointer; }
 .quickWindows button>small { display:block; margin-top:2px; color:#9a91bb; font-size:6px; }

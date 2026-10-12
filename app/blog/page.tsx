@@ -74,6 +74,7 @@ const TODAY_ANCHORS = [
 const INITIAL_NOW = Date.now();
 const HKT_OFFSET_MS = 8 * 60 * 60_000;
 const LIVE_REFRESH_MS = 10_000;
+const PAIR_LIVE_REFRESH_MS = 2_000;
 const NEUTRAL_UNIT_SHARES = 100;
 const DIRECT_BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
 const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v7";
@@ -760,9 +761,9 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
       }
     };
     void updateLive();
-    const timer = window.setInterval(() => void updateLive(), LIVE_REFRESH_MS);
+    const timer = window.setInterval(() => void updateLive(), pairOnly ? PAIR_LIVE_REFRESH_MS : LIVE_REFRESH_MS);
     return () => { stopped = true; window.clearInterval(timer); };
-  }, [followingLive, relationshipId]);
+  }, [followingLive, pairOnly, relationshipId]);
 
   useEffect(() => {
     if (!pairOnly || !followingLive || relationshipId !== "skhynix-csop2l-futu") return;
@@ -792,7 +793,7 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
       } finally { inFlight = false; }
     };
     void updateFair();
-    const timer = window.setInterval(() => void updateFair(), LIVE_REFRESH_MS);
+    const timer = window.setInterval(() => void updateFair(), PAIR_LIVE_REFRESH_MS);
     return () => { stopped = true; window.clearInterval(timer); };
   }, [analysis?.relationship.id, cashAnchorTime, followingLive, pairOnly, relationshipId]);
 
@@ -878,6 +879,9 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
     setStartInput(toHktInput(start));
     setEndInput(toHktInput(end));
     void load({ start, end });
+  };
+  const resumePairLive = () => {
+    applyDailyAnchor(INITIAL_SELECTION, TODAY_ANCHORS[0].hour, TODAY_ANCHORS[0].minute, Date.now());
   };
 
   const neutralPrices = analysis && selected ? livePrices?.relationshipId === selected.id ? livePrices : {
@@ -987,7 +991,7 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
   return <main className={styles.shell}><div className={styles.frame}>
     <header className={styles.topbar}>
       <div><p className={styles.eyebrow}>{pairOnly ? "SK HYNIX · 7709 PRICE COMPARISON" : "TEN-SECOND RELATIVE VALUE"}</p><h1>{pairOnly ? "SK Hynix ↔ 7709" : "Relative Value Monitor"}</h1><p>{pairOnly ? "Choose the Futu 7709 cash quote or Binance 7709 perpetual. Compare each market price with an anchor-based +2× theoretical fair price." : "The selected predictor explains the paired contract's move. Live midpoint, theoretical return and deviation refresh every 10 seconds; the historical curve remains aligned to one-minute candles."}</p></div>
-      <div className={styles.topActions}><span className={styles.releaseBadge}>RELEASE 08.14 · 7D + NEWS HOLD</span><span title={liveError || (lastLiveAt ? `Last live update ${formatTime(lastLiveAt)} HKT` : "Waiting for live quote")} className={`${styles.connection} ${lastLiveAt && !liveError ? styles.online : ""}`}><i />{loading && !analysis ? "Loading history" : liveError ? pairOnly && relationshipId === "skhynix-csop2l-futu" ? "Cash book closed / stale" : "Live quote retrying" : lastLiveAt ? "Live · 10s" : "Connecting live"}</span><PageSwitcher active={pairOnly ? "skhynix" : "blog"} /></div>
+      <div className={styles.topActions}><span className={styles.releaseBadge}>RELEASE 08.14 · 7D + NEWS HOLD</span><span title={pairOnly && !followingLive ? "Historical mode pauses live updates" : liveError || (lastLiveAt ? `Last live update ${formatTime(lastLiveAt)} HKT` : "Waiting for live quote")} className={`${styles.connection} ${lastLiveAt && !liveError && (!pairOnly || followingLive) ? styles.online : ""}`}><i />{pairOnly && !followingLive ? "History · paused" : loading && !analysis ? "Loading history" : liveError ? pairOnly && relationshipId === "skhynix-csop2l-futu" ? "Cash book closed / stale" : "Live quote retrying" : lastLiveAt ? `Live · ${pairOnly ? "2s" : "10s"}` : "Connecting live"}</span><PageSwitcher active={pairOnly ? "skhynix" : "blog"} /></div>
     </header>
 
     <section className={styles.universeStrip}>
@@ -1024,13 +1028,19 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
           </div>
           <Link href="/blog">All relative-value pairs ↗</Link>
         </section>}
-        <section className={styles.controls}>
-          <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const now = analysis?.generatedAt ?? INITIAL_NOW; const latest = latestHktAnchor(anchor.hour, now, anchor.minute); const day = anchorDayLabel(latest); return <button key={anchor.label} className={`${styles.anchorWindow} ${followingLive && activeWindow === anchor.label ? styles.activeWindow : ""}`} title={`Compare from the latest business-day ${anchor.label} HKT anchor · ${day}`} onClick={(event) => applyDailyAnchor(anchor.label, anchor.hour, anchor.minute, performance.timeOrigin + event.timeStamp)}><span>{anchor.label}</span><small>{day}</small></button>; })}{QUICK_WINDOWS.map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
-          <label>Backtest start · HKT<input type="datetime-local" value={startInput} max={endInput} onChange={(event) => { setStartInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
-          <label>Backtest end · HKT<input type="datetime-local" value={endInput} min={startInput} onChange={(event) => { setEndInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
-          <button className={styles.runButton} disabled={loading} onClick={() => void load()}>{loading ? "Updating…" : "Update prediction"}</button>
+        {pairOnly && followingLive && <section className={styles.pairLiveControls} aria-label="Live monitoring controls">
+          <div className={styles.pairLiveStatus}><span><i />LIVE MONITORING</span><strong>Prices refresh automatically every 2 seconds</strong><small>{liveError ? liveError : lastLiveAt ? `Last quote ${formatTime(lastLiveAt, true)} HKT` : "Connecting to live quotes…"} · Following {TODAY_ANCHORS.some((item) => item.label === activeWindow) ? `the latest business-day ${activeWindow} HKT anchor` : `the latest ${activeWindow} window`}</small></div>
+          <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const now = analysis?.generatedAt ?? INITIAL_NOW; const latest = latestHktAnchor(anchor.hour, now, anchor.minute); const day = anchorDayLabel(latest); return <button key={anchor.label} className={`${styles.anchorWindow} ${activeWindow === anchor.label ? styles.activeWindow : ""}`} title={`Compare from the latest business-day ${anchor.label} HKT anchor · ${day}`} onClick={(event) => applyDailyAnchor(anchor.label, anchor.hour, anchor.minute, performance.timeOrigin + event.timeStamp)}><span>{anchor.label}</span><small>{day}</small></button>; })}{QUICK_WINDOWS.map((window) => <button key={window.label} className={activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
+          <button type="button" className={styles.historyToggle} onClick={() => { setEndInput(toHktInput(Date.now())); setFollowingLive(false); setActiveWindow(""); }}>View history</button>
+        </section>}
+        {(!pairOnly || !followingLive) && <section className={`${styles.controls} ${pairOnly ? styles.pairHistoryControls : ""}`}>
+          {pairOnly && <div className={styles.historyModeBar}><div><span>HISTORICAL REVIEW</span><strong>Choose a past window to inspect</strong><small>Live updates are paused until you return to live monitoring.</small></div><button type="button" onClick={resumePairLive}>Back to live ↗</button></div>}
+          {!pairOnly && <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const now = analysis?.generatedAt ?? INITIAL_NOW; const latest = latestHktAnchor(anchor.hour, now, anchor.minute); const day = anchorDayLabel(latest); return <button key={anchor.label} className={`${styles.anchorWindow} ${followingLive && activeWindow === anchor.label ? styles.activeWindow : ""}`} title={`Compare from the latest business-day ${anchor.label} HKT anchor · ${day}`} onClick={(event) => applyDailyAnchor(anchor.label, anchor.hour, anchor.minute, performance.timeOrigin + event.timeStamp)}><span>{anchor.label}</span><small>{day}</small></button>; })}{QUICK_WINDOWS.map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>}
+          <label>{pairOnly ? "History start · HKT" : "Backtest start · HKT"}<input type="datetime-local" value={startInput} max={endInput} onChange={(event) => { setStartInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
+          <label>{pairOnly ? "History end · HKT" : "Backtest end · HKT"}<input type="datetime-local" value={endInput} min={startInput} onChange={(event) => { setEndInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
+          <button className={styles.runButton} disabled={loading} onClick={() => void load()}>{loading ? "Updating…" : pairOnly ? "Load history" : "Update prediction"}</button>
           <p className={styles.windowRule}>{followingLive ? `Following ${TODAY_ANCHORS.some((item) => item.label === activeWindow) ? `the latest business-day ${activeWindow} HKT anchor` : `the latest ${activeWindow} window`}.` : "Historical backtest selected."} All models, including fixed-beta products, support up to 7D using five-minute candles; shorter windows retain one-minute precision. A supplied beta always runs directly; longer ranges show daily-reset and compounding drift rather than refitting it.</p>
-        </section>
+        </section>}
 
         {error && <div className={styles.errorBox}><strong>Prediction unavailable</strong><span>{error}</span><button onClick={() => void load()}>Retry</button></div>}
 
