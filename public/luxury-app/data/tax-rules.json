@@ -516,118 +516,40 @@
       "residencyRequired": false,
       "feeApplies": false
     },
-    "ca": {
-      "name": "加拿大",
-      "currency": "CAD",
-      "vatRate": null,
-      "federalGstRate": 0.05,
-      "vatFractionOfInclusivePrice": null,
-      "refundable": false,
+    "fi": {
+      "name": "芬兰",
+      "currency": "EUR",
+      "vatRate": 0.255,
+      "vatFractionOfInclusivePrice": 0.20318725099601595,
+      "refundable": true,
       "minimumExTax": null,
-      "minimumInclusive": null,
-      "priceIncludesTax": false,
-      "shortLabel": "普通游客箱包不退GST/HST",
-      "minimumLabel": "普通游客购物退税不适用",
-      "eligibility": "普通非居民游客购买个人自用箱包并携离加拿大不享GST/HST游客购物退款。商业出口及会议等特定退款不是个人箱包购物规则。",
-      "procedure": "本比较不申请游客购物退税；应根据实际购买省份在官网税前价上加GST/HST及省销售税，然后换算人民币。",
-      "fee": "无适用普通游客购物退款，因此不计算退税手续费或净退款。",
-      "note": "Visitor Rebate Program自2007-04-01取消；CRA明确FCTIP不退非居民消费者携离加拿大商品GST/HST。加拿大无统一总销售税率；税前官网价必须按购买省份补税，不能仅用5%全国GST当实付总税。",
+      "minimumInclusive": 40,
+      "priceIncludesTax": true,
+      "shortLabel": "VAT 25.5% · 可申请",
+      "minimumLabel": "同一买家同一商家同张收据合计含税 €40 起",
+      "eligibility": "常住在欧盟或挪威以外的旅客，按常住地判断而非国籍。持芬兰居留许可者一般视为芬兰居民。商家须参加旅客退税，购买的自用商品需未使用并随个人行李携离欧盟。",
+      "procedure": "购物时出示护照及常住地证明并索取旅客退税凭证；商家封装商品后保持未使用及封装。在购买月份之后第3个月月底前携离欧盟，由最终欧盟离境海关验证出口，或依授权退款机构检查流程办理，再把验证凭证提交商家/机构退款。",
+      "fee": "商家或退款机构可以收取手续费。25.5/125.5约20.32%是含税官价内VAT理论上限，实际净退款按服务商及返款方式计算；无报价不能假定净退税率。",
+      "note": "普通皮革箱包适用标准VAT25.5%，自2024-09-01起由24%提高。2026年部分商品的降税不适用普通箱包。€40是总含税收据门槛；退税金额会受手续费及实际合规发票影响。",
       "policyDates": [
         {
-          "date": "2007-04-01",
-          "change": "普通游客Visitor Rebate Program取消"
+          "date": "2024-09-01",
+          "change": "标准VAT由24%提高为25.5%"
         },
         {
-          "date": "2025-04-01",
-          "change": "Nova Scotia HST降至14%，CRA当前税率表据此更新"
+          "date": "2019-11-21",
+          "change": "芬兰税务局现行旅客退税指引发布日，指引标为持续有效"
         }
       ],
-      "provincialRates": {
-        "Alberta": {
-          "gstHst": 0.05,
-          "pst": 0,
-          "total": 0.05
-        },
-        "British Columbia": {
-          "gstHst": 0.05,
-          "pst": 0.07,
-          "total": 0.12
-        },
-        "Manitoba": {
-          "gstHst": 0.05,
-          "pst": 0.07,
-          "total": 0.12
-        },
-        "New Brunswick": {
-          "gstHst": 0.15,
-          "pst": 0,
-          "total": 0.15
-        },
-        "Newfoundland and Labrador": {
-          "gstHst": 0.15,
-          "pst": 0,
-          "total": 0.15
-        },
-        "Northwest Territories": {
-          "gstHst": 0.05,
-          "pst": 0,
-          "total": 0.05
-        },
-        "Nova Scotia": {
-          "gstHst": 0.14,
-          "pst": 0,
-          "total": 0.14
-        },
-        "Nunavut": {
-          "gstHst": 0.05,
-          "pst": 0,
-          "total": 0.05
-        },
-        "Ontario": {
-          "gstHst": 0.13,
-          "pst": 0,
-          "total": 0.13
-        },
-        "Quebec": {
-          "gstHst": 0.05,
-          "pst": 0.09975,
-          "total": 0.14975
-        },
-        "Prince Edward Island": {
-          "gstHst": 0.15,
-          "pst": 0,
-          "total": 0.15
-        },
-        "Saskatchewan": {
-          "gstHst": 0.05,
-          "pst": 0.06,
-          "total": 0.11
-        },
-        "Yukon": {
-          "gstHst": 0.05,
-          "pst": 0,
-          "total": 0.05
-        }
-      },
       "sources": [
         {
-          "title": "加拿大CRA：普通非居民消费者出口商品不退GST/HST（第3页）",
-          "url": "https://publications.gc.ca/collections/collection_2010/arc-cra/Rv12-4-72-2009-eng.pdf",
+          "title": "芬兰税务局：2026现行VAT税率及25.5%适用商品",
+          "url": "https://www.vero.fi/en/businesses-and-corporations/taxes-and-charges/vat/rates-of-vat/",
           "verifiedAt": "2026-10-12"
         },
         {
-          "title": "加拿大预算官方：2007-04-01取消游客购物退款计划",
-          "url": "https://www.budget.canada.ca/2007/plan/bpa5a-eng.html",
-          "verifiedAt": "2026-10-12"
-        },
-        {
-          "title": "加拿大CRA：当前各省GST/HST及PST税率表",
-          "url": "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate/calculator.html",
-          "verifiedAt": "2026-10-12"
-        },
-        {
-          "title": "加拿大CRA：现行非居民退税规则区分商业出口",
-          "url": "https://www.canada.ca/en/revenue-agency/services/forms-publications/publications/rc4027/doing-business-canada-gst-hst-information-non-residents.html",
+          "title": "芬兰税务局：旅客免税购物资格、40欧元门槛、出口期限及服务费",
+          "url": "https://www.vero.fi/en/detailed-guidance/guidance/48464/tax-free-sales-to-travellers-in--finland/",
           "verifiedAt": "2026-10-12"
         }
       ]

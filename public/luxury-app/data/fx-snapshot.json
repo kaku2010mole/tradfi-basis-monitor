@@ -1,1 +1,56 @@
-[{"date":"2026-10-09","base":"CNY","quote":"AUD","rate":0.21405},{"date":"2026-10-09","base":"CNY","quote":"CAD","rate":0.21258},{"date":"2026-10-09","base":"CNY","quote":"CHF","rate":0.12419},{"date":"2026-10-09","base":"CNY","quote":"EUR","rate":0.13335},{"date":"2026-10-09","base":"CNY","quote":"GBP","rate":0.11303},{"date":"2026-10-09","base":"CNY","quote":"HKD","rate":1.1727},{"date":"2026-10-09","base":"CNY","quote":"JPY","rate":23.648},{"date":"2026-10-09","base":"CNY","quote":"KRW","rate":200.46},{"date":"2026-10-09","base":"CNY","quote":"SGD","rate":0.19133},{"date":"2026-10-09","base":"CNY","quote":"USD","rate":0.14943}]
+[
+  {
+    "date": "2026-10-09",
+    "base": "CNY",
+    "quote": "AUD",
+    "rate": 0.21405
+  },
+  {
+    "date": "2026-10-09",
+    "base": "CNY",
+    "quote": "CHF",
+    "rate": 0.12419
+  },
+  {
+    "date": "2026-10-09",
+    "base": "CNY",
+    "quote": "EUR",
+    "rate": 0.13335
+  },
+  {
+    "date": "2026-10-09",
+    "base": "CNY",
+    "quote": "GBP",
+    "rate": 0.11303
+  },
+  {
+    "date": "2026-10-09",
+    "base": "CNY",
+    "quote": "HKD",
+    "rate": 1.1727
+  },
+  {
+    "date": "2026-10-09",
+    "base": "CNY",
+    "quote": "JPY",
+    "rate": 23.648
+  },
+  {
+    "date": "2026-10-09",
+    "base": "CNY",
+    "quote": "KRW",
+    "rate": 200.46
+  },
+  {
+    "date": "2026-10-09",
+    "base": "CNY",
+    "quote": "SGD",
+    "rate": 0.19133
+  },
+  {
+    "date": "2026-10-09",
+    "base": "CNY",
+    "quote": "USD",
+    "rate": 0.14943
+  }
+]

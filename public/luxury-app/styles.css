@@ -13,5 +13,6 @@ h1{font-family:var(--sans);font-size:46px;font-weight:500;letter-spacing:-1px;li
 @media(max-width:760px){.wordmark-en{font-size:18px;letter-spacing:1.2px}.wordmark-zh{font-size:8px}.hero h1{font-size:clamp(23px,5.7vw,32px);font-weight:500;letter-spacing:-.7px}.section-heading h2{font-size:22px}.summary-value{font-size:22px;letter-spacing:-.8px}.summary-value>small{font-size:8px;letter-spacing:0}.summary-label{font-size:8px}.summary-note{font-size:8px}.selected-info p{font-size:12px}.product-name{font-size:12px}.product-chinese{font-size:10px}.product-size{font-size:9px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation:none!important;transition:none!important}}
 
-.province-select{display:block;width:100%;margin-top:8px;background:#fff;border:1px solid var(--line);padding:11px 10px;font-size:12px;min-height:43px}
 .region-popover{max-height:460px;overflow:auto}
+
+.availability-note{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0 14px;padding:10px 13px;background:#efefe8;font-size:11px;color:var(--muted)}.availability-note .text-link{font-size:11px;color:var(--green);white-space:nowrap}@media(max-width:760px){.availability-note{font-size:9px;padding:8px;gap:8px}.availability-note .text-link{font-size:9px}}

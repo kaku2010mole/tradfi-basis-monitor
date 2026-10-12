@@ -979,7 +979,7 @@ test('renders the luxury page with the final navigation item and independent com
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /寻价 Atelier Index/);
-  assert.match(html, /src="\/luxury-app\/index.html\?v=20261012"/);
+  assert.match(html, /src="\/luxury-app\/index.html\?v=20261012-2"/);
   const switcher = await readFile(new URL('../app/components/PageSwitcher.tsx', import.meta.url), 'utf8');
   assert.ok(switcher.indexOf('href="/luxury"') > switcher.indexOf('href="/dividends"'));
 });
@@ -997,7 +997,7 @@ test('luxury FX failures return a dated complete snapshot', async () => {
     const data = await response.json();
     assert.equal(data.status, 'snapshot');
     assert.match(data.effectiveDate, /^\d{4}-\d{2}-\d{2}$/);
-    for (const currency of ['CNY','USD','EUR','GBP','HKD','JPY','KRW','SGD','AUD','CAD','CHF']) assert.ok(data.rates[currency] > 0);
+    for (const currency of ['CNY','USD','EUR','GBP','HKD','JPY','KRW','SGD','AUD','CHF']) assert.ok(data.rates[currency] > 0);
     assert.ok(data.message);
   } finally { globalThis.fetch = originalFetch; }
 });

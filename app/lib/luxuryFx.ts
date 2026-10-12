@@ -1,7 +1,7 @@
 import snapshotRows from '../../public/luxury-app/data/fx-snapshot.json';
 import { normalizeRates } from '../../public/luxury-app/core.mjs';
 
-const sourceUrl = 'https://api.frankfurter.dev/v2/rates?base=CNY&quotes=USD,EUR,GBP,HKD,JPY,SGD,KRW,AUD,CAD,CHF&providers=ecb';
+const sourceUrl = 'https://api.frankfurter.dev/v2/rates?base=CNY&quotes=USD,EUR,GBP,HKD,JPY,SGD,KRW,AUD,CHF&providers=ecb';
 const provider = 'Frankfurter / European Central Bank';
 type RatesResult = ReturnType<typeof normalizeRates> & { status: string; fetchedAt: string | null; sourceUrl: string; provider: string; message?: string; attemptedAt?: string };
 let cached: RatesResult = { ...normalizeRates(snapshotRows), fetchedAt: null, status: 'snapshot', sourceUrl, provider };

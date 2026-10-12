@@ -95,11 +95,14 @@ test('澳洲居民也可使用政府TRS，不扣服务商设定费用',()=>{
   close(calculate('au',1100,{residence:'au',feePercent:20}).refundLocal,100);
   assert.equal(calculate('au',299).refundLocal,0);
 });
-test('加拿大按购物省税加税，没有普通游客箱包退款',()=>{
-  const on=calculate('ca',1000,{caProvince:'Ontario'});
-  close(on.afterCny,1130*fx.rates.CAD); close(on.officialCny,1000*fx.rates.CAD);
-  close(calculate('ca',1000,{caProvince:'Quebec'}).localTax,149.75);
-  close(calculate('ca',1000,{caProvince:'Alberta'}).localTax,50);
-  assert.equal(on.refundLocal,0);
+test('芬兰25.5%含税拆税、40欧元门槛与欧盟常住地限制',()=>{
+  close(calculate('fi',1255).refundLocal,255);
+  close(calculate('fi',1255).afterCny,1000*fx.rates.EUR);
+  assert.equal(calculate('fi',39.99).refundLocal,0);
+  assert.ok(calculate('fi',40).refundLocal>0);
+  assert.equal(calculate('fi',1255,{residence:'eu'}).refundLocal,0);
+  assert.equal(calculate('fi',1255,{residence:'fi'}).refundLocal,0);
   assert.equal(catalogue.regions.length,14);
+  assert.equal(region('ca'),undefined);
+  assert.equal(fx.rates.CAD,undefined);
 });

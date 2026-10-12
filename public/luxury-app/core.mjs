@@ -1,4 +1,4 @@
-export const currencies = ['CNY', 'HKD', 'JPY', 'EUR', 'GBP', 'USD', 'SGD', 'KRW', 'AUD', 'CAD', 'CHF'];
+export const currencies = ['CNY', 'HKD', 'JPY', 'EUR', 'GBP', 'USD', 'SGD', 'KRW', 'AUD', 'CHF'];
 
 export function normalizeRates(rows) {
   if (!Array.isArray(rows)) throw new Error('汇率响应格式错误');
@@ -17,14 +17,14 @@ export function calculatePrice(price, region, rule, fx, settings) {
   const amount = price?.amount;
   const rate = fx?.rates?.[region.currency];
   if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(rate) || rate <= 0) {
-    return { available: false, local: amount ?? null, officialCny: null, afterCny: null, refundLocal: null, refundRate: 0, rate: rate ?? null, status: '尚未核实官价' };
+    return { available: false, local: amount ?? null, officialCny: null, afterCny: null, refundLocal: null, refundRate: 0, rate: rate ?? null, status: price?.availability === 'on-request' ? '官网未公开价格':'尚未核实官价' };
   }
-  const salesTaxRate = region.id === 'us' ? settings.usSalesTax / 100 : region.id === 'ca' ? (rule?.provincialRates?.[settings.caProvince || 'Ontario']?.total ?? 0.13) : 0;
+  const salesTaxRate = region.id === 'us' ? settings.usSalesTax / 100 : 0;
   const localTax = amount * salesTaxRate;
   const officialCny = amount * rate;
   const baseLocal = amount + localTax;
   let eligible = Boolean(rule?.refundable) && (rule.residencyRequired === false || settings.residence !== region.id);
-  if (['fr', 'it', 'de', 'es'].includes(region.id) && ['fr', 'it', 'de', 'es', 'eu'].includes(settings.residence)) eligible = false;
+  if (['fr', 'it', 'de', 'es', 'fi'].includes(region.id) && ['fr', 'it', 'de', 'es', 'fi', 'eu'].includes(settings.residence)) eligible = false;
   if (region.id === 'cn') eligible = false; // 首版只测算中国大陆境外购物。
   const vat = rule?.vatRate ?? 0;
   const meetsMinimum = amount / (1 + vat) >= (rule?.minimumExTax ?? 0) && amount >= (rule?.minimumInclusive ?? 0);
