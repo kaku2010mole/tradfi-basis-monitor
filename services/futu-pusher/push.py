@@ -36,6 +36,7 @@ INTERVAL_SECONDS = max(0.8, float(os.getenv("FUTU_PUSH_INTERVAL", "1")))
 HISTORY_REFRESH_SECONDS = max(60, float(os.getenv("FUTU_HISTORY_REFRESH_INTERVAL", "600")))
 HISTORY_LIMIT = 720
 HSI_HISTORY_LIMIT = 1500
+HISTORY_PUSH_BATCH_SIZE = 8
 RUNNING = True
 HKT = timezone(timedelta(hours=8))
 LIVE_BOOK_STATES = {"AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"}
@@ -233,12 +234,21 @@ def relay_session(token: str) -> None:
                         print(f"Loaded {sum(len(points) for points in history.values())} Futu one-minute history points.", flush=True)
                     except RuntimeError as error:
                         print(f"Futu history unavailable; live quotes continue: {error}", file=sys.stderr, flush=True)
-                # The ingest endpoint retains its latest history. Sending ~18k
-                # points on every one-second quote update causes TLS timeouts.
-                # Refresh history there once per minute; keep BBO pushes small.
+                # The ingest endpoint merges history by symbol and limits each
+                # request to 512 kB. Keep every live BBO push independent of
+                # history so adding a symbol cannot block current quotes.
                 include_history = bool(history) and started - history_sent_at >= 60
-                push(build_payload(context, history if include_history else {}, quote_symbols, book_symbols), token)
+                payload = build_payload(context, {}, quote_symbols, book_symbols)
+                push(payload, token)
                 if include_history:
+                    entries = list(history.items())
+                    for offset in range(0, len(entries), HISTORY_PUSH_BATCH_SIZE):
+                        push({
+                            "generatedAt": int(time.time() * 1000),
+                            "quotes": payload["quotes"][:1],
+                            "orderbooks": [],
+                            "history": dict(entries[offset:offset + HISTORY_PUSH_BATCH_SIZE]),
+                        }, token)
                     history_sent_at = started
                 if failures:
                     print("Futu push recovered.", flush=True)
