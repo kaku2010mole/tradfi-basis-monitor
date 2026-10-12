@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import GlobalOracleAlerts from "./components/GlobalOracleAlerts";
+import DashboardAlerts from "./components/DashboardAlerts";
 import PosleyOAuthCallback from "./components/PosleyOAuthCallback";
 
 export const metadata: Metadata = {
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body><PosleyOAuthCallback /><GlobalOracleAlerts />{children}</body>
+      <body><PosleyOAuthCallback /><DashboardAlerts />{children}</body>
     </html>
   );
 }

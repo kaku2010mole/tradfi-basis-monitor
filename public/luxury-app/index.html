@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN" data-rates-endpoint="/api/luxury/rates">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f5f0">
+  <meta name="description" content="寻价 Atelier Index：对比同款奢侈品手袋的全球官方价格、人民币汇率与退税后参考价格。">
+  <title>寻价 ATELIER INDEX — 全球奢侈品价格比较</title>
+  <link rel="icon" href="/luxury-app/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/luxury-app/styles.css">
+  <script type="module" src="/luxury-app/app.mjs"></script>
+</head>
+<body>
+  <a class="skip-link" href="#catalogue">跳到款式选择</a>
+  <header class="site-header">
+    <a class="wordmark" href="#" aria-label="寻价首页"><span class="wordmark-en">ATELIER <span>INDEX</span><i>®</i></span><span class="wordmark-zh">寻价 · 全球奢侈品价格索引</span></a>
+    <nav aria-label="主导航"><a href="#comparison" class="nav-active">全球比价</a><a href="#catalogue">精选包款</a><a href="#methodology">数据与退税</a></nav>
+    <button class="saved-button" id="saved-button" aria-label="查看收藏"><span class="icon" data-icon="heart"></span><span>我的收藏</span><span class="saved-count" id="saved-count">0</span></button>
+  </header>
+  <main>
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy"><p class="eyebrow"><span class="small-line"></span> A CONSIDERED CHOICE</p><h1 id="hero-title">让心动，<br>有更好的<span class="hero-italic">价格。</span></h1><p class="hero-description">同一只手袋，不同的世界。<br>看清全球官价、汇率与退税，让每一次选择都更从容。</p><a class="text-link hero-link" href="#catalogue">探索全球价格 <span aria-hidden="true">↗</span></a><div class="hero-footnote"><span>OFFICIAL PRICES</span><i></i><span>CNY CONVERSION</span><i></i><span>TAX REFUND</span></div></div>
+      <div class="hero-visual"><img src="/luxury-app/assets/chanel-small-classic.jpg" alt="Chanel 小号经典手袋，黑色颗粒压花小牛皮与金色金属" fetchpriority="high"><div class="image-caption"><span>THE ICON EDIT</span><span>CHANEL <i>Small Classic</i></span></div><span class="vertical-caption">AN ICON, ACROSS BORDERS.</span></div>
+    </section>
+    <div class="trust-strip"><div><span class="icon" data-icon="check-circle"></span> 同货号 · 同材质 · 同尺寸</div><div><span class="icon" data-icon="globe"></span> <span id="coverage-text">14 个国家与地区</span></div><div class="fx-status"><span class="status-dot" id="fx-dot"></span><span id="fx-status">正在获取最新汇率</span><button id="refresh-rates" class="icon-button" aria-label="刷新最新汇率" title="刷新最新汇率"><span class="icon" data-icon="refresh"></span></button></div></div>
+
+    <section id="catalogue" class="catalogue" aria-labelledby="catalogue-title">
+      <div class="section-heading"><div><p class="eyebrow">01 / FIND YOUR ICON</p><h2 id="catalogue-title">选择心仪款式</h2></div><div class="search-box"><span class="icon" data-icon="search"></span><input id="search-products" type="search" placeholder="搜索款式、中英文名或货号" aria-label="搜索包款"></div></div>
+      <div class="brand-toolbar"><div id="brand-tabs" class="brand-tabs" aria-label="筛选品牌"></div><div class="carousel-controls"><span id="product-count"></span><button class="icon-button" id="prev-products" aria-label="向前浏览款式"><span class="icon" data-icon="left"></span></button><button class="icon-button" id="next-products" aria-label="向后浏览款式"><span class="icon" data-icon="right"></span></button></div></div>
+      <div id="product-grid" class="product-grid" role="group" aria-label="选择包款"><div class="catalogue-loading">正在载入精选款式…</div></div>
+      <div class="selection-bar"><div class="selected-info"><span class="selection-indicator" aria-hidden="true">✓</span><div><span class="tiny-label">当前选择</span><p id="selection-name">CHANEL · Small Classic Handbag</p><span id="selection-description"></span></div></div><button class="primary-button" id="confirm-product">确认款式 · 查看全球价格 <span aria-hidden="true">↗</span></button></div>
+    </section>
+
+    <section id="comparison" class="comparison" aria-labelledby="comparison-title">
+      <div class="section-heading"><div><p class="eyebrow">02 / THE GLOBAL PICTURE</p><h2 id="comparison-title">同一款包，全球价格。</h2></div><button id="export-csv" class="text-link"><span class="icon" data-icon="download"></span> 导出比较</button></div>
+      <div id="compared-product" class="compared-product"></div>
+      <div id="comparison-summary" class="comparison-summary" aria-live="polite"></div>
+      <div class="table-toolbar"><div class="basis-switch" role="group" aria-label="价格比较口径"><button data-basis="official" aria-pressed="false">官网价换算</button><button data-basis="after" class="active" aria-pressed="true">退税后参考价 <span>EST.</span></button></div><div class="table-filters"><button id="settings-button" class="secondary-button"><span class="icon" data-icon="sliders"></span> 退税设置</button><div class="region-selector"><button id="region-button" class="secondary-button" aria-expanded="false" aria-controls="region-popover"><span class="icon" data-icon="globe"></span> <span id="region-button-label">全部地区</span><span class="icon" data-icon="down"></span></button><div id="region-popover" class="region-popover" hidden><p>选择比较地区</p><div id="region-options"></div><button id="select-all-regions" class="text-link">选择全部</button></div></div><label class="sort-select"><span class="icon" data-icon="sort"></span><select id="sort-order" aria-label="价格排序"><option value="asc">人民币价格从低到高</option><option value="desc">人民币价格从高到低</option><option value="region">按国家 / 地区排列</option></select></label></div></div>
+      <div id="estimate-note" class="estimate-note"></div>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="全球价格比较表，可横向滚动"><table class="price-table"><caption class="sr-only">同款手袋各国家地区官价、汇率和退税后人民币参考价格</caption><thead><tr><th scope="col">国家 / 地区</th><th scope="col">当地官网价</th><th scope="col">兑人民币汇率<span>1 单位当地货币</span></th><th scope="col" id="official-heading">人民币价格</th><th scope="col">退税 / 免税参考<span>符合资格才适用</span></th><th scope="col" id="after-heading" class="active-column">退税后参考价<span>人民币 · 估算</span></th><th scope="col"><span class="sr-only">来源及详情</span></th></tr></thead><tbody id="price-rows"></tbody></table><div id="table-empty" class="table-empty" hidden>请选择至少一个比较地区。</div></div>
+      <div class="table-footer"><span id="price-date">官价查阅日期 —</span><span><span class="status-dot muted"></span> 价格快照 · 下单前请以品牌官网为准</span></div>
+      <div class="comparison-notes"><span class="icon" data-icon="info"></span><p>美国官网价通常未含州及地方销售税，默认尚未加税；可在「退税设置」中输入当地税率。加拿大默认加 Ontario 13% 销售税，可在设置中更换省份。退税估算不含返程入境税、银行换汇差价及旅费。点击地区详情查看资格、门槛及官方规则。</p></div>
+    </section>
+
+    <section id="methodology" class="methodology" aria-labelledby="method-title"><div class="method-intro"><p class="eyebrow">THE DETAILS THAT MATTER</p><h2 id="method-title">清晰的数据，<br>从容的决定。</h2><p>每一个数字，都应该有据可查。</p><button id="tax-guide-button" class="text-link">查看各地退税规则 <span aria-hidden="true">↗</span></button></div><div class="method-list"><details open><summary><span>01</span> 官价与同款核对 <span class="details-plus">+</span></summary><p>对比固定货号的同一尺寸、材质和颜色。价格来自地区品牌官网，属于核实后的快照；搜索索引参考价会单独标注，缺失价格不参与排序。品牌可能调整价格，点击「官网」可查看当前标价。</p></details><details><summary><span>02</span> 每日汇率，准确换算 <span class="details-plus">+</span></summary><p>通过 <a href="https://frankfurter.dev/" target="_blank" rel="noopener noreferrer">Frankfurter</a> 获取欧洲央行发布的最新工作日参考汇率，自动按小时检查更新。人民币价格 = 当地标价 × 1 单位外币兑人民币。断网时保留最近核实的汇率，并显示发布日期及缓存状态；并非银行实时成交价。</p></details><details><summary><span>03</span> 退税参考与实际到账 <span class="details-plus">+</span></summary><p>含税价中的增值税 = 含税价 × 税率 ÷ (1 + 税率)，不是直接将含税价乘以税率。默认手续费为 0，结果是仅扣除可退增值税的理论参考；修改手续费后显示到账估算。资格、服务费、门店支持和海关审核会影响实际退款，韩国只估算 VAT 部分。</p></details><details><summary><span>04</span> 退税规则的更新方式 <span class="details-plus">+</span></summary><p id="policy-method-text">退税规则附官方来源及核实日期，支持按旅行日期适用已公布的制度变更。规则与品牌官价需要定期复核；当前版本不自动抓取实时官网价格，也没有接入退税机构的订单报价接口。</p></details></div></section>
+  </main>
+  <footer class="site-footer"><a class="footer-wordmark" href="#">ATELIER INDEX <span>/ 寻价</span></a><p>让每一次心动，都有据可循。</p><span>INDEPENDENT PRICE COMPARISON · GLOBAL INDEX</span></footer>
+  <dialog id="settings-dialog" class="settings-dialog"><form id="settings-form"><div class="dialog-heading"><div><p class="eyebrow">YOUR JOURNEY, YOUR NUMBERS</p><h2>退税与税费设置</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭退税设置"><span class="icon" data-icon="close"></span></button></div><p class="dialog-intro">按旅行条件估算。每个地区仍需满足门店、离境时间及海关要求。</p><div class="form-grid"><label>常住地<select name="residence"><option value="cn">中国大陆</option><option value="hk">中国香港</option><option value="jp">日本</option><option value="eu">欧盟（含法、意、德、西）</option><option value="uk">英国</option><option value="us">美国</option><option value="sg">新加坡</option><option value="kr">韩国</option><option value="ch">瑞士</option><option value="au">澳大利亚</option><option value="ca">加拿大</option></select></label><label>购物日期<input name="tripDate" type="date" required min="2026-01-01"></label></div><label class="form-label">退税服务费 <span>占可退增值税额，不是商品标价</span></label><div class="number-field"><input name="feePercent" type="number" inputmode="decimal" min="0" max="100" step="0.1" required><span>%</span></div><p class="field-help">0% 为理论参考。例：可退税额 €100，手续费 20%，估算到账 €80。日本 2026 年 11 月前的店内免税及澳洲政府 TRS 不扣此手续费。</p><label class="form-label">美国购物地销售税率</label><div class="number-field"><input name="usSalesTax" type="number" inputmode="decimal" min="0" max="15" step="0.001" required><span>%</span></div><p class="field-help">因州、市及品类而异。默认 0% 代表尚未加税，不代表购物地免税；仅计入退税后参考价。</p><label class="form-label" for="canada-province">加拿大购物省份 / 地区</label><select id="canada-province" name="caProvince" class="province-select" aria-label="加拿大购物省份"></select><p class="field-help">官网价按税前展示；退税后参考价按所选省份加税，加拿大普通游客箱包购物无 GST/HST 退款。默认 Ontario 13%。</p><div class="dialog-actions"><button type="button" class="text-link" id="reset-settings">恢复默认</button><button type="submit" class="primary-button">应用并重新计算 <span aria-hidden="true">→</span></button></div></form></dialog>
+  <dialog id="details-dialog" class="detail-dialog"><div class="dialog-heading"><p class="eyebrow">PRICE & TAX DETAILS</p><button class="icon-button" data-close-dialog aria-label="关闭地区详情"><span class="icon" data-icon="close"></span></button></div><div id="details-content"></div></dialog>
+  <dialog id="guide-dialog" class="guide-dialog"><div class="dialog-heading"><div><p class="eyebrow">BEFORE YOU GO</p><h2>各地退税指南</h2></div><button class="icon-button" data-close-dialog aria-label="关闭退税指南"><span class="icon" data-icon="close"></span></button></div><p class="dialog-intro">政府规则与实际到账分开看。点击官方来源查看最新制度。</p><div id="guide-content"></div></dialog>
+  <dialog id="saved-dialog" class="saved-dialog"><div class="dialog-heading"><div><p class="eyebrow">YOUR SHORTLIST</p><h2>我的收藏</h2></div><button class="icon-button" data-close-dialog aria-label="关闭收藏"><span class="icon" data-icon="close"></span></button></div><div id="saved-content"></div><p class="field-help">收藏保存在此浏览器，无需注册。</p></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <noscript><p class="fatal-error">请开启 JavaScript 以使用筛选、汇率与退税计算。</p></noscript>
+</body>
+</html>
