@@ -12,6 +12,15 @@ const KOREAN_STOCKS = [
   { code: "066570", name: "LG Electronics", bitgetSymbol: "LGELECTRONICSUSDT", binanceSymbol: "LGELECTRONICSUSDT" },
   { code: "454910", name: "Doosan Robotics", bitgetSymbol: "DOOSBOTUSDT", binanceSymbol: null },
 ] as const;
+// These contracts have no subscribed KRX cash book. Show a currency conversion only,
+// never an implied cash/perpetual spread or an executable cross-venue signal.
+const BITGET_ONLY_KOREAN_STOCKS = [
+  { code: "207940", name: "Samsung Biologics", chineseName: "三星生物制剂", symbol: "SSBIOLOGICSUSDT" },
+  { code: "000270", name: "Kia", chineseName: "起亚汽车", symbol: "KIAUSDT" },
+  { code: "373220", name: "LG Energy Solution", chineseName: "LG新能源", symbol: "LGENERGYUSDT" },
+  { code: "035720", name: "Kakao", chineseName: "卡考", symbol: "KAKAOUSDT" },
+  { code: "105560", name: "KB Financial Group", chineseName: "KB金融集团", symbol: "KBFGUSDT" },
+] as const;
 const JAPANESE_STOCKS = [
   { code: "285A", name: "Kioxia", bitgetSymbol: "KIOXIAUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
   { code: "5802", name: "Sumitomo Electric", bitgetSymbol: "SUMIELECUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
@@ -39,6 +48,28 @@ type PushedQuote = { symbol?: string; bid?: number | null; ask?: number | null; 
 type PushStore = typeof globalThis & { __FUTU_PUSH_SNAPSHOT__?: { payload: { quotes?: PushedQuote[] }; receivedAt: number } };
 const QUOTE_MAX_AGE_MS = 60_000;
 const DISPLAY_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+const DAILY_FX_URL = "https://api.frankfurter.dev/v2/rate/usd/krw";
+type DailyFx = { rate: number; date: string; fetchedAt: number };
+let dailyFxCache: DailyFx | null = null;
+let dailyFxRequest: Promise<DailyFx | null> | null = null;
+let dailyFxFailedAt = 0;
+
+async function dailyUsdKrw() {
+  if (dailyFxCache && Date.now() - dailyFxCache.fetchedAt < 10 * 60_000) return dailyFxCache;
+  if (Date.now() - dailyFxFailedAt < 60_000) return dailyFxCache;
+  if (!dailyFxRequest) {
+    dailyFxRequest = (async () => {
+      const response = await fetch(DAILY_FX_URL, { cache: "no-store", signal: AbortSignal.timeout(4_000) });
+      if (!response.ok) throw new Error(`Daily USD/KRW HTTP ${response.status}`);
+      const data = await response.json() as { date?: string; rate?: number };
+      const rate = positive(data.rate);
+      if (rate === null || !/^\d{4}-\d{2}-\d{2}$/.test(data.date ?? "")) throw new Error("Daily USD/KRW payload invalid");
+      dailyFxCache = { rate, date: data.date!, fetchedAt: Date.now() };
+      return dailyFxCache;
+    })().catch(() => { dailyFxFailedAt = Date.now(); return dailyFxCache; }).finally(() => { dailyFxRequest = null; });
+  }
+  return dailyFxRequest;
+}
 
 function marketSession(market: "KRX" | "TSE", now: number) {
   const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(now);
@@ -141,6 +172,10 @@ export async function GET(request: Request) {
     const yenFxAsk = positive(yenFx?.ask);
     const now = Date.now();
     const fresh = (timestamp: number | null | undefined) => timestamp !== null && timestamp !== undefined && timestamp > 0 && now - timestamp <= QUOTE_MAX_AGE_MS && timestamp - now < 5_000;
+    const liveKrwRate = fresh(fx?.timestamp) ? (fxBid !== null && fxAsk !== null ? (fxBid + fxAsk) / 2 : positive(fx?.last)) : null;
+    const dailyKrwRate = liveKrwRate === null ? await dailyUsdKrw() : null;
+    const krwRate = liveKrwRate ?? dailyKrwRate?.rate ?? null;
+    const krwConversion = { rate: krwRate, source: liveKrwRate !== null ? "Posley USD/KRW live" : dailyKrwRate ? "Frankfurter daily reference" : "Unavailable", date: dailyKrwRate?.date ?? null, updatedAt: liveKrwRate !== null ? fx?.timestamp ?? null : dailyKrwRate?.fetchedAt ?? null, live: liveKrwRate !== null };
     const bitgetFx = tickers.get("USDJPYUSDT");
     const bitgetFxTime = positive(bitgetFx?.ts);
     const bitgetFxIndex = positive(bitgetFx?.indexPrice);
@@ -165,6 +200,20 @@ export async function GET(request: Request) {
         cashBidKrw, cashAskKrw, cashBidQty: positive(cash?.bidSize), cashAskQty: positive(cash?.askSize), cashUpdatedAt: cash?.timestamp ?? null,
         cashLast: positive(cash?.last),
         cashBidUsd, cashAskUsd,
+      };
+    });
+
+    const bitgetOnlyKorean = BITGET_ONLY_KOREAN_STOCKS.map((stock) => {
+      const quote = tickers.get(stock.symbol);
+      const bid = positive(quote?.bidPr);
+      const ask = positive(quote?.askPr);
+      const last = positive(quote?.lastPr);
+      const updatedAt = positive(quote?.ts);
+      return {
+        ...stock, bid, ask, last, updatedAt,
+        impliedBidKrw: bid !== null && krwRate !== null ? bid * krwRate : null,
+        impliedAskKrw: ask !== null && krwRate !== null ? ask * krwRate : null,
+        impliedLastKrw: last !== null && krwRate !== null ? last * krwRate : null,
       };
     });
 
@@ -197,6 +246,8 @@ export async function GET(request: Request) {
 
     return Response.json({
       rows: [...rows, ...japanRows],
+      bitgetOnlyKorean,
+      krwConversion,
       sessions,
       fx: { symbol: "USD/KRW", source: "Posley", bid: fxBid, ask: fxAsk, last: positive(fx?.last), updatedAt: fx?.timestamp ?? null },
       yenFx: useBitgetFx

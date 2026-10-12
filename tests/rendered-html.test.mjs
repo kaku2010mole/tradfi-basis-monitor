@@ -151,6 +151,11 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(component, /USD\/JPY/);
   assert.match(component, /INDICATIVE/);
   assert.match(component, /Connect Posley/);
+  assert.match(component, /New Korean stock perpetuals/);
+  assert.match(component, /not a cash-stock quote or basis signal/);
+  assert.match(component, /<details className=\{`\$\{styles\.assetRow\}/);
+  assert.match(component, /<details className=\{styles\.perpOnlyCard\}/);
+  assert.match(component, /KRW EQUIVALENT/);
   assert.match(component, /equity_monitor_id_token/);
   assert.doesNotMatch(component, /005935/);
   for (const code of ["034020", "035420", "042700", "066570", "454910"]) assert.match(route, new RegExp(code));
@@ -158,6 +163,16 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.doesNotMatch(route, /005935/);
   assert.match(route, /DOOSENERUSDT/);
   assert.match(route, /DOOSBOTUSDT/);
+  for (const [code, name, symbol] of [
+    ["207940", "三星生物制剂", "SSBIOLOGICSUSDT"],
+    ["000270", "起亚汽车", "KIAUSDT"],
+    ["373220", "LG新能源", "LGENERGYUSDT"],
+    ["035720", "卡考", "KAKAOUSDT"],
+    ["105560", "KB金融集团", "KBFGUSDT"],
+  ]) assert.match(route, new RegExp(`code: "${code}"[^\\n]*chineseName: "${name}"[^\\n]*symbol: "${symbol}"`));
+  assert.match(route, /bitgetOnlyKorean/);
+  assert.match(route, /Frankfurter daily reference/);
+  assert.match(route, /bid \* krwRate/);
   assert.match(route, /binanceSymbol: "HANMIUSDT"/);
   assert.match(route, /bitgetSymbol: null, binanceSymbol: "HANMIUSDT"/);
   assert.match(route, /equitySpreads/);
@@ -204,6 +219,57 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(worker, /SONY\|TM\|MUFG/);
   assert.match(route, /fresh\(yenFx\?\.timestamp\)/);
   assert.match(posley, /saved Posley login has expired/);
+});
+
+test("Oracle Monitor omits the bottom deviation history chart", async () => {
+  const page = await readFile(new URL("../app/oracle/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /<KoreanPerpMonitor \/>/);
+  assert.doesNotMatch(page, /DeviationChart|DEVIATION HISTORY|chartPoints|loadHistory/);
+});
+
+test("converts Bitget-only Korean perps to KRW without inventing cash basis", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("bitget-only-test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  const originalFetch = globalThis.fetch;
+  const priorSnapshot = globalThis.__FUTU_PUSH_SNAPSHOT__;
+  const stamp = Date.now();
+  const korean = ["034020", "035420", "042700", "066570", "454910"];
+  const japanese = ["285A", "5802", "6758", "6857", "6920", "7203", "8035", "8306", "9984"];
+  globalThis.__FUTU_PUSH_SNAPSHOT__ = {
+    receivedAt: stamp,
+    payload: { quotes: [
+      ...korean.map((code) => ({ symbol: `KRX.${code}`, bid: 100000, ask: 100100, last: 100000, marketTimestamp: stamp })),
+      ...japanese.map((code) => ({ symbol: `TSE.${code}`, bid: 1000, ask: 1001, last: 1000, marketTimestamp: stamp })),
+      ...["SONY", "TM", "MUFG"].map((code) => ({ symbol: `US.${code}`, bid: 100, ask: 101, last: 100, marketTimestamp: stamp })),
+      { symbol: "FX.USDKRW", bid: 1349, ask: 1351, last: 1350, marketTimestamp: stamp },
+      { symbol: "FX.USDJPY", bid: 150, ask: 150.1, last: 150, marketTimestamp: stamp },
+    ] },
+  };
+  globalThis.fetch = async (url) => {
+    const endpoint = String(url);
+    if (endpoint.includes("api.bitget.com")) return Response.json({ code: "00000", data: [
+      ...["SSBIOLOGICSUSDT", "KIAUSDT", "LGENERGYUSDT", "KAKAOUSDT", "KBFGUSDT"].map((symbol) => ({ symbol, bidPr: "100", askPr: "101", lastPr: "100.5", ts: String(stamp) })),
+    ] });
+    if (endpoint.includes("fapi.binance.com")) return Response.json([]);
+    throw new Error(`Unexpected external request: ${endpoint}`);
+  };
+  try {
+    const response = await worker.fetch(new Request("http://localhost/api/oracle-monitor/korean-bitget"), {}, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.krwConversion.rate, 1350);
+    assert.equal(data.krwConversion.live, true);
+    assert.equal(data.bitgetOnlyKorean.length, 5);
+    assert.deepEqual(data.bitgetOnlyKorean.map((stock) => stock.code), ["207940", "000270", "373220", "035720", "105560"]);
+    assert.equal(data.bitgetOnlyKorean[0].impliedBidKrw, 135000);
+    assert.equal(data.bitgetOnlyKorean[0].impliedAskKrw, 136350);
+    assert.equal(data.rows.some((row) => row.code === "207940"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (priorSnapshot) globalThis.__FUTU_PUSH_SNAPSHOT__ = priorSnapshot;
+    else delete globalThis.__FUTU_PUSH_SNAPSHOT__;
+  }
 });
 
 test("last-only relay heartbeats cannot erase or refresh a recent executable book", async () => {

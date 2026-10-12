@@ -36,7 +36,6 @@ type OracleQuote = {
   executableUsd: number | null;
 };
 
-type OraclePoint = { t: number; live: number; oracle: number; deviation: number };
 type SourceState = { binance: boolean; hyperliquid: boolean };
 type StreamStatus = "connecting" | "live" | "reconnecting";
 type BinanceStreamState = { book: StreamStatus; oracle: StreamStatus };
@@ -80,11 +79,6 @@ const DEFAULT_PAIR_CATALOG: CustomPair[] = [
   ...DEFAULT_PARA.map((apiSymbol) => ({ venue: "Hyperliquid" as const, apiSymbol })),
 ];
 
-const hktDateValue = (offsetDays = 0) => {
-  const date = new Date(Date.now() + 8 * 3600_000 + offsetDays * 24 * 3600_000);
-  return `${date.toISOString().slice(0, 10)}T07:00`;
-};
-const toEpoch = (value: string) => Date.parse(`${value}:00+08:00`);
 const formatPct = (value: number, digits = 3) => `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 const formatPrice = (value: number | null) => value == null || !Number.isFinite(value)
   ? "—"
@@ -228,66 +222,6 @@ async function fetchBrowserBinanceQuotes(symbols: string[], signal: AbortSignal)
   });
 }
 
-function DeviationChart({ points, threshold, symbol }: { points: OraclePoint[]; threshold: number; symbol: string }) {
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const width = 1240;
-  const height = 260;
-  const left = 72;
-  const right = 26;
-  const top = 22;
-  const bottom = 222;
-  const plotted = points.filter((point): point is OraclePoint & { deviation: number; oracle: number } => point.deviation !== null && point.oracle !== null);
-  const values = plotted.map((point) => point.deviation);
-  const extent = Math.max(threshold * 1.25, ...values.map(Math.abs), 0.01);
-  const yMin = -extent * 1.12;
-  const yMax = extent * 1.12;
-  const x = (index: number) => left + (index / Math.max(1, plotted.length - 1)) * (width - left - right);
-  const y = (value: number) => top + ((yMax - value) / (yMax - yMin)) * (bottom - top);
-  const path = plotted.map((point, index) => `${index ? "L" : "M"} ${x(index).toFixed(2)} ${y(point.deviation).toFixed(2)}`).join(" ");
-  const yTicks = Array.from({ length: 5 }, (_, index) => yMin + ((yMax - yMin) * index) / 4);
-  const timeTicks = Array.from(new Set([0, Math.floor((plotted.length - 1) / 4), Math.floor((plotted.length - 1) / 2), Math.floor((plotted.length - 1) * .75), plotted.length - 1]));
-  const selected = hoverIndex === null ? null : plotted[hoverIndex];
-
-  return (
-    <div
-      className={styles.chartWrap}
-      onMouseLeave={() => setHoverIndex(null)}
-      onMouseMove={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        const chartX = ((event.clientX - rect.left) / rect.width) * width;
-        const index = Math.round(((chartX - left) / (width - left - right)) * (plotted.length - 1));
-        setHoverIndex(Math.max(0, Math.min(plotted.length - 1, index)));
-      }}
-    >
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${symbol} live price deviation from oracle`}>
-        <rect x={left} y={top} width={width - left - right} height={bottom - top} fill="#fbfcfe" />
-        <rect x={left} y={y(threshold)} width={width - left - right} height={y(-threshold) - y(threshold)} fill="rgba(36,118,229,.055)" />
-        {yTicks.map((tick) => <g key={tick}>
-          <line x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} stroke="#dfe6ef" />
-          <text x={left - 10} y={y(tick) + 4} textAnchor="end" fill="#748197" fontSize="11">{formatPct(tick, 2)}</text>
-        </g>)}
-        {timeTicks.map((index) => <text key={index} x={x(index)} y={height - 14} textAnchor={index === 0 ? "start" : index === plotted.length - 1 ? "end" : "middle"} fill="#748197" fontSize="11">
-          {formatTime(plotted[index].t, true)}
-        </text>)}
-        <line x1={left} x2={width - right} y1={y(threshold)} y2={y(threshold)} stroke="#079a76" strokeDasharray="7 6" />
-        <line x1={left} x2={width - right} y1={y(-threshold)} y2={y(-threshold)} stroke="#d85151" strokeDasharray="7 6" />
-        <line x1={left} x2={width - right} y1={y(0)} y2={y(0)} stroke="#748197" strokeWidth="1.4" />
-        <path d={path} fill="none" stroke="#d59d00" strokeWidth="3.8" strokeLinejoin="round" strokeLinecap="round" />
-        {selected && hoverIndex !== null && <>
-          <line x1={x(hoverIndex)} x2={x(hoverIndex)} y1={top} y2={bottom} stroke="#8090a6" strokeDasharray="4 4" />
-          <circle cx={x(hoverIndex)} cy={y(selected.deviation)} r="5" fill="#d59d00" stroke="#fff" strokeWidth="2" />
-        </>}
-      </svg>
-      {selected && hoverIndex !== null && <div className={styles.tooltip} style={{ left: `${Math.min(77, Math.max(4, (hoverIndex / Math.max(1, plotted.length - 1)) * 100))}%` }}>
-        <strong>{formatTime(selected.t, true)} HKT</strong>
-        <span>Deviation {formatPct(selected.deviation)}</span>
-        <span>Live {formatPrice(selected.live)}</span>
-        <span>Oracle {formatPrice(selected.oracle)}</span>
-      </div>}
-    </div>
-  );
-}
-
 function QuoteCard({ quote, threshold, selected, stale, rank, onSelect }: { quote: OracleQuote; threshold: number; selected: boolean; stale: boolean; rank: number; onSelect: () => void }) {
   const triggered = Math.abs(quote.deviation) >= threshold;
   const action = quote.executableSide === "SELL" ? "SELL · BEST BID" : quote.executableSide === "BUY" ? "BUY · BEST ASK" : "NO EXECUTABLE EDGE";
@@ -329,12 +263,6 @@ export default function OracleMonitor() {
   const [sources, setSources] = useState<SourceState>({ binance: false, hyperliquid: false });
   const [threshold, setThreshold] = useState(.1);
   const [selectedId, setSelectedId] = useState("binance:HK1810USDT");
-  const [sessionPoints, setSessionPoints] = useState<Record<string, OraclePoint[]>>({});
-  const [history, setHistory] = useState<OraclePoint[]>([]);
-  const [historyInterval, setHistoryInterval] = useState("1m");
-  const [startValue, setStartValue] = useState(hktDateValue(-1));
-  const [appliedStartValue, setAppliedStartValue] = useState(hktDateValue(-1));
-  const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState("");
   const [lastRefresh, setLastRefresh] = useState<number | null>(null);
   const [customPairs, setCustomPairs] = useState<CustomPair[]>([]);
@@ -401,19 +329,6 @@ export default function OracleMonitor() {
     const next = update(quotesRef.current);
     quotesRef.current = next;
     setQuotes(next);
-
-    setSessionPoints((current) => {
-      const points = { ...current };
-      let changed = false;
-      for (const quote of next) {
-        const point = { t: quote.updatedAt, live: quote.live, oracle: quote.oracle, deviation: quote.deviation };
-        const existing = points[quote.id] ?? [];
-        if ((existing.at(-1)?.t ?? 0) > point.t - 900) continue;
-        points[quote.id] = [...existing, point].slice(-720);
-        changed = true;
-      }
-      return changed ? points : current;
-    });
 
   }, []);
 
@@ -647,43 +562,6 @@ export default function OracleMonitor() {
 
   const visibleQuotes = useMemo(() => quotes.filter((quote) => clock - quote.updatedAt <= HIDE_AFTER_MS), [clock, quotes]);
   const selected = visibleQuotes.find((quote) => quote.id === selectedId) ?? visibleQuotes[0];
-  const selectedVenue = selected?.venue;
-  const selectedApiSymbol = selected?.apiSymbol;
-
-  const loadHistory = useCallback(async () => {
-    if (!selectedApiSymbol || selectedVenue !== "Binance") {
-      setHistory([]);
-      return;
-    }
-    const start = toEpoch(appliedStartValue);
-    if (!Number.isFinite(start) || start >= Date.now()) return;
-    setLoadingHistory(true);
-    try {
-      const params = new URLSearchParams({ symbol: selectedApiSymbol, start: String(start), end: String(Date.now()) });
-      const response = await fetch(`/api/oracle-monitor/history?${params}`, { cache: "no-store" });
-      const payload = await response.json() as { points?: OraclePoint[]; interval?: string; error?: string };
-      if (!response.ok || !payload.points?.length) throw new Error(payload.error || "No history returned.");
-      setHistory(payload.points);
-      setHistoryInterval(payload.interval ?? "1m");
-    } catch (historyError) {
-      setHistory([]);
-      setError(historyError instanceof Error ? historyError.message : "History unavailable.");
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, [appliedStartValue, selectedApiSymbol, selectedVenue]);
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => void loadHistory());
-    return () => window.cancelAnimationFrame(frame);
-  }, [loadHistory]);
-
-  const selectedSession = useMemo(() => selected ? sessionPoints[selected.id] ?? [] : [], [selected, sessionPoints]);
-  const chartPoints = useMemo(() => {
-    if (!selected || selected.venue !== "Binance" || !history.length) return selectedSession;
-    const lastHistoryTime = history.at(-1)?.t ?? 0;
-    return [...history, ...selectedSession.filter((point) => point.t > lastHistoryTime)];
-  }, [history, selected, selectedSession]);
   const byAbsoluteDeviation = (a: OracleQuote, b: OracleQuote) => Math.abs(b.deviation) - Math.abs(a.deviation) || a.symbol.localeCompare(b.symbol);
   const positive = visibleQuotes.filter((quote) => quote.executableSide === "SELL").sort(byAbsoluteDeviation);
   const negative = visibleQuotes.filter((quote) => quote.executableSide === "BUY").sort(byAbsoluteDeviation);
@@ -764,7 +642,7 @@ export default function OracleMonitor() {
           <div className={styles.pairManagerCopy}>
             <p className={styles.eyebrow}>CUSTOM UNIVERSE</p>
             <h2>Add an Oracle pair</h2>
-            <p>Pairs are saved on this device. Binance symbols receive synchronized historical charts; Hyperliquid DEX:SYMBOL contracts such as mkts, para and xyz collect a live session deviation trail.</p>
+            <p>Pairs are saved on this device. Add Binance symbols or Hyperliquid DEX:SYMBOL contracts such as mkts, para and xyz to the live monitor.</p>
           </div>
           <div className={styles.pairForm}>
             <label>Venue<select value={newVenue} onChange={(event) => setNewVenue(event.target.value as CustomPair["venue"])}><option>Binance</option><option>Hyperliquid</option></select></label>
@@ -810,23 +688,6 @@ export default function OracleMonitor() {
         </section>}
 
         <KoreanPerpMonitor />
-
-        <section className={`${styles.chartPanel} ${selected?.venue === "Binance" ? styles.binancePanel : styles.hyperliquidPanel}`}>
-          <div className={styles.panelHead}>
-            <div><p className={styles.eyebrow}>DEVIATION HISTORY</p><div className={styles.chartTitle}><h2>{selected?.symbol ?? "Select a contract"}</h2>{selected && <span className={selected.venue === "Binance" ? styles.binanceBadge : styles.hyperliquidBadge}>{selected.venue}</span>}</div></div>
-            {selected?.venue === "Binance" ? <div className={styles.historyControls}>
-              <label>Window start · HKT<input type="datetime-local" value={startValue} onChange={(event) => setStartValue(event.target.value)} /></label>
-              <button onClick={() => startValue === appliedStartValue ? void loadHistory() : setAppliedStartValue(startValue)}>Apply</button>
-            </div> : <span className={styles.sessionLabel}>Live session trail · starts when this page opens</span>}
-          </div>
-          {loadingHistory ? <div className={styles.emptyChart}>Loading market and oracle history…</div>
-            : chartPoints.length > 1 && selected ? <DeviationChart points={chartPoints} threshold={threshold} symbol={selected.symbol} />
-              : <div className={styles.emptyChart}>{selected?.venue === "Hyperliquid" ? "Collecting synchronized live Hyperliquid deviation samples…" : "Waiting for synchronized history…"}</div>}
-          <footer className={styles.chartFooter}>
-            <span>{selected?.venue === "Binance" ? `Binance historical candle close and index-price klines · ${historyInterval}` : "Hyperliquid live executable BBO / oracle"}</span>
-            <span>{chartPoints.length.toLocaleString()} points</span>
-          </footer>
-        </section>
 
         <footer className={styles.footer}>Executable deviation uses best bid only when it can be sold above Oracle, and best ask only when it can be bought below Oracle. If Oracle sits inside the spread, the executable edge is zero. Funding is shown in each venue&apos;s native interval.</footer>
       </div>
