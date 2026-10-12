@@ -143,6 +143,17 @@ compares fresh USD bid/ask books directly, without USD/JPY or a closed Tokyo
 quote as an executable leg. Deploy the server ingest allowlist before running
 `services/futu-pusher/Update Futu Symbols.command` on the relay Mac.
 
+The dedicated `/skhynix-7709` page compares the existing Binance
+`CSOPSKHYNIX2LUSDT` perpetual with Futu `HK.07709` cash quotes. The default
+OpenD relay subscription now includes `HK.07709`; after deploying this change,
+run `services/futu-pusher/Update Futu Symbols.command` on the relay Mac (and
+include `HK.07709` if `FUTU_SYMBOLS` is overridden). The cash mode needs its
+one-minute history and a fresh two-sided book for live updates. The fair-price
+chart uses the first aligned 7709 price in the selected window as its anchor,
+then applies the +2× SK Hynix return adjusted by the relative USD/KRW move.
+Cash prices are shown in HKD using the existing fixed 7.84 HKD/USD conversion;
+this is a conditional monitoring estimate, not an independent NAV or trade signal.
+
 On the relay Mac, double-click
 `services/futu-pusher/Install Futu Relay.command` once. It installs a per-user
 LaunchAgent that starts OpenD when needed, restarts the pusher after unexpected

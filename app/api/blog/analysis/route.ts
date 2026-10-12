@@ -6,6 +6,7 @@ import {
   projectRelationship,
   RELATIONSHIPS,
   Relationship,
+  SKHYNIX_7709_FUTU,
   TRAINING_INTERVAL,
   trainRelationshipModel,
   TrainedModel,
@@ -157,7 +158,7 @@ function customRelationship(url: URL): Relationship | null {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const now = Date.now();
-  const relationship = RELATIONSHIPS.find((item) => item.id === (url.searchParams.get("relationship") || "qqq-ustech")) ?? customRelationship(url);
+  const relationship = [...RELATIONSHIPS, SKHYNIX_7709_FUTU].find((item) => item.id === (url.searchParams.get("relationship") || "qqq-ustech")) ?? customRelationship(url);
   const end = Math.min(Number(url.searchParams.get("end") || now), now);
   const start = Number(url.searchParams.get("start") || end - 24 * 60 * 60_000);
   if (!relationship) return Response.json({ error: "Unknown relationship." }, { status: 400 });

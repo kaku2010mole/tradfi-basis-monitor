@@ -228,6 +228,27 @@ export const RELATIONSHIPS: Relationship[] = [
   },
 ];
 
+// This optional cash comparison is available only on the dedicated 7709 page.
+// Keep the general Relative Value Monitor's ranking and pair list unchanged.
+export const SKHYNIX_7709_FUTU: Relationship = {
+  id: "skhynix-csop2l-futu", title: "SKHYNIX → 7709 · Futu cash", short: "HK.07709 cash price instead of the Binance perp", kind: "leveraged-long",
+  asset1: { venue: "binance", symbol: "SKHYNIXUSDT", label: "Binance SKHYNIX" },
+  asset2: { venue: "futu", symbol: "HK.07709", label: "Futu CSOP SK Hynix 2L · USD/unit", usdHkd: 7.84 },
+  referenceBeta: 2, leveraged: true,
+  predictorFx: { symbol: "KRW=X", label: "USD/KRW", source: "posley-ibkr" },
+  thesis: "Compare the same +2× theoretical move with the exchange-listed 7709 cash price from Futu OpenD, rather than with the Binance 7709 perpetual.",
+  caveat: "Futu 7709 trades in HKD and is converted at the displayed fixed 7.84 HKD/USD assumption; percentage returns do not depend on that constant. Cash trading hours, daily reset and a closed or stale quote can differ from the 24/7 perpetual. A cash/perp difference is not automatically executable.",
+};
+
+export const SKHYNIX_7709_CHOICES = [RELATIONSHIPS[0], SKHYNIX_7709_FUTU];
+
+export function skhynix7709FairPrice(anchor7709: number, anchorSkhynix: number, currentSkhynix: number, anchorUsdKrw: number, currentUsdKrw: number) {
+  if (![anchor7709, anchorSkhynix, currentSkhynix, anchorUsdKrw, currentUsdKrw].every((value) => Number.isFinite(value) && value > 0)) return null;
+  const krwLocalGrossReturn = currentSkhynix / anchorSkhynix * currentUsdKrw / anchorUsdKrw;
+  const fairPrice = anchor7709 * (1 + 2 * (krwLocalGrossReturn - 1));
+  return Number.isFinite(fairPrice) && fairPrice > 0 ? fairPrice : null;
+}
+
 const mean = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 const standardDeviation = (values: number[], center = mean(values)) => values.length < 2 ? 0 : Math.sqrt(values.reduce((sum, value) => sum + (value - center) ** 2, 0) / (values.length - 1));
 
@@ -314,7 +335,7 @@ export function trainRelationshipModel(asset1Rows: PricePoint[], asset2Rows: Pri
   const trainFit = regression(trainX, trainY);
   const validationFit = regression(validationX, validationY);
   const alphaHourly = method === "reference" ? 0 : trainFit.alpha;
-  const beta = method === "reference" ? relationship.referenceBeta : trainFit.beta;
+  const beta = relationship.referenceBeta ?? trainFit.beta;
   const trainMetrics = modelMetrics(trainX, trainY, alphaHourly, beta);
   const validationMetrics = modelMetrics(validationX, validationY, alphaHourly, beta);
   const betaDrift = Math.abs(validationFit.beta - beta) / Math.max(Math.abs(beta), .1);

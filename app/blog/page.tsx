@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import Link from "next/link";
 import PageSwitcher from "../components/PageSwitcher";
 import {
   fixedTrainingWindow,
@@ -14,6 +15,8 @@ import {
   ProjectionPoint,
   RELATIONSHIPS,
   Relationship,
+  SKHYNIX_7709_CHOICES,
+  skhynix7709FairPrice,
   TRAINING_INTERVAL,
   trainRelationshipModel,
   TrainedModel,
@@ -428,6 +431,57 @@ function PredictionChart({ points, relationship }: { points: ProjectionPoint[]; 
   </svg></div>;
 }
 
+function FairPriceChart({ points, cash, currentFair }: { points: ProjectionPoint[]; cash: boolean; currentFair?: { priceUsd: number; updatedAt: number } | null }) {
+  const width = 920;
+  const height = 300;
+  const padding = { left: 64, right: 24, top: 24, bottom: 42 };
+  const multiplier = cash ? 7.84 : 1;
+  const actual = points.map((point) => point.asset2 * multiplier);
+  const fair = points.map((point) => point.asset2TheoreticalPrice * multiplier);
+  const extended = currentFair && currentFair.updatedAt > points.at(-1)!.t + 1_000 ? currentFair : null;
+  const fairWithCurrent = extended ? [...fair, extended.priceUsd * multiplier] : fair;
+  const count = fairWithCurrent.length;
+  const values = [...actual, ...fairWithCurrent];
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const extra = Math.max((high - low) * .12, high * .002);
+  const min = low - extra;
+  const max = high + extra;
+  const { selectedIndex, onPointerMove, onKeyDown } = useChartInspection(points.length, width, padding);
+  const selectedPoint = selectedIndex === null ? null : points[selectedIndex];
+  const selectedX = selectedIndex === null ? null : padding.left + (selectedIndex / Math.max(1, count - 1)) * (width - padding.left - padding.right);
+  const y = (value: number) => padding.top + ((max - value) / Math.max(max - min, 1e-8)) * (height - padding.top - padding.bottom);
+  const pricePath = (prices: number[]) => prices.map((value, index) => `${index ? "L" : "M"}${(padding.left + index / Math.max(1, count - 1) * (width - padding.left - padding.right)).toFixed(2)},${y(value).toFixed(2)}`).join(" ");
+  const decimals = cash ? 3 : 4;
+  const currency = cash ? "HKD" : "USDT";
+  return <div className={styles.chartScroll}><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`7709 actual and theoretical fair price in ${currency}. Move, tap, or use arrow keys to inspect exact prices.`}>
+    {[0, 1, 2, 3, 4].map((tick) => {
+      const value = max - ((max - min) * tick) / 4;
+      return <g key={tick}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} className={styles.gridLine} /><text x={padding.left - 9} y={y(value) + 4} textAnchor="end" className={styles.axisText}>{value.toFixed(decimals)}</text></g>;
+    })}
+    {[0, .25, .5, .75, 1].map((ratio) => {
+      const index = Math.min(count - 1, Math.round((count - 1) * ratio));
+      const x = padding.left + ratio * (width - padding.left - padding.right);
+      const timestamp = index === points.length && extended ? extended.updatedAt : points[index].t;
+      return <text key={ratio} x={x} y={height - 15} textAnchor={ratio === 0 ? "start" : ratio === 1 ? "end" : "middle"} className={styles.axisText}>{formatTime(timestamp, (extended?.updatedAt ?? points.at(-1)!.t) - points[0].t > 24 * 60 * 60_000)}</text>;
+    })}
+    <path d={pricePath(actual)} className={styles.lineB} />
+    <path d={pricePath(fairWithCurrent)} className={styles.theoreticalLine} />
+    {extended && <circle cx={width - padding.right} cy={y(extended.priceUsd * multiplier)} r="5" className={styles.inspectionDotTheory} />}
+    {selectedPoint && selectedX !== null && <>
+      <line x1={selectedX} x2={selectedX} y1={padding.top} y2={height - padding.bottom} className={styles.inspectionLine} />
+      <circle cx={selectedX} cy={y(selectedPoint.asset2 * multiplier)} r="4" className={styles.inspectionDotB} />
+      <circle cx={selectedX} cy={y(selectedPoint.asset2TheoreticalPrice * multiplier)} r="4" className={styles.inspectionDotTheory} />
+      <InspectionTooltip x={selectedX} width={width} lines={[
+        { label: formatTime(selectedPoint.t, true), value: "HKT" },
+        { label: "7709 market", value: `${(selectedPoint.asset2 * multiplier).toFixed(decimals)} ${currency}`, color: "#377ee8" },
+        { label: "7709 fair", value: `${(selectedPoint.asset2TheoreticalPrice * multiplier).toFixed(decimals)} ${currency}`, color: "#7152d4" },
+      ]} />
+    </>}
+    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Fair price chart time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; market ${(selectedPoint.asset2 * multiplier).toFixed(decimals)} ${currency}; fair ${(selectedPoint.asset2TheoreticalPrice * multiplier).toFixed(decimals)} ${currency}` : "Move, tap, or use left and right arrow keys to inspect prices"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onKeyDown={onKeyDown} />
+  </svg></div>;
+}
+
 function PredictionErrorChart({ points }: { points: ProjectionPoint[] }) {
   const width = 920;
   const height = 300;
@@ -466,7 +520,6 @@ function PredictionErrorChart({ points }: { points: ProjectionPoint[] }) {
 
 function FxChart({ points }: { points: ProjectionPoint[] }) {
   const fxPoints = points.filter((point) => point.fxValue !== undefined && point.fxReturn !== undefined);
-  if (fxPoints.length < 2) return null;
   const width = 920;
   const height = 260;
   const padding = { left: 58, right: 24, top: 24, bottom: 42 };
@@ -477,6 +530,7 @@ function FxChart({ points }: { points: ProjectionPoint[] }) {
   const min = rawMin - extra;
   const max = rawMax + extra;
   const { selectedIndex, onPointerMove, onKeyDown } = useChartInspection(fxPoints.length, width, padding);
+  if (fxPoints.length < 2) return null;
   const selectedPoint = selectedIndex === null ? null : fxPoints[selectedIndex];
   const selectedX = selectedIndex === null ? null : padding.left + (selectedIndex / Math.max(1, fxPoints.length - 1)) * (width - padding.left - padding.right);
   const y = (value: number) => padding.top + ((max - value) / Math.max(max - min, 1e-8)) * (height - padding.top - padding.bottom);
@@ -518,8 +572,8 @@ function ResidualChart({ points }: { points: ProjectionPoint[] }) {
   </svg></div>;
 }
 
-export default function RelativeValueBlog() {
-  const initialRelationshipId = "qqq-ustech";
+export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boolean }) {
+  const initialRelationshipId = pairOnly ? "skhynix-csop2l" : "qqq-ustech";
   const requestRef = useRef<AbortController | null>(null);
   const [relationshipId, setRelationshipId] = useState(initialRelationshipId);
   const [startInput, setStartInput] = useState(() => toHktInput(INITIAL_START));
@@ -531,6 +585,7 @@ export default function RelativeValueBlog() {
   const liveRequestRef = useRef(false);
   const [lastLiveAt, setLastLiveAt] = useState(0);
   const [liveError, setLiveError] = useState("");
+  const [cashFairNow, setCashFairNow] = useState<{ priceUsd: number; updatedAt: number; anchorTime: number } | null>(null);
   const [livePrices, setLivePrices] = useState<{ relationshipId: string; asset1: number; asset2: number; updatedAt: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -542,7 +597,8 @@ export default function RelativeValueBlog() {
   const [rankings, setRankings] = useState<Map<string, RankingRow>>(new Map());
   const [rankingLoading, setRankingLoading] = useState(true);
   const [rankingUpdatedAt, setRankingUpdatedAt] = useState(0);
-  const relationships = useMemo(() => [...RELATIONSHIPS.filter((item) => !hiddenRelationshipIds.includes(item.id)), ...customRelationships], [customRelationships, hiddenRelationshipIds]);
+  const relationships = useMemo(() => pairOnly ? SKHYNIX_7709_CHOICES : [...RELATIONSHIPS.filter((item) => !hiddenRelationshipIds.includes(item.id)), ...customRelationships], [customRelationships, hiddenRelationshipIds, pairOnly]);
+  const cashAnchorTime = analysis?.points[0]?.t;
 
   useEffect(() => { analysisRef.current = analysis; }, [analysis]);
 
@@ -580,14 +636,14 @@ export default function RelativeValueBlog() {
         && typeof item.asset1?.symbol === "string" && typeof item.asset2?.symbol === "string").slice(0, 30);
       const validHidden = savedHidden.filter((id) => RELATIONSHIPS.some((item) => item.id === id));
       setCustomRelationships(validCustom);
-      setHiddenRelationshipIds(validHidden);
-      if (validHidden.includes(initialRelationshipId)) {
+      setHiddenRelationshipIds(pairOnly ? [] : validHidden);
+      if (!pairOnly && validHidden.includes(initialRelationshipId)) {
         const fallback = RELATIONSHIPS.find((item) => !validHidden.includes(item.id)) ?? validCustom[0];
         setRelationshipId(fallback?.id ?? "");
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [initialRelationshipId]);
+  }, [initialRelationshipId, pairOnly]);
 
   const load = useCallback(async (options?: { relationship?: string; definition?: Relationship; start?: number; end?: number }) => {
     requestRef.current?.abort();
@@ -616,8 +672,9 @@ export default function RelativeValueBlog() {
       }
       const response = await fetch(`/api/blog/analysis?${params}`, { cache: "no-store", signal: controller.signal });
       const payload = await response.json() as Partial<Analysis> & { error?: string };
-      if (response.ok) setAnalysis(payload as Analysis);
-      else setAnalysis(await analyzeInBrowser(relationship, start, end));
+      if (controller.signal.aborted) return;
+      const result = response.ok ? payload as Analysis : await analyzeInBrowser(relationship, start, end);
+      if (!controller.signal.aborted) setAnalysis(result);
     } catch (requestError) {
       if ((requestError as Error).name !== "AbortError") setError(requestError instanceof Error ? requestError.message : "Relative-value prediction is unavailable.");
     } finally {
@@ -691,7 +748,7 @@ export default function RelativeValueBlog() {
         setLivePrices({ relationshipId: current.relationship.id, asset1: quote.asset1, asset2: quote.asset2, updatedAt: now });
         setAnalysis((previous) => {
           if (!previous || previous.relationship.id !== current.relationship.id) return previous;
-          const withoutPreviousTick = previous.points.at(-1)?.t % 60_000 === 0 ? previous.points : previous.points.slice(0, -1);
+          const withoutPreviousTick = (previous.points.at(-1)?.t ?? 0) % 60_000 === 0 ? previous.points : previous.points.slice(0, -1);
           return { ...previous, generatedAt: now, points: [...withoutPreviousTick, livePoint], stats: { ...liveProjection.stats, samples: withoutPreviousTick.length + 1 } };
         });
         setLastLiveAt(now);
@@ -708,6 +765,45 @@ export default function RelativeValueBlog() {
   }, [followingLive, relationshipId]);
 
   useEffect(() => {
+    if (!pairOnly || !followingLive || relationshipId !== "skhynix-csop2l-futu") return;
+    let stopped = false;
+    let inFlight = false;
+    const updateFair = async () => {
+      const current = analysisRef.current;
+      const first = current?.points[0];
+      if (stopped || inFlight || document.visibilityState === "hidden" || current?.relationship.id !== relationshipId || !first?.fxValue) return;
+      inFlight = true;
+      try {
+        const now = Date.now();
+        const params = new URLSearchParams({ start: String(now - 60 * 60_000), end: String(now), interval: "1m" });
+        const [book, fxResponse] = await Promise.all([
+          directBinance<{ bidPrice?: string; askPrice?: string }>("/fapi/v1/ticker/bookTicker?symbol=SKHYNIXUSDT"),
+          fetch(`/api/blog/fx?${params}`, { cache: "no-store", signal: AbortSignal.timeout(8_000) }),
+        ]);
+        const bid = Number(book.bidPrice); const ask = Number(book.askPrice);
+        const fxPayload = await fxResponse.json() as { live?: number };
+        const fx = Number(fxPayload.live);
+        if (!fxResponse.ok || !Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0 || !Number.isFinite(fx) || fx <= 0) throw new Error("Fresh predictor or FX quote unavailable.");
+        const priceUsd = skhynix7709FairPrice(first.asset2, first.asset1, (bid + ask) / 2, first.fxValue, fx);
+        if (priceUsd === null) throw new Error("Fair price is not positive.");
+        if (!stopped && analysisRef.current?.relationship.id === relationshipId && analysisRef.current.points[0]?.t === first.t) setCashFairNow({ priceUsd, updatedAt: Date.now(), anchorTime: first.t });
+      } catch {
+        if (!stopped) setCashFairNow(null);
+      } finally { inFlight = false; }
+    };
+    void updateFair();
+    const timer = window.setInterval(() => void updateFair(), LIVE_REFRESH_MS);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [analysis?.relationship.id, cashAnchorTime, followingLive, pairOnly, relationshipId]);
+
+  useEffect(() => {
+    if (!pairOnly) return;
+    const timer = window.setInterval(() => setCashFairNow((previous) => previous && Date.now() - previous.updatedAt > 30_000 ? null : previous), 10_000);
+    return () => window.clearInterval(timer);
+  }, [pairOnly]);
+
+  useEffect(() => {
+    if (pairOnly) return;
     let stopped = false;
     let controller: AbortController | null = null;
     let rankingInFlight = false;
@@ -748,7 +844,7 @@ export default function RelativeValueBlog() {
     void refreshRanking();
     const timer = window.setInterval(() => void refreshRanking(), LIVE_REFRESH_MS);
     return () => { stopped = true; controller?.abort(); window.clearInterval(timer); };
-  }, [relationships, startInput]);
+  }, [pairOnly, relationships, startInput]);
 
   const selected = analysis?.relationship;
   const availability = useMemo(() => new Map(analysis?.universe?.candidates.map((item) => [item.id, item.available]) ?? []), [analysis?.universe]);
@@ -806,6 +902,13 @@ export default function RelativeValueBlog() {
       setActiveWindow("7D");
     }
     setRelationshipId(id);
+    if (pairOnly) {
+      setAnalysis(null);
+      setLivePrices(null);
+      setCashFairNow(null);
+      setLiveError("");
+      setLastLiveAt(0);
+    }
     void load({ relationship: id, definition: relationship, start, end });
   };
 
@@ -883,8 +986,8 @@ export default function RelativeValueBlog() {
 
   return <main className={styles.shell}><div className={styles.frame}>
     <header className={styles.topbar}>
-      <div><p className={styles.eyebrow}>TEN-SECOND RELATIVE VALUE</p><h1>Relative Value Monitor</h1><p>The selected predictor explains the paired contract&apos;s move. Live midpoint, theoretical return and deviation refresh every 10 seconds; the historical curve remains aligned to one-minute candles.</p></div>
-      <div className={styles.topActions}><span className={styles.releaseBadge}>RELEASE 08.14 · 7D + NEWS HOLD</span><span title={liveError || (lastLiveAt ? `Last live update ${formatTime(lastLiveAt)} HKT` : "Waiting for live quote")} className={`${styles.connection} ${lastLiveAt && !liveError ? styles.online : ""}`}><i />{loading && !analysis ? "Loading history" : liveError ? "Live quote retrying" : lastLiveAt ? "Live · 10s" : "Connecting live"}</span><PageSwitcher active="blog" /></div>
+      <div><p className={styles.eyebrow}>{pairOnly ? "SK HYNIX · 7709 PRICE COMPARISON" : "TEN-SECOND RELATIVE VALUE"}</p><h1>{pairOnly ? "SK Hynix ↔ 7709" : "Relative Value Monitor"}</h1><p>{pairOnly ? "Choose the Futu 7709 cash quote or Binance 7709 perpetual. Compare each market price with an anchor-based +2× theoretical fair price." : "The selected predictor explains the paired contract's move. Live midpoint, theoretical return and deviation refresh every 10 seconds; the historical curve remains aligned to one-minute candles."}</p></div>
+      <div className={styles.topActions}><span className={styles.releaseBadge}>RELEASE 08.14 · 7D + NEWS HOLD</span><span title={liveError || (lastLiveAt ? `Last live update ${formatTime(lastLiveAt)} HKT` : "Waiting for live quote")} className={`${styles.connection} ${lastLiveAt && !liveError ? styles.online : ""}`}><i />{loading && !analysis ? "Loading history" : liveError ? pairOnly && relationshipId === "skhynix-csop2l-futu" ? "Cash book closed / stale" : "Live quote retrying" : lastLiveAt ? "Live · 10s" : "Connecting live"}</span><PageSwitcher active={pairOnly ? "skhynix" : "blog"} /></div>
     </header>
 
     <section className={styles.universeStrip}>
@@ -894,8 +997,8 @@ export default function RelativeValueBlog() {
       <div><span>MODEL MODE</span><strong className={analysis ? styles[formulaOnly ? "locked" : analysis.model.quality] : ""}>{analysis ? formulaOnly ? "BETA LOCKED" : analysis.model.quality.toUpperCase() : "—"}</strong></div>
     </section>
 
-    <section className={styles.workspace}>
-      <aside className={styles.relationships}>
+    <section className={`${styles.workspace} ${pairOnly ? styles.pairWorkspace : ""}`}>
+      {!pairOnly && <aside className={styles.relationships}>
         <div className={styles.sectionLabel}><span>|PREDICTION ERROR| RANKING</span><div><small>{rankingLoading ? "Updating…" : rankingUpdatedAt ? `${formatTime(rankingUpdatedAt)} HKT` : `${relationships.length} models`}</small><button onClick={() => setPairManagerOpen((open) => !open)}>{pairManagerOpen ? "Close" : "Manage"}</button></div></div>
         {pairManagerOpen && <div className={styles.pairManager}>
           <strong>Add relationship</strong>
@@ -910,9 +1013,17 @@ export default function RelativeValueBlog() {
           <span className={styles.relationshipTitle}><i>#{index + 1}</i>{relationship.title}</span><small>{relationship.short}</small><div className={styles.relationshipMeta}>{predictionError !== undefined ? <strong className={`${styles.rankingError} ${predictionError >= 0 ? styles.positiveError : styles.negativeError}`}>{formatPct(predictionError, 3)}</strong> : <strong className={styles.pendingError}>CALCULATING</strong>}{relationship.referenceBeta !== null && <b>β {formatNumber(relationship.referenceBeta, 2)}</b>}</div>{availability.get(relationship.id) === false && <em>Not listed</em>}
         </button><button className={styles.removeRelationship} aria-label={`Delete ${relationship.title}`} title={`Delete ${relationship.title}`} onClick={() => removeRelationship(relationship)}>×</button></div>; })}</div>
         {analysis?.universe && <div className={styles.scanBreakdown}><span>LIVE UNIVERSE BREAKDOWN</span>{Object.entries(analysis.universe.typeCounts).sort((a, b) => b[1] - a[1]).map(([type, count]) => <div key={type}><b>{type.replaceAll("_", " ")}</b><strong>{count}</strong></div>)}<details><summary>View all {analysis.universe.count} symbols</summary><p>{analysis.universe.symbols.join(" · ")}</p></details></div>}
-      </aside>
+      </aside>}
 
       <div className={styles.analysisColumn}>
+        {pairOnly && <section className={styles.sourceSelector} aria-label="7709 price source">
+          <div><span>7709 PRICE SOURCE</span><strong>Compare cash and perpetual pricing</strong><small>Only this pair changes; the rest of Relative Value Monitor stays as before.</small></div>
+          <div className={styles.sourceOptions}>
+            <button type="button" aria-pressed={relationshipId === "skhynix-csop2l-futu"} className={relationshipId === "skhynix-csop2l-futu" ? styles.sourceActive : ""} onClick={() => chooseRelationship("skhynix-csop2l-futu")}>Futu · HK.07709 cash</button>
+            <button type="button" aria-pressed={relationshipId === "skhynix-csop2l"} className={relationshipId === "skhynix-csop2l" ? styles.sourceActive : ""} onClick={() => chooseRelationship("skhynix-csop2l")}>Binance · 7709 perp</button>
+          </div>
+          <Link href="/blog">All relative-value pairs ↗</Link>
+        </section>}
         <section className={styles.controls}>
           <div className={styles.quickWindows}>{TODAY_ANCHORS.map((anchor) => { const now = analysis?.generatedAt ?? INITIAL_NOW; const latest = latestHktAnchor(anchor.hour, now, anchor.minute); const day = anchorDayLabel(latest); return <button key={anchor.label} className={`${styles.anchorWindow} ${followingLive && activeWindow === anchor.label ? styles.activeWindow : ""}`} title={`Compare from the latest business-day ${anchor.label} HKT anchor · ${day}`} onClick={(event) => applyDailyAnchor(anchor.label, anchor.hour, anchor.minute, performance.timeOrigin + event.timeStamp)}><span>{anchor.label}</span><small>{day}</small></button>; })}{QUICK_WINDOWS.map((window) => <button key={window.label} className={followingLive && activeWindow === window.label ? styles.activeWindow : ""} onClick={(event) => applyQuickWindow(window.label, window.milliseconds, performance.timeOrigin + event.timeStamp)}>{window.label}</button>)}</div>
           <label>Backtest start · HKT<input type="datetime-local" value={startInput} max={endInput} onChange={(event) => { setStartInput(event.target.value); setFollowingLive(false); setActiveWindow(""); }} /></label>
@@ -924,6 +1035,22 @@ export default function RelativeValueBlog() {
         {error && <div className={styles.errorBox}><strong>Prediction unavailable</strong><span>{error}</span><button onClick={() => void load()}>Retry</button></div>}
 
         {analysis && selected && <>
+          {pairOnly && analysis.points.length > 0 && (() => {
+            const cash = selected.asset2.venue === "futu";
+            const factor = cash ? 7.84 : 1;
+            const latest = analysis.points.at(-1)!;
+            const unit = cash ? "HKD" : "USDT";
+            const digits = cash ? 3 : 4;
+            const currentProjection = cash && followingLive && cashFairNow?.anchorTime === analysis.points[0].t ? cashFairNow : null;
+            const fairPriceUsd = currentProjection?.priceUsd ?? latest.asset2TheoreticalPrice;
+            const premiumPct = (latest.asset2 / fairPriceUsd - 1) * 100;
+            return <section className={styles.fairPanel}>
+              <div className={styles.fairHead}><div><span>7709 THEORETICAL FAIR PRICE{cash ? currentProjection ? " · CURRENT" : " · LAST ALIGNED" : ""}</span><h2>{(fairPriceUsd * factor).toFixed(digits)} <small>{unit}</small></h2><p>Anchor 7709 price × [1 + 2 × ((SK Hynix now / anchor) × (USD/KRW now / anchor) − 1)] · as of {formatTime(currentProjection?.updatedAt ?? latest.t, true)} HKT</p></div><div><span>7709 MARKET PRICE{currentProjection ? " · LAST CASH" : ""}</span><strong>{(latest.asset2 * factor).toFixed(digits)} {unit}</strong><small>{currentProjection ? "Last cash vs current fair (indicative)" : "Market vs fair"}: {formatPct(premiumPct, 3)} · market as of {formatTime(latest.t, true)} HKT</small></div></div>
+              <div className={styles.fairLegend}><span><i className={styles.legendB} />7709 market</span><span><i className={styles.legendTheory} />7709 theoretical fair price</span></div>
+              <FairPriceChart points={analysis.points} cash={cash} currentFair={currentProjection} />
+              <p className={styles.fairCaveat}>Anchor: first aligned 7709 and SK Hynix quote at {formatTime(analysis.points[0].t, true)} HKT. {cash ? "Futu HKD prices shown in HKD; the model converts at a fixed 7.84 HKD/USD for calculation. Outside a fresh HK cash book the chart stays at the last aligned observation, not a live executable price." : "Binance perpetual prices shown in USDT. The estimate is anchored to the selected 7709 perp price, not to the cash ETF NAV; funding and basis can persist."} Fair value is conditional on that anchor, not an independent valuation.</p>
+            </section>;
+          })()}
           <section className={styles.heroCard}>
             <div className={styles.heroCopy}><span className={styles.kindPill}>{selected.kind.replaceAll("-", " ")}</span><h2>{selected.title}</h2><p>{selected.thesis}</p><small>{selected.caveat}</small></div>
             <div className={`${styles.signal} ${styles[formulaOnly ? "normal" : analysis.model.quality === "weak" ? "watch" : analysis.stats.status]}`}><span>PREDICTION SIGNAL</span><strong>{signalLabel}</strong><b>{formulaOnly ? `β ${formatNumber(analysis.model.beta, 2)}` : `${formatNumber(analysis.stats.zScore)}σ`}</b><small>{formulaOnly ? `Using the supplied multiplier without blocking on historical validation. ${selected.asset2.symbol} is ${formatPct(analysis.stats.predictionError)} from theory.` : analysis.model.quality === "weak" ? "Holdout validation is too weak for a confident dislocation call." : `${selected.asset2.symbol} is ${formatPct(analysis.stats.predictionError)} away from theory.`}</small></div>

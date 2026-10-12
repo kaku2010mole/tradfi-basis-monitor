@@ -16,7 +16,11 @@ export async function GET(request: Request) {
   }
   const leg: MarketLeg = { venue: "futu", symbol, label: symbol, usdHkd };
   try {
-    return Response.json({ symbol, usdHkd, interval, live: futuLivePrice(leg), points: futuPriceSeries(leg, start, end, interval), generatedAt: Date.now() }, { headers: { "Cache-Control": "no-store, max-age=0" } });
+    const points = futuPriceSeries(leg, start, end, interval);
+    let live: number | null = null;
+    try { live = futuLivePrice(leg); } catch { /* Historical cash prices remain readable after the HK session closes. */ }
+    if (!points.length && live === null) throw new Error(`${symbol} Futu price history is unavailable.`);
+    return Response.json({ symbol, usdHkd, interval, live, points, generatedAt: Date.now() }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Futu data unavailable." }, { status: 503, headers: { "Cache-Control": "no-store, max-age=0" } });
   }

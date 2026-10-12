@@ -315,6 +315,68 @@ test("restores the Relative Value Monitor and its global prediction-error broadc
   assert.match(alerts, /leg\.venue === "futu"/);
 });
 
+test("isolates SK Hynix / 7709 with Futu cash and Binance perp choices and a fair-price chart", async () => {
+  const [response, switcher, page, relativeValue, pusher, analysisRoute] = await Promise.all([
+    render("/skhynix-7709"),
+    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/blog/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/relativeValue.ts", import.meta.url), "utf8"),
+    readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/blog/analysis/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /SK Hynix ↔ 7709/);
+  assert.match(html, /Futu · HK\.07709 cash/);
+  assert.match(html, /Binance · 7709 perp/);
+  assert.match(switcher, /href="\/skhynix-7709"/);
+  assert.match(page, /7709 THEORETICAL FAIR PRICE/);
+  assert.match(page, /FairPriceChart/);
+  assert.match(relativeValue, /id: "skhynix-csop2l-futu"/);
+  assert.match(relativeValue, /symbol: "HK\.07709"/);
+  assert.match(pusher, /HK\.07709/);
+  assert.match(analysisRoute, /SKHYNIX_7709_FUTU/);
+});
+
+test("estimates the current 7709 price from the KRW-local SK Hynix move", async () => {
+  const source = stripTypeScriptTypes(await readFile(new URL("../app/lib/relativeValue.ts", import.meta.url), "utf8"));
+  const { skhynix7709FairPrice } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  assert.ok(Math.abs(skhynix7709FairPrice(10, 100, 105, 1300, 1313) - 11.21) < 1e-10);
+  assert.equal(skhynix7709FairPrice(10, 100, 30, 1300, 1300), null);
+});
+
+test("Futu 7709 keeps cash history but never treats a closed or stale book as live", async () => {
+  const prior = globalThis.__FUTU_PUSH_SNAPSHOT__;
+  const now = Date.now();
+  const first = Math.floor((now - 3 * 60_000) / 60_000) * 60_000;
+  globalThis.__FUTU_PUSH_SNAPSHOT__ = {
+    receivedAt: now,
+    payload: {
+      generatedAt: now,
+      quotes: [{ symbol: "HK.07709", marketState: "MORNING", bid: 79.9, ask: 80.1, marketTimestamp: now }],
+      history: { "HK.07709": [[first, 79], [first + 60_000, 79.5]] },
+    },
+  };
+  try {
+    const url = `http://localhost/api/blog/futu?symbol=HK.07709&usdHkd=7.84&start=${first - 60_000}&end=${now}&interval=1m`;
+    const live = await render(url.slice("http://localhost".length));
+    assert.equal(live.status, 200);
+    assert.ok(Math.abs((await live.json()).live - 80 / 7.84) < 1e-10);
+    globalThis.__FUTU_PUSH_SNAPSHOT__.payload.quotes[0].marketState = "CLOSED";
+    const closed = await render(url.slice("http://localhost".length));
+    assert.equal(closed.status, 200);
+    const closedPayload = await closed.json();
+    assert.equal(closedPayload.live, null);
+    assert.equal(closedPayload.points.at(-1).t, first + 60_000);
+    globalThis.__FUTU_PUSH_SNAPSHOT__.payload.quotes[0].marketState = "MORNING";
+    globalThis.__FUTU_PUSH_SNAPSHOT__.payload.quotes[0].marketTimestamp = now - 60_000;
+    assert.equal((await (await render(url.slice("http://localhost".length))).json()).live, null);
+  } finally {
+    if (prior) globalThis.__FUTU_PUSH_SNAPSHOT__ = prior;
+    else delete globalThis.__FUTU_PUSH_SNAPSHOT__;
+  }
+});
+
 test("uses Futu history and the 1 ADR to 8 HK share mapping for Alibaba", async () => {
   const [analysis, ranking, page, futu, pusher] = await Promise.all([
     readFile(new URL("../app/api/blog/analysis/route.ts", import.meta.url), "utf8"),
@@ -635,7 +697,9 @@ test("FX-adjusts SKHX to CSOP 2L prediction error everywhere", async () => {
     readFile(new URL("../app/lib/fxMarket.ts", import.meta.url), "utf8"),
   ]);
   assert.match(model, /predictorFx: \{ symbol: "KRW=X"/);
-  assert.equal((model.match(/predictorFx: \{ symbol: "KRW=X"/g) ?? []).length, 2, "only the two Korean single-stock models should load USD\/KRW");
+  const generalRelationships = model.split("// This optional cash comparison")[0];
+  assert.equal((generalRelationships.match(/predictorFx: \{ symbol: "KRW=X"/g) ?? []).length, 2, "the general monitor still has only the two Korean single-stock models");
+  assert.match(model, /SKHYNIX_7709_FUTU:[\s\S]*predictorFx: \{ symbol: "KRW=X"/);
   assert.match(model, /asset1LogReturn \+ .*Math\.log\(fxValue \/ firstFx\)/s);
   assert.match(analysis, /usdKrwSeries/);
   assert.match(ranking, /\(currentFx \/ baseFx\)/);
