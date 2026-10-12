@@ -1038,3 +1038,16 @@ test("shows independent company schedules and available Nasdaq dates when one Na
     globalThis.__DIVIDEND_MONTH_CACHE__ = originalCache;
   }
 });
+
+
+test('luxury comparison is removed from the original dashboard and its routes', async () => {
+  const home = await render('/');
+  assert.equal(home.status, 200);
+  const switcher = await readFile(new URL('../app/components/PageSwitcher.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(switcher, /luxury|奢侈品/);
+  assert.match(switcher, /href="\/dividends"/);
+  for (const path of ['/luxury', '/api/luxury/rates']) {
+    const response = await render(path);
+    assert.equal(response.status, 404, path);
+  }
+});
