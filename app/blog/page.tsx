@@ -1089,7 +1089,7 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
           {!formulaOnly && <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>STANDARDIZED ERROR MONITOR</span><h3>Prediction error significance</h3></div><p>Watch at ±1.5σ · dislocation at ±2σ · suppressed when model quality is weak.</p></div><ResidualChart points={analysis.points} /></section>}
 
           {neutralPrices && neutralAsset1Shares !== null && neutralAsset1Shares500 !== null && <section className={styles.neutralPanel}>
-            <div className={styles.neutralIntro}><span>LIVE β-NEUTRAL SHARE PAIRS</span><h3>Ready-sized market-neutral legs</h3><p>Both presets update from live midpoints every 10 seconds. Quantities target |β| : 1 notionals before exchange step-size rounding.</p></div>
+            <div className={styles.neutralIntro}><span>LIVE β-NEUTRAL SHARE PAIRS</span><h3>Ready-sized market-neutral legs</h3><p>Both presets update from live midpoints every {pairOnly ? "2" : "10"} seconds. Quantities target |β| : 1 notionals before exchange step-size rounding.</p></div>
             <div className={`${styles.neutralPreset} ${styles.neutralPrimary}`}>
               <span>100-SHARE PRESET</span>
               <div className={styles.shareEquation}><strong>100</strong><small>{selected.asset2.symbol}</small><i>≍</i><strong>{neutralAsset1Shares.toLocaleString("en-US", { maximumFractionDigits: 6 })}</strong><small>{selected.asset1.symbol}</small></div>
