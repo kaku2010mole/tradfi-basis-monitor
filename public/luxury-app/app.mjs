@@ -197,7 +197,7 @@ function bindEvents() {
 }
 async function init() {
   decorate();
-  const responses = await Promise.all(['data/catalog.json','data/tax-rules.json','data/fx-snapshot.json'].map(url => fetch(new URL(url, appBase)).then(r => { if (!r.ok) throw new Error('数据文件不可用'); return r.json(); })));
+  const responses = await Promise.all(['data/catalog.json','data/tax-rules.json','data/fx-snapshot.json'].map(url => fetch(new URL(url, appBase), { cache:'no-store' }).then(r => { if (!r.ok) throw new Error('数据文件不可用'); return r.json(); })));
   [catalogue,taxData] = responses; fx = { ...normalizeRates(responses[2]), status:'snapshot' };
   for (const p of catalogue.products) if (p.image?.startsWith('/assets/')) p.image = new URL(p.image.slice(1), appBase).pathname;
   const savedSettings = readStorage('atelier-settings-v1',defaults());

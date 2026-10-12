@@ -979,7 +979,7 @@ test('renders the luxury page with the final navigation item and independent com
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /寻价 Atelier Index/);
-  assert.match(html, /src="\/luxury-app\/index.html"/);
+  assert.match(html, /src="\/luxury-app\/index.html\?v=20261012"/);
   const switcher = await readFile(new URL('../app/components/PageSwitcher.tsx', import.meta.url), 'utf8');
   assert.ok(switcher.indexOf('href="/luxury"') > switcher.indexOf('href="/dividends"'));
 });
