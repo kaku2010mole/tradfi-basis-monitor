@@ -974,30 +974,14 @@ test("shows independent company schedules and available Nasdaq dates when one Na
 });
 
 
-test('renders the luxury page with the final navigation item and independent comparison frame', async () => {
-  const response = await render('/luxury');
-  assert.equal(response.status, 200);
-  const html = await response.text();
-  assert.match(html, /寻价 Atelier Index/);
-  assert.match(html, /src="\/luxury-app\/index.html\?v=20261012-2"/);
+test('luxury comparison is removed from the original dashboard and its routes', async () => {
+  const home = await render('/');
+  assert.equal(home.status, 200);
   const switcher = await readFile(new URL('../app/components/PageSwitcher.tsx', import.meta.url), 'utf8');
-  assert.ok(switcher.indexOf('href="/luxury"') > switcher.indexOf('href="/dividends"'));
-});
-
-test('luxury FX failures return a dated complete snapshot', async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async input => {
-    assert.match(String(input), /frankfurter\.dev\/v2\/rates/);
-    throw new Error('Simulated upstream outage');
-  };
-  try {
-    const response = await render('/api/luxury/rates?refresh=1');
-    assert.equal(response.status, 200);
-    assert.match(response.headers.get('cache-control'), /no-store/);
-    const data = await response.json();
-    assert.equal(data.status, 'snapshot');
-    assert.match(data.effectiveDate, /^\d{4}-\d{2}-\d{2}$/);
-    for (const currency of ['CNY','USD','EUR','GBP','HKD','JPY','KRW','SGD','AUD','CHF']) assert.ok(data.rates[currency] > 0);
-    assert.ok(data.message);
-  } finally { globalThis.fetch = originalFetch; }
+  assert.doesNotMatch(switcher, /luxury|奢侈品/);
+  assert.match(switcher, /href="\/dividends"/);
+  for (const path of ['/luxury', '/api/luxury/rates']) {
+    const response = await render(path);
+    assert.equal(response.status, 404, path);
+  }
 });

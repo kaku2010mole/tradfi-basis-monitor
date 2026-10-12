@@ -4,7 +4,7 @@ import Link from "next/link";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
-  active: "jlp" | "basis" | "oracle" | "blog" | "skhynix" | "polymarket" | "auction" | "dividends" | "luxury";
+  active: "jlp" | "basis" | "oracle" | "blog" | "skhynix" | "polymarket" | "auction" | "dividends";
 };
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
@@ -47,10 +47,6 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         <Link href="/dividends" aria-current={active === "dividends" ? "page" : undefined}>
           <span>Dividend calendar</span>
           <small>Binance + Bitget stock and ETF ex-dates</small>
-        </Link>
-        <Link href="/luxury" aria-current={active === "luxury" ? "page" : undefined}>
-          <span>奢侈品比价 · Luxury prices</span>
-          <small>全球包款官价、人民币换算与退税参考</small>
         </Link>
       </nav>
     </details>
