@@ -240,41 +240,56 @@
         {
           "regionId": "it",
           "currency": "EUR",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
+          "amount": 10100,
+          "url": "https://www.chanel.com/it/moda/p/A01113Y01864C3906/borsa-classica-piccola-pelle-martellata-metallo-effetto-dorato/",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-11",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
         },
         {
           "regionId": "de",
           "currency": "EUR",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
-        },
-        {
-          "regionId": "es",
-          "currency": "EUR",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
-        },
-        {
-          "regionId": "ch",
-          "currency": "CHF",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
-        },
-        {
-          "regionId": "au",
-          "currency": "AUD",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
+          "amount": 10100,
+          "url": "https://www.chanel.com/de/mode/p/A01113Y01864C3906/kleine-klassische-tasche-genarbtes-kalbsleder-goldfarbenes-metall/",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-12",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
         },
         {
           "regionId": "ca",
           "currency": "CAD",
+          "amount": 14850,
+          "url": "https://www.chanel.com/ca-en/fashion/p/A01113Y01864C3906/small-classic-handbag-grained-calfskin-gold-tone-metal/",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-11",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
+        },
+        {
+          "regionId": "ch",
+          "currency": "CHF",
+          "amount": 9670,
+          "url": "https://www.chanel.com/ch-de/mode/p/A01113Y01864C3906/kleine-klassische-tasche-genarbtes-kalbsleder-goldfarbenes-metall/",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": null,
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。读取服务抓取标记为2周前。"
+        },
+        {
+          "regionId": "es",
+          "currency": "EUR",
+          "amount": 10100,
+          "url": "https://www.chanel.com/es/moda/p/A01113Y01864C3906/bolso-pequeno-clasico-piel-de-ternera-granulada-y-metal-dorado/",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-10",
+          "evidenceType": "official-page",
+          "note": "已打开品牌西班牙官方商品页核对固定货号、尺寸、材质、颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
+        },
+        {
+          "regionId": "au",
+          "currency": "AUD",
           "amount": null,
           "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
           "sourceCrawledDate": null
@@ -407,44 +422,62 @@
         {
           "regionId": "it",
           "currency": "EUR",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
+          "amount": 5050,
+          "url": "https://www.chanel.com/it/moda/p/A69900Y0405994305/borsa-classica-mini-pelle-di-agnello-metallo-effetto-dorato/",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-12",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
         },
         {
           "regionId": "de",
           "currency": "EUR",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
-        },
-        {
-          "regionId": "es",
-          "currency": "EUR",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
-        },
-        {
-          "regionId": "ch",
-          "currency": "CHF",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
-        },
-        {
-          "regionId": "au",
-          "currency": "AUD",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
+          "amount": 5050,
+          "url": "https://www.chanel.com/de/mode/p/A69900Y0405994305/klassische-minitasche-lammleder-goldfarbenes-metall/",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-12",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
         },
         {
           "regionId": "ca",
           "currency": "CAD",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
+          "amount": 7425,
+          "url": "https://www.chanel.com/ca-en/fashion/p/A69900Y0405994305/mini-classic-handbag-lambskin-gold-tone-metal/",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-12",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
+        },
+        {
+          "regionId": "au",
+          "currency": "AUD",
+          "amount": 9100,
+          "url": "https://www.chanel.com/au/fashion/p/A69900Y0405994305/mini-classic-handbag-lambskin/",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-09",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
+        },
+        {
+          "regionId": "ch",
+          "currency": "CHF",
+          "amount": 4890,
+          "url": "https://www.chanel.com/ch-de/mode/p/A69900Y0405994305/klassische-minitasche-lammleder-goldfarbenes-metall/",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": null,
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。读取服务抓取标记为上周。"
+        },
+        {
+          "regionId": "es",
+          "currency": "EUR",
+          "amount": 5050,
+          "url": "https://www.chanel.com/es/moda/p/A69900Y0405994305/bolso-mini-clasico-piel-de-cordero-y-metal-dorado/",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-11",
+          "evidenceType": "official-page",
+          "note": "已打开品牌西班牙官方商品页核对固定货号、尺寸、材质、颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
         }
       ],
       "image": "/assets/chanel-mini-classic-handbag.jpg"
@@ -563,44 +596,62 @@
         {
           "regionId": "it",
           "currency": "EUR",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
+          "amount": 5500,
+          "url": "https://www.dior.com/it_it/fashion/products/M0538ONGE_M900",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-12",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
         },
         {
           "regionId": "de",
           "currency": "EUR",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
-        },
-        {
-          "regionId": "es",
-          "currency": "EUR",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
+          "amount": 5500,
+          "url": "https://www.dior.com/de_de/fashion/products/M0538ONGE_M900",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-11",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
         },
         {
           "regionId": "ch",
           "currency": "CHF",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
+          "amount": 5500,
+          "url": "https://www.dior.com/en_ch/fashion/products/M0538ONGE_M900",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-07",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
+        },
+        {
+          "regionId": "es",
+          "currency": "EUR",
+          "amount": 5500,
+          "url": "https://www.dior.com/es_es/fashion/products/M0538ONGE_M900",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-11",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
         },
         {
           "regionId": "au",
           "currency": "AUD",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
+          "amount": 9800,
+          "url": "https://www.dior.com/en_au/fashion/products/M0538ONGE_M900",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-11",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
         },
         {
           "regionId": "ca",
           "currency": "CAD",
-          "amount": null,
-          "note": "此地区同一完整货号官价尚未核实，暂不参与排序。",
-          "sourceCrawledDate": null
+          "amount": 8300,
+          "url": "https://www.dior.com/fr_ca/fashion/products/M0538ONGE_M900",
+          "checkedAt": "2026-10-12",
+          "sourceCrawledDate": "2026-10-07",
+          "evidenceType": "official-page",
+          "note": "已打开品牌该地区官方商品页核对固定货号、尺寸、材质和颜色及公开官价；网页读取可能使用缓存，查阅日不代表品牌更新时间。"
         }
       ],
       "sourceUrl": "https://www.dior.cn/zh_cn/fashion/products/M0538ONGE_M900",
