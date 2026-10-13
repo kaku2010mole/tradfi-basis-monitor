@@ -161,6 +161,13 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   for (const code of ["034020", "035420", "042700", "066570", "454910"]) assert.match(route, new RegExp(code));
   for (const code of ["285A", "5802", "6758", "6857", "6920", "6976", "6981", "7203", "8035", "8306", "9984"]) assert.match(route, new RegExp(`code: "${code}"`));
   for (const symbol of ["TAIYOYUDENUSDT", "MURATAUSDT", "TOYOTAUSDT", "TMUSDT"]) assert.match(route, new RegExp(symbol));
+  for (const [code, jpSymbol, adrSymbol] of [["6758", "JPSONYUSDT", "SONYUSDT"], ["8306", "JPMUFGUSDT", "MUFGUSDT"]]) {
+    assert.match(route, new RegExp(`code: "${code}"[^\\n]*bitgetSymbol: "${jpSymbol}"[^\\n]*additionalBitgetSymbol: "${adrSymbol}"[^\\n]*comparePerps: true`));
+  }
+  assert.match(component, /BITGET PERP \/ PERP/);
+  assert.match(component, /No live cash, ADR or FX feed required/);
+  assert.match(component, /priorVenues\.get\(quoteKey\(quote\)\)/);
+  assert.match(component, /key=\{quoteKey\(quote\)\}/);
   assert.doesNotMatch(route, /005935/);
   assert.match(route, /DOOSENERUSDT/);
   assert.match(route, /DOOSBOTUSDT/);
@@ -243,7 +250,9 @@ test("cross-venue spread colors prioritize material edges even while markets are
   assert.match(component, /value >= 1 \? "high" : value >= 0\.3 \? "medium"/);
   assert.doesNotMatch(component, /!live \|\| value == null/);
   assert.match(component, /cashSummaryLive \? cashComparisons\.filter\(\(\{ live \}\) => live\) : cashComparisons/);
-  assert.match(component, /spreadTone\(adrHeadline\?\.value\)/);
+  assert.match(component, /const adrTone = adrComparisons\.reduce<SpreadTone>/);
+  assert.match(component, /strongerTone\(spreadTone\(spreads\.buyAdrSellPerp\), spreadTone\(spreads\.buyPerpSellAdr\)\)/);
+  assert.match(component, /const perpTone = spreadTone\(pair\?\.headline\?\.value\)/);
   assert.match(component, /including closed-market comparisons/);
   assert.match(css, /\.summarySignals \.spreadHigh\{background:#fff0d7/);
   assert.match(css, /\.referenceCard \.referenceEdges \.spreadQuiet\{background:#f7f9f9/);
@@ -903,6 +912,30 @@ test("keeps numeric basis through closed, pre-market and stale cash quotes", asy
   assert.ok(Math.abs(toyotaAdr.bid - 188.65) < 1e-9 && Math.abs(toyotaAdr.ask - 188.79) < 1e-9); // TOYOTAUSDT -> TM
   assert.deepEqual(impliedAdrBook({ bid: 187.73, ask: 189.27 }, 10, 10), { bid: 187.73, ask: 189.27 }); // TMUSDT -> TM
   assert.deepEqual(impliedAdrBook({ bid: null, ask: null }, 1, 10), { bid: null, ask: null });
+});
+
+test("compares JP and ADR-linked perps using normalized BBO, independent of cash and FX", async () => {
+  const source = stripTypeScriptTypes(await readFile(new URL("../app/lib/equityBasis.ts", import.meta.url), "utf8"));
+  const { perpetualPairBasis } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  const now = Date.now();
+  const jp = { bid: 22.464, ask: 22.489, bidQty: 10, askQty: 20, sharesPerPerp: 1, updatedAt: now };
+  const adr = { bid: 22.55, ask: 22.6, bidQty: 30, askQty: 40, sharesPerPerp: 1, updatedAt: now };
+  const result = perpetualPairBasis(jp, adr, now);
+  assert.ok(Math.abs(result.buyLeftSellRight - (22.55 / 22.489 - 1) * 100) < 1e-10);
+  assert.ok(Math.abs(result.buyRightSellLeft - (22.464 / 22.6 - 1) * 100) < 1e-10);
+  assert.equal(result.live, true);
+  const normalized = perpetualPairBasis(jp, { ...adr, bid: adr.bid * 10, ask: adr.ask * 10, sharesPerPerp: 10 }, now);
+  assert.ok(Math.abs(normalized.buyLeftSellRight - result.buyLeftSellRight) < 1e-10);
+  const stale = perpetualPairBasis(jp, { ...adr, updatedAt: now - 61_000 }, now);
+  assert.equal(stale.live, false);
+  assert.equal(stale.buyLeftSellRight, result.buyLeftSellRight, "retain stale basis as indicative");
+  for (const invalid of [{ bidQty: 0 }, { updatedAt: now + 10_000 }, { bid: 23, ask: 22 }, { sharesPerPerp: 0 }]) {
+    assert.equal(perpetualPairBasis(jp, { ...adr, ...invalid }, now).live, false);
+  }
+  const missing = perpetualPairBasis(jp, { ...adr, bid: null, ask: null, last: 22.6 }, now);
+  assert.equal(missing.buyLeftSellRight, null);
+  assert.equal(missing.buyRightSellLeft, null);
+  assert.equal(missing.live, false, "last must not substitute for a perpetual BBO");
 });
 
 test("routes Tencent aliases to Hyperliquid and computes HK auction and historical basis", async () => {

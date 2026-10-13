@@ -27,14 +27,14 @@ const BITGET_ONLY_KOREAN_STOCKS = [
 const JAPANESE_STOCKS = [
   { code: "285A", name: "Kioxia", bitgetSymbol: "KIOXIAUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
   { code: "5802", name: "Sumitomo Electric", bitgetSymbol: "SUMIELECUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
-  { code: "6758", name: "Sony Group", bitgetSymbol: "SONYUSDT", sharesPerPerp: 1, adrSymbol: "SONY", sharesPerAdr: 1 },
+  { code: "6758", name: "Sony Group", bitgetSymbol: "JPSONYUSDT", sharesPerPerp: 1, additionalBitgetSymbol: "SONYUSDT", additionalSharesPerPerp: 1, comparePerps: true, adrSymbol: "SONY", sharesPerAdr: 1 },
   { code: "6857", name: "Advantest", bitgetSymbol: "ADVANTESTUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
   { code: "6920", name: "Lasertec", bitgetSymbol: "LASERTECUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
   { code: "6976", name: "Taiyo Yuden", bitgetSymbol: "TAIYOYUDENUSDT", sharesPerPerp: 1, adrSymbol: "TYOYY", sharesPerAdr: 0.25 },
   { code: "6981", name: "Murata Manufacturing", bitgetSymbol: "MURATAUSDT", sharesPerPerp: 1, adrSymbol: "MRAAY", sharesPerAdr: 0.5 },
   { code: "7203", name: "Toyota Motor", bitgetSymbol: "TOYOTAUSDT", sharesPerPerp: 1, additionalBitgetSymbol: "TMUSDT", additionalSharesPerPerp: 10, adrSymbol: "TM", sharesPerAdr: 10 },
   { code: "8035", name: "Tokyo Electron", bitgetSymbol: "TOKYOELUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
-  { code: "8306", name: "MUFG", bitgetSymbol: "MUFGUSDT", sharesPerPerp: 1, adrSymbol: "MUFG", sharesPerAdr: 1 },
+  { code: "8306", name: "MUFG", bitgetSymbol: "JPMUFGUSDT", sharesPerPerp: 1, additionalBitgetSymbol: "MUFGUSDT", additionalSharesPerPerp: 1, comparePerps: true, adrSymbol: "MUFG", sharesPerAdr: 1 },
   { code: "9984", name: "SoftBank Group", bitgetSymbol: "SOFTBANKUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
 ] as const;
 // The office feed only carries these U.S. books. TYOYY and MRAAY still get
@@ -236,7 +236,9 @@ export async function GET(request: Request) {
       const adr = stock.adrSymbol ? books.get(stock.adrSymbol) : null;
       return {
         code: stock.code, name: stock.name, market: "TSE", session: sessions.TSE, currency: "JPY", sharesPerPerp: stock.sharesPerPerp,
+        perpPair: "comparePerps" in stock ? { leftSymbol: stock.bitgetSymbol, rightSymbol: stock.additionalBitgetSymbol } : null,
         mappingNote: stock.code === "7203" ? "Comparison assumes TOYOTAUSDT is priced per ordinary share and TMUSDT per ADR-equivalent (10 ordinary shares), consistent with their quoted prices. Confirm Bitget contract specifications before trading."
+          : "comparePerps" in stock ? "Bitget JP and ADR-linked perps are compared in USDT using a 1:1 contract-unit mapping, consistent with current index prices and the 1:1 ADR/share ratio. This is perp/perp basis, not a live ADR quote; funding and dividend adjustments may differ."
           : stock.code === "6976" || stock.code === "6981" ? "Comparison assumes one Bitget contract unit tracks one TSE ordinary share, consistent with the current index price. Confirm Bitget contract specifications before trading." : null,
         cashBidKrw, cashAskKrw, cashBidQty: positive(cash?.bidSize), cashAskQty: positive(cash?.askSize), cashUpdatedAt: cash?.timestamp ?? null,
         cashLast: positive(cash?.last),

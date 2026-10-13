@@ -42,3 +42,22 @@ export function impliedAdrBook(perp: Book, sharesPerPerp: number, sharesPerAdr: 
     ask: ratio !== null && valid(perp.ask) !== null ? Number(perp.ask) * ratio : null,
   };
 }
+
+type PerpBook = Book & { sharesPerPerp: number; bidQty: number | null; askQty: number | null; updatedAt: number | null };
+
+// Compare two USDT perps on the same ordinary-share unit. No cash/ADR/FX
+// feed or stock-market session is needed. A last trade is never a BBO.
+export function perpetualPairBasis(left: PerpBook, right: PerpBook, now: number, maxAgeMs = 60_000) {
+  const leftBook = impliedAdrBook(left, left.sharesPerPerp, 1);
+  const rightBook = impliedAdrBook(right, right.sharesPerPerp, 1);
+  const spreads = equitySpreads(leftBook.bid, leftBook.ask, rightBook);
+  const freshBook = (book: PerpBook) => valid(book.sharesPerPerp) !== null && valid(book.bid) !== null && valid(book.ask) !== null && Number(book.bid) <= Number(book.ask)
+    && valid(book.bidQty) !== null && valid(book.askQty) !== null && book.updatedAt !== null && book.updatedAt > 0
+    && now - book.updatedAt <= maxAgeMs && book.updatedAt - now < 5_000;
+  return {
+    leftBook, rightBook,
+    buyLeftSellRight: spreads.buyKoreaSellPerp,
+    buyRightSellLeft: spreads.buyPerpSellKorea,
+    live: freshBook(left) && freshBook(right),
+  };
+}
