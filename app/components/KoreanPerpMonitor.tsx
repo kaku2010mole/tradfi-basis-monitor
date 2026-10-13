@@ -29,9 +29,9 @@ const adrSpreads = (row: Row, adr: AdrQuote, perp: VenueQuote) => {
   return { buyAdrSellPerp: spreads.buyKoreaSellPerp, buyPerpSellAdr: spreads.buyPerpSellKorea };
 };
 type SpreadTone = "quiet" | "medium" | "high";
-// Color only fresh, positive quoted differences; indicative prices stay neutral.
-const spreadTone = (value: number | null | undefined, live: boolean): SpreadTone =>
-  !live || value == null || value <= 0 ? "quiet" : value >= 1 ? "high" : value >= 0.3 ? "medium" : "quiet";
+// Spread magnitude controls color independently of whether the quote is live or indicative.
+const spreadTone = (value: number | null | undefined): SpreadTone =>
+  value == null || value <= 0 ? "quiet" : value >= 1 ? "high" : value >= 0.3 ? "medium" : "quiet";
 const strongerTone = (left: SpreadTone, right: SpreadTone): SpreadTone =>
   left === "high" || right === "high" ? "high" : left === "medium" || right === "medium" ? "medium" : "quiet";
 const toneClass = (tone: SpreadTone) => tone === "high" ? styles.spreadHigh : tone === "medium" ? styles.spreadMedium : styles.spreadQuiet;
@@ -189,11 +189,11 @@ export default function KoreanPerpMonitor() {
       { value: adrBasis.buyAdrSellPerp, direction: `Buy ${adr?.symbol} · sell Bitget` },
       { value: adrBasis.buyPerpSellAdr, direction: `Buy Bitget · sell ${adr?.symbol}` },
     ].filter((edge): edge is { value: number; direction: string } => edge.value !== null).sort((left, right) => right.value - left.value)[0] : null;
-    const adrTone = spreadTone(adrHeadline?.value, adrLive);
+    const adrTone = spreadTone(adrHeadline?.value);
     const cashComparisons = row.venues.map((quote) => {
       const spreads = equitySpreads(basis.cashBidUsd, basis.cashAskUsd, quote);
       const live = cashActive && !basis.usesLast && !basis.usesFxLast && Boolean(row.cashBidQty && row.cashAskQty && quote.bidQty && quote.askQty) && isFresh(row.cashUpdatedAt, clock) && isFresh(fx?.updatedAt, clock) && isFresh(quote.updatedAt, clock);
-      const tone = strongerTone(spreadTone(spreads.buyKoreaSellPerp, live), spreadTone(spreads.buyPerpSellKorea, live));
+      const tone = strongerTone(spreadTone(spreads.buyKoreaSellPerp), spreadTone(spreads.buyPerpSellKorea));
       return { quote, spreads, live, tone };
     });
     const cashSummaryLive = cashComparisons.some(({ live }) => live);
@@ -202,19 +202,19 @@ export default function KoreanPerpMonitor() {
       { value: spreads.buyKoreaSellPerp, direction: `Buy ${row.market} · sell ${quote.venue}` },
       { value: spreads.buyPerpSellKorea, direction: `Buy ${quote.venue} · sell ${row.market}` },
     ]).filter((edge): edge is { value: number; direction: string } => edge.value !== null).sort((left, right) => right.value - left.value)[0];
-    const cashTone = spreadTone(cashHeadline?.value, cashSummaryLive);
+    const cashTone = spreadTone(cashHeadline?.value);
     const rowTone = strongerTone(cashTone, adrTone);
     const adrCard = adr && perp ? <div className={`${styles.referenceCard} ${styles.adrCard} ${toneClass(adrTone)}`} key="adr">
       <div className={styles.referenceHead}><div><span className={styles.referenceTag}>U.S. ADR ↔ BITGET</span><strong>{adr.symbol} / {perp.symbol}</strong></div><span className={adrLive ? styles.livePill : styles.indicativePill}>{adrLive ? "LIVE US BBO" : `${payload.sessions?.US ?? "US"} · INDICATIVE`}</span></div>
       <div className={styles.referencePrices}><span>ADR BID / ASK <b>{fmt(adr.bid)} / {fmt(adr.ask)}</b></span><span>BITGET BID / ASK <b>{fmt(perp.bid)} / {fmt(perp.ask)}</b></span></div>
-      <div className={styles.referenceEdges}><span className={toneClass(spreadTone(adrBasis?.buyAdrSellPerp, adrLive))}>BUY ADR · SELL PERP<b>{pct(adrBasis?.buyAdrSellPerp ?? null)}</b></span><span className={toneClass(spreadTone(adrBasis?.buyPerpSellAdr, adrLive))}>BUY PERP · SELL ADR<b>{pct(adrBasis?.buyPerpSellAdr ?? null)}</b></span></div>
+      <div className={styles.referenceEdges}><span className={toneClass(spreadTone(adrBasis?.buyAdrSellPerp))}>BUY ADR · SELL PERP<b>{pct(adrBasis?.buyAdrSellPerp ?? null)}</b></span><span className={toneClass(spreadTone(adrBasis?.buyPerpSellAdr))}>BUY PERP · SELL ADR<b>{pct(adrBasis?.buyPerpSellAdr ?? null)}</b></span></div>
       <small className={styles.referenceFoot}>1 ADR = {adr.sharesPerAdr} TSE {adr.sharesPerAdr === 1 ? "share" : "shares"} · 1 perp = {row.sharesPerPerp} · {adr.source} {time(adr.updatedAt)} HKT{!adrLive ? " · Last quotes only" : ""}</small>
     </div> : null;
     const cashCards = cashComparisons.map(({ quote, spreads, live, tone }) => {
       return <div className={`${styles.referenceCard} ${toneClass(tone)}`} key={quote.venue}>
         <div className={styles.referenceHead}><div><span className={styles.referenceTag}>{row.market} CASH ↔ {quote.venue.toUpperCase()}</span><strong>{quote.symbol}</strong></div><span className={live ? styles.livePill : styles.indicativePill}>{live ? row.session === "AFTER-HOURS" ? "AFTER-HOURS BBO" : "LIVE BBO" : `${row.session} · INDICATIVE`}</span></div>
         <div className={styles.referencePrices}><span>CASH · USD EQUIV <b>{fmt(basis.cashBidUsd)} / {fmt(basis.cashAskUsd)}</b></span><span>PERP BID / ASK <b>{fmt(quote.bid)} / {fmt(quote.ask)}</b></span></div>
-        <div className={styles.referenceEdges}><span className={toneClass(spreadTone(spreads.buyKoreaSellPerp, live))}>BUY {row.market} · SELL PERP<b>{pct(spreads.buyKoreaSellPerp)}</b></span><span className={toneClass(spreadTone(spreads.buyPerpSellKorea, live))}>BUY PERP · SELL {row.market}<b>{pct(spreads.buyPerpSellKorea)}</b></span></div>
+        <div className={styles.referenceEdges}><span className={toneClass(spreadTone(spreads.buyKoreaSellPerp))}>BUY {row.market} · SELL PERP<b>{pct(spreads.buyKoreaSellPerp)}</b></span><span className={toneClass(spreadTone(spreads.buyPerpSellKorea))}>BUY PERP · SELL {row.market}<b>{pct(spreads.buyPerpSellKorea)}</b></span></div>
         <small className={styles.referenceFoot}>{quote.venue} {time(quote.updatedAt)} HKT · Top size {fmt(quote.bidQty)} / {fmt(quote.askQty)}{!live ? basis.usesLast ? " · Cash last / incomplete book" : row.session === "OPENING AUCTION" ? " · Auction book, not yet executable" : " · Indicative book" : ""}</small>
       </div>;
     });
@@ -228,7 +228,7 @@ export default function KoreanPerpMonitor() {
 
   return <section className={styles.monitor} aria-label="Korean and Japanese stock cross-venue basis">
     <header className={styles.monitorHeader}><div><p>KRX · TSE · U.S. ADR / PERPETUALS</p><h2>Stock cross-venue basis</h2><span>Live quote edges first. Closed-market comparisons remain visible and explicitly indicative.</span></div><div className={styles.status}><i />{payload.sessions ? `KRX ${payload.sessions.KRX} · TSE ${payload.sessions.TSE} · US ${payload.sessions.US}` : "CONNECTING"}</div></header>
-    <div className={styles.signalDeck}><div className={styles.signalIntro}><span>LIVE QUOTE RADAR</span><strong>{liveEdges.length ? `${liveEdges.length} positive edges` : "No live positive edge"}</strong><small>Fresh positive spreads ≥1% stand out in amber; ≥0.3% in teal. Smaller or indicative spreads stay neutral. Fees and routing are not included.</small></div><div className={styles.signalList}>{liveEdges.slice(0, 3).map((edge, index) => <div key={`${edge.code}:${edge.direction}`} className={`${styles.signalItem} ${toneClass(spreadTone(edge.value, true))}`}><small>0{index + 1} · {edge.source}</small><strong>{edge.name}<b>{pct(edge.value)}</b></strong><span>{edge.direction}</span></div>)}{!liveEdges.length && <p>{radarMessage}</p>}</div></div>
+    <div className={styles.signalDeck}><div className={styles.signalIntro}><span>LIVE QUOTE RADAR</span><strong>{liveEdges.length ? `${liveEdges.length} positive edges` : "No live positive edge"}</strong><small>Card colors: positive spreads ≥1% amber, ≥0.3% teal, including closed-market comparisons. Radar ranks live edges only; INDICATIVE is not executable.</small></div><div className={styles.signalList}>{liveEdges.slice(0, 3).map((edge, index) => <div key={`${edge.code}:${edge.direction}`} className={`${styles.signalItem} ${toneClass(spreadTone(edge.value))}`}><small>0{index + 1} · {edge.source}</small><strong>{edge.name}<b>{pct(edge.value)}</b></strong><span>{edge.direction}</span></div>)}{!liveEdges.length && <p>{radarMessage}</p>}</div></div>
     <div className={styles.toolRow}><div className={styles.filters} role="group" aria-label="Filter stock market">{(["ALL", "KRX", "TSE"] as const).map((market) => <button key={market} className={effectiveMarket === market ? styles.activeFilter : ""} onClick={() => setMarketFilter(market)}>{market === "ALL" ? "All stocks" : market === "KRX" ? "Korea" : "Japan + ADR"}</button>)}</div><div className={styles.fxGroup}><span>USD/KRW <b>{payload.fx?.bid != null && payload.fx?.ask != null ? `${fmt(payload.fx.bid)} / ${fmt(payload.fx.ask)}` : fmt(payload.fx?.last ?? null)}</b><small>{isFresh(payload.fx?.updatedAt, clock) && payload.fx?.bid && payload.fx.ask ? "LIVE BBO" : "LAST / INDICATIVE"}</small></span><span>USD/JPY <b>{payload.yenFx?.bid != null && payload.yenFx?.ask != null ? `${fmt(payload.yenFx.bid)} / ${fmt(payload.yenFx.ask)}` : fmt(payload.yenFx?.last ?? null)}</b><small>{isFresh(payload.yenFx?.updatedAt, clock) && payload.yenFx?.bid && payload.yenFx.ask ? "LIVE BBO" : payload.yenFx?.source.includes("index") ? "INDEX / INDICATIVE" : "LAST / INDICATIVE"}</small></span></div></div>
     {(loginError || error || payload.posley?.error) && <div className={styles.notice}><span>{loginError || error || payload.posley?.error}</span><button disabled={loginBusy} onClick={() => void connect()}>{loginBusy ? "Checking…" : "Connect Posley"}</button></div>}
     {(koreaRows.length > 0 || bitgetOnlyKorean.length > 0) && <div className={styles.marketGroup}><div className={styles.groupHead}><div><span>01 / KOREA</span><h3>KRX cash vs perpetuals</h3></div><small>{payload.sessions?.KRX ?? "—"} · {koreaRows.length} cash comparisons</small></div><div className={styles.rows}>{koreaRows.map(renderRow)}</div>

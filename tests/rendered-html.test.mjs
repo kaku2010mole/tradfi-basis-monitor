@@ -227,15 +227,17 @@ test("Oracle Monitor omits the bottom deviation history chart", async () => {
   assert.doesNotMatch(page, /DeviationChart|DEVIATION HISTORY|chartPoints|loadHistory/);
 });
 
-test("cross-venue spread colors prioritize fresh, material edges", async () => {
+test("cross-venue spread colors prioritize material edges even while markets are closed", async () => {
   const [component, css] = await Promise.all([
     readFile(new URL("../app/components/KoreanPerpMonitor.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/KoreanPerpMonitor.module.css", import.meta.url), "utf8"),
   ]);
-  assert.match(component, /!live \|\| value == null \|\| value <= 0 \? "quiet"/);
+  assert.match(component, /value == null \|\| value <= 0 \? "quiet"/);
   assert.match(component, /value >= 1 \? "high" : value >= 0\.3 \? "medium"/);
+  assert.doesNotMatch(component, /!live \|\| value == null/);
   assert.match(component, /cashSummaryLive \? cashComparisons\.filter\(\(\{ live \}\) => live\) : cashComparisons/);
-  assert.match(component, /spreadTone\(adrHeadline\?\.value, adrLive\)/);
+  assert.match(component, /spreadTone\(adrHeadline\?\.value\)/);
+  assert.match(component, /including closed-market comparisons/);
   assert.match(css, /\.summarySignals \.spreadHigh\{background:#fff0d7/);
   assert.match(css, /\.referenceCard \.referenceEdges \.spreadQuiet\{background:#f7f9f9/);
 });
