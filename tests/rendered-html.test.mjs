@@ -227,6 +227,19 @@ test("Oracle Monitor omits the bottom deviation history chart", async () => {
   assert.doesNotMatch(page, /DeviationChart|DEVIATION HISTORY|chartPoints|loadHistory/);
 });
 
+test("cross-venue spread colors prioritize fresh, material edges", async () => {
+  const [component, css] = await Promise.all([
+    readFile(new URL("../app/components/KoreanPerpMonitor.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/KoreanPerpMonitor.module.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(component, /!live \|\| value == null \|\| value <= 0 \? "quiet"/);
+  assert.match(component, /value >= 1 \? "high" : value >= 0\.3 \? "medium"/);
+  assert.match(component, /cashSummaryLive \? cashComparisons\.filter\(\(\{ live \}\) => live\) : cashComparisons/);
+  assert.match(component, /spreadTone\(adrHeadline\?\.value, adrLive\)/);
+  assert.match(css, /\.summarySignals \.spreadHigh\{background:#fff0d7/);
+  assert.match(css, /\.referenceCard \.referenceEdges \.spreadQuiet\{background:#f7f9f9/);
+});
+
 test("converts Bitget-only Korean perps to KRW without inventing cash basis", async () => {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("bitget-only-test", `${process.pid}-${Date.now()}`);
