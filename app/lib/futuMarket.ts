@@ -21,7 +21,7 @@ type FutuStore = typeof globalThis & {
 
 const INTERVAL_MS: Record<string, number> = { "1m": 60_000, "5m": 5 * 60_000, "15m": 15 * 60_000, "1h": 60 * 60_000 };
 const LIVE_MAX_AGE_MS = 30_000;
-const CASH_7709 = "HK.07709";
+const DEDICATED_CASH = new Set(["HK.07709", "HK.07747"]);
 const CASH_BOOK_STATES = new Set(["AUCTION", "ACTION", "WAITING_OPEN", "MORNING", "AFTERNOON"]);
 
 const fx = (leg: Pick<MarketLeg, "usdHkd">) => {
@@ -39,12 +39,12 @@ export function futuLivePrice(leg: MarketLeg) {
   const bid = Number(quote?.bid);
   const ask = Number(quote?.ask);
   const last = Number(quote?.last);
-  if (leg.symbol.toUpperCase() === CASH_7709) {
+  if (DEDICATED_CASH.has(leg.symbol.toUpperCase())) {
     const timestamp = Number(quote?.marketTimestamp);
     if (!CASH_BOOK_STATES.has(String(quote?.marketState ?? "").toUpperCase()) ||
         !Number.isFinite(timestamp) || Math.abs(Date.now() - timestamp) > LIVE_MAX_AGE_MS ||
         !Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) {
-      throw new Error("Futu 7709 cash book is closed, stale or unavailable.");
+      throw new Error(`Futu ${leg.symbol} cash book is closed, stale or unavailable.`);
     }
   }
   const hkd = Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0

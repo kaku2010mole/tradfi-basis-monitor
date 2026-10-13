@@ -15,8 +15,9 @@ import {
   ProjectionPoint,
   RELATIONSHIPS,
   Relationship,
+  SAMSUNG_7747_CHOICES,
   SKHYNIX_7709_CHOICES,
-  skhynix7709FairPrice,
+  leveragedKoreanFairPrice,
   TRAINING_INTERVAL,
   trainRelationshipModel,
   TrainedModel,
@@ -28,6 +29,7 @@ import {
   RelativeValueAlertSignal,
   RelativeValueAlertSnapshot,
 } from "../lib/relativeValueAlerts";
+import { leveragedKoreanHedge } from "../lib/leveragedKoreanHedge";
 import styles from "./page.module.css";
 
 type Analysis = {
@@ -59,6 +61,7 @@ type Analysis = {
   };
 };
 type RankingRow = { id: string; predictionError: number; actual: number; theoretical: number; beta: number; updatedAt: number };
+type HedgeQuote = { productPriceHkd: number; productTime: number; cashLive: boolean; stockPriceUsd: number; usdKrw: number; fxTime: number; updatedAt: number };
 
 const QUICK_WINDOWS = [
   { label: "1H", milliseconds: 60 * 60_000 },
@@ -81,6 +84,11 @@ const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v7";
 const CUSTOM_RELATIONSHIPS_KEY = "relative-value-custom-relationships-v1";
 const HIDDEN_RELATIONSHIPS_KEY = "relative-value-hidden-relationships-v1";
 const DIRECT_RANKING_BASELINE_CACHE = new Map<string, Promise<number>>();
+
+const DEDICATED_PRODUCTS = {
+  "7709": { stockName: "SK Hynix", stockCode: "000660", stockPerp: "SKHYNIXUSDT", cashRelationship: "skhynix-csop2l-futu", perpRelationship: "skhynix-csop2l", choices: SKHYNIX_7709_CHOICES, issuerUrl: "https://csop.onlineminisite.com/skhynixleveraged/en/" },
+  "7747": { stockName: "Samsung Electronics", stockCode: "005930", stockPerp: "SAMSUNGUSDT", cashRelationship: "samsung-csop2l-futu", perpRelationship: "samsung-csop2l", choices: SAMSUNG_7747_CHOICES, issuerUrl: "https://www.csopasset.com/en/products/hk-smsn-2l" },
+} as const;
 
 type CustomDraft = {
   asset1Venue: "binance" | "hyperliquid";
@@ -300,7 +308,7 @@ async function directFxSeries(start: number, end: number, interval: string): Pro
 
 async function directFixedModel(relationship: Relationship, now: number) {
   const { trainingStart, trainingEnd } = fixedTrainingWindow(now);
-  const key = `${MODEL_CACHE_PREFIX}:${relationship.id}:${trainingEnd}`;
+  const key = `${MODEL_CACHE_PREFIX}:${relationship.id}:${relationship.referenceBeta ?? "fit"}:${trainingEnd}`;
   try {
     const saved = window.localStorage.getItem(key);
     if (saved) return JSON.parse(saved) as TrainedModel;
@@ -350,6 +358,17 @@ function linePath(values: number[], width: number, height: number, padding: { le
 
 function useChartInspection(pointCount: number, width: number, padding: { left: number; right: number }) {
   const [storedIndex, setStoredIndex] = useState<number | null>(null);
+  useEffect(() => {
+    const clear = () => setStoredIndex(null);
+    document.addEventListener("pointerdown", clear);
+    window.addEventListener("scroll", clear, true);
+    window.addEventListener("blur", clear);
+    return () => {
+      document.removeEventListener("pointerdown", clear);
+      window.removeEventListener("scroll", clear, true);
+      window.removeEventListener("blur", clear);
+    };
+  }, []);
   const lastIndex = Math.max(0, pointCount - 1);
   const selectedIndex = pointCount > 0 && storedIndex !== null ? Math.min(storedIndex, lastIndex) : null;
   const plotWidth = width - padding.left - padding.right;
@@ -360,7 +379,9 @@ function useChartInspection(pointCount: number, width: number, padding: { left: 
     setStoredIndex(Math.round(ratio * lastIndex));
   };
   const onPointerMove = (event: ReactPointerEvent<SVGRectElement>) => selectAtClientX(event.clientX, event.currentTarget.ownerSVGElement!.getBoundingClientRect());
+  const clearInspection = () => setStoredIndex(null);
   const onKeyDown = (event: ReactKeyboardEvent<SVGRectElement>) => {
+    if (event.key === "Escape") { clearInspection(); event.currentTarget.blur(); return; }
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
     event.preventDefault();
     setStoredIndex((current) => {
@@ -370,7 +391,7 @@ function useChartInspection(pointCount: number, width: number, padding: { left: 
       return Math.max(0, Math.min(lastIndex, initial + (event.key === "ArrowLeft" ? -1 : 1)));
     });
   };
-  return { selectedIndex, onPointerMove, onKeyDown };
+  return { selectedIndex, onPointerMove, onPointerLeave: clearInspection, onPointerCancel: clearInspection, onBlur: clearInspection, onKeyDown };
 }
 
 function InspectionTooltip({ x, width, lines }: { x: number; width: number; lines: Array<{ label: string; value: string; color?: string }> }) {
@@ -397,7 +418,7 @@ function PredictionChart({ points, relationship }: { points: ProjectionPoint[]; 
   const extra = Math.max((rawMax - rawMin) * .1, .05);
   const min = rawMin - extra;
   const max = rawMax + extra;
-  const { selectedIndex, onPointerMove, onKeyDown } = useChartInspection(points.length, width, padding);
+  const { selectedIndex, onPointerMove, onPointerLeave, onBlur, onKeyDown } = useChartInspection(points.length, width, padding);
   const selectedPoint = selectedIndex === null ? null : points[selectedIndex];
   const selectedX = selectedIndex === null ? null : padding.left + (selectedIndex / Math.max(1, points.length - 1)) * (width - padding.left - padding.right);
   const y = (value: number) => padding.top + ((max - value) / Math.max(max - min, 1e-8)) * (height - padding.top - padding.bottom);
@@ -428,11 +449,11 @@ function PredictionChart({ points, relationship }: { points: ProjectionPoint[]; 
         { label: `${relationship.asset2.symbol} theory`, value: formatPct(selectedPoint.asset2Theoretical, 3), color: "#7152d4" },
       ]} />
     </>}
-    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Chart time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; ${relationship.asset1.symbol} actual ${formatPct(selectedPoint.asset1Return, 3)}; ${relationship.asset2.symbol} actual ${formatPct(selectedPoint.asset2Actual, 3)}; theoretical ${formatPct(selectedPoint.asset2Theoretical, 3)}` : "Move, tap, or use left and right arrow keys to inspect exact values"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onKeyDown={onKeyDown} />
+    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Chart time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; ${relationship.asset1.symbol} actual ${formatPct(selectedPoint.asset1Return, 3)}; ${relationship.asset2.symbol} actual ${formatPct(selectedPoint.asset2Actual, 3)}; theoretical ${formatPct(selectedPoint.asset2Theoretical, 3)}` : "Move, tap, or use left and right arrow keys to inspect exact values"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onPointerLeave={onPointerLeave} onBlur={onBlur} onKeyDown={onKeyDown} />
   </svg></div>;
 }
 
-function FairPriceChart({ points, cash, currentFair }: { points: ProjectionPoint[]; cash: boolean; currentFair?: { priceUsd: number; updatedAt: number } | null }) {
+function FairPriceChart({ points, cash, productCode, currentFair }: { points: ProjectionPoint[]; cash: boolean; productCode: "7709" | "7747"; currentFair?: { priceUsd: number; updatedAt: number } | null }) {
   const width = 920;
   const height = 300;
   const padding = { left: 64, right: 24, top: 24, bottom: 42 };
@@ -448,14 +469,14 @@ function FairPriceChart({ points, cash, currentFair }: { points: ProjectionPoint
   const extra = Math.max((high - low) * .12, high * .002);
   const min = low - extra;
   const max = high + extra;
-  const { selectedIndex, onPointerMove, onKeyDown } = useChartInspection(points.length, width, padding);
+  const { selectedIndex, onPointerMove, onPointerLeave, onBlur, onKeyDown } = useChartInspection(points.length, width, padding);
   const selectedPoint = selectedIndex === null ? null : points[selectedIndex];
   const selectedX = selectedIndex === null ? null : padding.left + (selectedIndex / Math.max(1, count - 1)) * (width - padding.left - padding.right);
   const y = (value: number) => padding.top + ((max - value) / Math.max(max - min, 1e-8)) * (height - padding.top - padding.bottom);
   const pricePath = (prices: number[]) => prices.map((value, index) => `${index ? "L" : "M"}${(padding.left + index / Math.max(1, count - 1) * (width - padding.left - padding.right)).toFixed(2)},${y(value).toFixed(2)}`).join(" ");
   const decimals = cash ? 3 : 4;
   const currency = cash ? "HKD" : "USDT";
-  return <div className={styles.chartScroll}><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`7709 actual and theoretical fair price in ${currency}. Move, tap, or use arrow keys to inspect exact prices.`}>
+  return <div className={styles.chartScroll}><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${productCode} actual and theoretical fair price in ${currency}. Move, tap, or use arrow keys to inspect exact prices.`}>
     {[0, 1, 2, 3, 4].map((tick) => {
       const value = max - ((max - min) * tick) / 4;
       return <g key={tick}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} className={styles.gridLine} /><text x={padding.left - 9} y={y(value) + 4} textAnchor="end" className={styles.axisText}>{value.toFixed(decimals)}</text></g>;
@@ -475,11 +496,11 @@ function FairPriceChart({ points, cash, currentFair }: { points: ProjectionPoint
       <circle cx={selectedX} cy={y(selectedPoint.asset2TheoreticalPrice * multiplier)} r="4" className={styles.inspectionDotTheory} />
       <InspectionTooltip x={selectedX} width={width} lines={[
         { label: formatTime(selectedPoint.t, true), value: "HKT" },
-        { label: "7709 market", value: `${(selectedPoint.asset2 * multiplier).toFixed(decimals)} ${currency}`, color: "#377ee8" },
-        { label: "7709 fair", value: `${(selectedPoint.asset2TheoreticalPrice * multiplier).toFixed(decimals)} ${currency}`, color: "#7152d4" },
+        { label: `${productCode} market`, value: `${(selectedPoint.asset2 * multiplier).toFixed(decimals)} ${currency}`, color: "#377ee8" },
+        { label: `${productCode} fair`, value: `${(selectedPoint.asset2TheoreticalPrice * multiplier).toFixed(decimals)} ${currency}`, color: "#7152d4" },
       ]} />
     </>}
-    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Fair price chart time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; market ${(selectedPoint.asset2 * multiplier).toFixed(decimals)} ${currency}; fair ${(selectedPoint.asset2TheoreticalPrice * multiplier).toFixed(decimals)} ${currency}` : "Move, tap, or use left and right arrow keys to inspect prices"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onKeyDown={onKeyDown} />
+    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Fair price chart time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; market ${(selectedPoint.asset2 * multiplier).toFixed(decimals)} ${currency}; fair ${(selectedPoint.asset2TheoreticalPrice * multiplier).toFixed(decimals)} ${currency}` : "Move, tap, or use left and right arrow keys to inspect prices"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onPointerLeave={onPointerLeave} onBlur={onBlur} onKeyDown={onKeyDown} />
   </svg></div>;
 }
 
@@ -491,7 +512,7 @@ function PredictionErrorChart({ points }: { points: ProjectionPoint[] }) {
   const maxMagnitude = Math.max(alertThreshold * 1.15, ...points.map((point) => Math.abs(point.predictionError))) * 1.08;
   const min = -maxMagnitude;
   const max = maxMagnitude;
-  const { selectedIndex, onPointerMove, onKeyDown } = useChartInspection(points.length, width, padding);
+  const { selectedIndex, onPointerMove, onPointerLeave, onBlur, onKeyDown } = useChartInspection(points.length, width, padding);
   const selectedPoint = selectedIndex === null ? null : points[selectedIndex];
   const selectedX = selectedIndex === null ? null : padding.left + (selectedIndex / Math.max(1, points.length - 1)) * (width - padding.left - padding.right);
   const y = (value: number) => padding.top + ((max - value) / (max - min)) * (height - padding.top - padding.bottom);
@@ -515,7 +536,7 @@ function PredictionErrorChart({ points }: { points: ProjectionPoint[] }) {
         { label: "Prediction error", value: formatPct(selectedPoint.predictionError, 3), color: Math.abs(selectedPoint.predictionError) >= alertThreshold ? "#d74f4c" : "#6d50cc" },
       ]} />
     </>}
-    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Prediction error time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; prediction error ${formatPct(selectedPoint.predictionError, 3)}` : "Move, tap, or use left and right arrow keys to inspect exact values"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onKeyDown={onKeyDown} />
+    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Prediction error time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; prediction error ${formatPct(selectedPoint.predictionError, 3)}` : "Move, tap, or use left and right arrow keys to inspect exact values"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onPointerLeave={onPointerLeave} onBlur={onBlur} onKeyDown={onKeyDown} />
   </svg></div>;
 }
 
@@ -530,7 +551,7 @@ function FxChart({ points }: { points: ProjectionPoint[] }) {
   const extra = Math.max((rawMax - rawMin) * .12, .01);
   const min = rawMin - extra;
   const max = rawMax + extra;
-  const { selectedIndex, onPointerMove, onKeyDown } = useChartInspection(fxPoints.length, width, padding);
+  const { selectedIndex, onPointerMove, onPointerLeave, onBlur, onKeyDown } = useChartInspection(fxPoints.length, width, padding);
   if (fxPoints.length < 2) return null;
   const selectedPoint = selectedIndex === null ? null : fxPoints[selectedIndex];
   const selectedX = selectedIndex === null ? null : padding.left + (selectedIndex / Math.max(1, fxPoints.length - 1)) * (width - padding.left - padding.right);
@@ -540,7 +561,7 @@ function FxChart({ points }: { points: ProjectionPoint[] }) {
     <line x1={padding.left} x2={width - padding.right} y1={y(0)} y2={y(0)} className={styles.zeroLine} />
     <path d={linePath(values, width, height, padding, min, max)} className={styles.fxLine} />
     {selectedPoint && selectedX !== null && <><line x1={selectedX} x2={selectedX} y1={padding.top} y2={height - padding.bottom} className={styles.inspectionLine} /><circle cx={selectedX} cy={y(selectedPoint.fxReturn!)} r="4" className={styles.fxDot} /><InspectionTooltip x={selectedX} width={width} lines={[{ label: formatTime(selectedPoint.t, true), value: "HKT" }, { label: "USD/KRW", value: formatNumber(selectedPoint.fxValue!, 3), color: "#b7791f" }, { label: "Change from anchor", value: formatPct(selectedPoint.fxReturn!, 3), color: "#b7791f" }]} /></>}
-    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="USD/KRW chart time selector" aria-valuemin={0} aria-valuemax={Math.max(0, fxPoints.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, fxPoints.length - 1)} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onKeyDown={onKeyDown} />
+    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="USD/KRW chart time selector" aria-valuemin={0} aria-valuemax={Math.max(0, fxPoints.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, fxPoints.length - 1)} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onPointerLeave={onPointerLeave} onBlur={onBlur} onKeyDown={onKeyDown} />
   </svg></div>;
 }
 
@@ -551,7 +572,7 @@ function ResidualChart({ points }: { points: ProjectionPoint[] }) {
   const maxMagnitude = Math.max(3, ...points.map((point) => Math.abs(point.z))) * 1.08;
   const min = -maxMagnitude;
   const max = maxMagnitude;
-  const { selectedIndex, onPointerMove, onKeyDown } = useChartInspection(points.length, width, padding);
+  const { selectedIndex, onPointerMove, onPointerLeave, onBlur, onKeyDown } = useChartInspection(points.length, width, padding);
   const selectedPoint = selectedIndex === null ? null : points[selectedIndex];
   const selectedX = selectedIndex === null ? null : padding.left + (selectedIndex / Math.max(1, points.length - 1)) * (width - padding.left - padding.right);
   const y = (value: number) => padding.top + ((max - value) / (max - min)) * (height - padding.top - padding.bottom);
@@ -569,12 +590,14 @@ function ResidualChart({ points }: { points: ProjectionPoint[] }) {
         { label: "Z-score", value: `${formatNumber(selectedPoint.z, 3)}σ`, color: Math.abs(selectedPoint.z) >= 2 ? "#d74f4c" : "#6d50cc" },
       ]} />
     </>}
-    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Z-score time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; prediction error ${formatPct(selectedPoint.predictionError, 3)}; z-score ${formatNumber(selectedPoint.z, 3)} sigma` : "Move, tap, or use left and right arrow keys to inspect exact values"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onKeyDown={onKeyDown} />
+    <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className={styles.chartInspector} tabIndex={0} role="slider" aria-label="Z-score time selector" aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={selectedIndex ?? Math.max(0, points.length - 1)} aria-valuetext={selectedPoint ? `${formatTime(selectedPoint.t, true)} HKT; prediction error ${formatPct(selectedPoint.predictionError, 3)}; z-score ${formatNumber(selectedPoint.z, 3)} sigma` : "Move, tap, or use left and right arrow keys to inspect exact values"} onPointerMove={onPointerMove} onPointerDown={onPointerMove} onPointerLeave={onPointerLeave} onBlur={onBlur} onKeyDown={onKeyDown} />
   </svg></div>;
 }
 
-export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boolean }) {
-  const initialRelationshipId = pairOnly ? "skhynix-csop2l" : "qqq-ustech";
+export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProduct?: "7709" | "7747" }) {
+  const pairOnly = Boolean(dedicatedProduct);
+  const pairConfig = dedicatedProduct ? DEDICATED_PRODUCTS[dedicatedProduct] : null;
+  const initialRelationshipId = pairConfig?.perpRelationship ?? "qqq-ustech";
   const requestRef = useRef<AbortController | null>(null);
   const [relationshipId, setRelationshipId] = useState(initialRelationshipId);
   const [startInput, setStartInput] = useState(() => toHktInput(INITIAL_START));
@@ -585,8 +608,13 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
   const analysisRef = useRef<Analysis | null>(null);
   const liveRequestRef = useRef(false);
   const [lastLiveAt, setLastLiveAt] = useState(0);
+  const [monitorNow, setMonitorNow] = useState(INITIAL_NOW);
   const [liveError, setLiveError] = useState("");
   const [cashFairNow, setCashFairNow] = useState<{ priceUsd: number; updatedAt: number; anchorTime: number } | null>(null);
+  const [hedgeQuote, setHedgeQuote] = useState<HedgeQuote | null>(null);
+  const [hedgeError, setHedgeError] = useState("");
+  const [leverageInput, setLeverageInput] = useState("2.00");
+  const [targetLeverage, setTargetLeverage] = useState(2);
   const [livePrices, setLivePrices] = useState<{ relationshipId: string; asset1: number; asset2: number; updatedAt: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -598,7 +626,7 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
   const [rankings, setRankings] = useState<Map<string, RankingRow>>(new Map());
   const [rankingLoading, setRankingLoading] = useState(true);
   const [rankingUpdatedAt, setRankingUpdatedAt] = useState(0);
-  const relationships = useMemo(() => pairOnly ? SKHYNIX_7709_CHOICES : [...RELATIONSHIPS.filter((item) => !hiddenRelationshipIds.includes(item.id)), ...customRelationships], [customRelationships, hiddenRelationshipIds, pairOnly]);
+  const relationships = useMemo(() => pairConfig ? [...pairConfig.choices] : [...RELATIONSHIPS.filter((item) => !hiddenRelationshipIds.includes(item.id)), ...customRelationships], [customRelationships, hiddenRelationshipIds, pairConfig]);
   const cashAnchorTime = analysis?.points[0]?.t;
 
   useEffect(() => { analysisRef.current = analysis; }, [analysis]);
@@ -646,14 +674,16 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
     return () => window.cancelAnimationFrame(frame);
   }, [initialRelationshipId, pairOnly]);
 
-  const load = useCallback(async (options?: { relationship?: string; definition?: Relationship; start?: number; end?: number }) => {
+  const load = useCallback(async (options?: { relationship?: string; definition?: Relationship; start?: number; end?: number; leverage?: number }) => {
     requestRef.current?.abort();
     const controller = new AbortController();
     requestRef.current = controller;
     const start = options?.start ?? fromHktInput(startInput);
     const end = options?.end ?? fromHktInput(endInput);
     const relationshipIdToLoad = options?.relationship ?? relationshipId;
-    const relationship = options?.definition ?? relationships.find((item) => item.id === relationshipIdToLoad);
+    const baseRelationship = options?.definition ?? relationships.find((item) => item.id === relationshipIdToLoad);
+    const leverage = options?.leverage ?? targetLeverage;
+    const relationship = pairOnly && baseRelationship ? { ...baseRelationship, referenceBeta: leverage } : baseRelationship;
     const maximumWindow = relationship ? maxObservationMs(relationship) : MAX_STATISTICAL_OBSERVATION_MS;
     if (!relationship || !Number.isFinite(start) || !Number.isFinite(end) || start >= end || end - start > maximumWindow + 60_000) {
       setError("Choose a valid observation window of seven days or less.");
@@ -664,6 +694,7 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
     setError("");
     try {
       const params = new URLSearchParams({ relationship: relationshipIdToLoad, start: String(start), end: String(end) });
+      if (pairOnly) params.set("targetLeverage", String(leverage));
       if (relationship.kind === "custom") {
         params.set("asset1Venue", relationship.asset1.venue);
         params.set("asset1Symbol", relationship.asset1.symbol);
@@ -681,7 +712,7 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
     } finally {
       if (requestRef.current === controller) setLoading(false);
     }
-  }, [endInput, relationshipId, relationships, startInput]);
+  }, [endInput, pairOnly, relationshipId, relationships, startInput, targetLeverage]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => void load({ start: INITIAL_START, end: INITIAL_NOW }));
@@ -766,7 +797,7 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
   }, [followingLive, pairOnly, relationshipId]);
 
   useEffect(() => {
-    if (!pairOnly || !followingLive || relationshipId !== "skhynix-csop2l-futu") return;
+    if (!pairConfig || !followingLive || relationshipId !== pairConfig.cashRelationship) return;
     let stopped = false;
     let inFlight = false;
     const updateFair = async () => {
@@ -778,14 +809,14 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
         const now = Date.now();
         const params = new URLSearchParams({ start: String(now - 60 * 60_000), end: String(now), interval: "1m" });
         const [book, fxResponse] = await Promise.all([
-          directBinance<{ bidPrice?: string; askPrice?: string }>("/fapi/v1/ticker/bookTicker?symbol=SKHYNIXUSDT"),
+          directBinance<{ bidPrice?: string; askPrice?: string }>(`/fapi/v1/ticker/bookTicker?symbol=${pairConfig.stockPerp}`),
           fetch(`/api/blog/fx?${params}`, { cache: "no-store", signal: AbortSignal.timeout(8_000) }),
         ]);
         const bid = Number(book.bidPrice); const ask = Number(book.askPrice);
         const fxPayload = await fxResponse.json() as { live?: number };
         const fx = Number(fxPayload.live);
         if (!fxResponse.ok || !Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0 || !Number.isFinite(fx) || fx <= 0) throw new Error("Fresh predictor or FX quote unavailable.");
-        const priceUsd = skhynix7709FairPrice(first.asset2, first.asset1, (bid + ask) / 2, first.fxValue, fx);
+        const priceUsd = leveragedKoreanFairPrice(first.asset2, first.asset1, (bid + ask) / 2, first.fxValue, fx, current.model.beta);
         if (priceUsd === null) throw new Error("Fair price is not positive.");
         if (!stopped && analysisRef.current?.relationship.id === relationshipId && analysisRef.current.points[0]?.t === first.t) setCashFairNow({ priceUsd, updatedAt: Date.now(), anchorTime: first.t });
       } catch {
@@ -795,13 +826,56 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
     void updateFair();
     const timer = window.setInterval(() => void updateFair(), PAIR_LIVE_REFRESH_MS);
     return () => { stopped = true; window.clearInterval(timer); };
-  }, [analysis?.relationship.id, cashAnchorTime, followingLive, pairOnly, relationshipId]);
+  }, [analysis?.relationship.id, cashAnchorTime, followingLive, pairConfig, relationshipId, targetLeverage]);
 
   useEffect(() => {
     if (!pairOnly) return;
-    const timer = window.setInterval(() => setCashFairNow((previous) => previous && Date.now() - previous.updatedAt > 30_000 ? null : previous), 10_000);
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setMonitorNow(now);
+      setCashFairNow((previous) => previous && now - previous.updatedAt > 30_000 ? null : previous);
+    }, 10_000);
     return () => window.clearInterval(timer);
   }, [pairOnly]);
+
+  useEffect(() => {
+    if (!pairConfig || !dedicatedProduct) return;
+    let stopped = false;
+    let inFlight = false;
+    const updateHedgeQuote = async () => {
+      if (stopped || inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
+      try {
+        const now = Date.now();
+        const cashParams = new URLSearchParams({ symbol: `HK.0${dedicatedProduct}`, usdHkd: "7.84", start: String(now - 7 * 24 * 60 * 60_000), end: String(now), interval: "1m", latestOnly: "1" });
+        const fxParams = new URLSearchParams({ start: String(now - 60 * 60_000), end: String(now), interval: "1m" });
+        const [cashResponse, stockBook, fxResponse] = await Promise.all([
+          fetch(`/api/blog/futu?${cashParams}`, { cache: "no-store", signal: AbortSignal.timeout(8_000) }),
+          directBinance<{ bidPrice?: string; askPrice?: string }>(`/fapi/v1/ticker/bookTicker?symbol=${pairConfig.stockPerp}`),
+          fetch(`/api/blog/fx?${fxParams}`, { cache: "no-store", signal: AbortSignal.timeout(8_000) }),
+        ]);
+        const cash = await cashResponse.json() as { live?: number | null; points?: PricePoint[]; error?: string };
+        const fx = await fxResponse.json() as { live?: number | null; points?: PricePoint[]; error?: string };
+        if (!cashResponse.ok || !fxResponse.ok) throw new Error(cash.error || fx.error || "Cash or FX reference unavailable.");
+        const lastCash = cash.points?.at(-1);
+        const cashLive = Number.isFinite(cash.live) && Number(cash.live) > 0;
+        const productPriceUsd = cashLive ? Number(cash.live) : Number(lastCash?.value);
+        const stockBid = Number(stockBook.bidPrice);
+        const stockAsk = Number(stockBook.askPrice);
+        const usdKrw = Number(fx.live);
+        if (![productPriceUsd, stockBid, stockAsk, usdKrw].every((value) => Number.isFinite(value) && value > 0)) throw new Error("Cash ETF, underlying or USD/KRW quote unavailable.");
+        if (!stopped) {
+          setHedgeQuote({ productPriceHkd: productPriceUsd * 7.84, productTime: cashLive ? now : Number(lastCash?.t) || now, cashLive, stockPriceUsd: (stockBid + stockAsk) / 2, usdKrw, fxTime: Number(fx.points?.at(-1)?.t) || 0, updatedAt: now });
+          setHedgeError("");
+        }
+      } catch (quoteError) {
+        if (!stopped) { setHedgeQuote(null); setHedgeError(quoteError instanceof Error ? quoteError.message : "Hedge inputs unavailable."); }
+      } finally { inFlight = false; }
+    };
+    void updateHedgeQuote();
+    const timer = window.setInterval(() => void updateHedgeQuote(), PAIR_LIVE_REFRESH_MS);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [dedicatedProduct, pairConfig]);
 
   useEffect(() => {
     if (pairOnly) return;
@@ -894,6 +968,17 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
   const neutralAsset1Shares500 = neutralAsset1Shares === null ? null : neutralAsset1Shares * 5;
   const neutralAsset2Side = analysis?.stats.predictionError && analysis.stats.predictionError > 0 ? "SHORT" : "LONG";
   const neutralAsset1Side = analysis ? analysis.model.beta >= 0 ? neutralAsset2Side === "LONG" ? "SHORT" : "LONG" : neutralAsset2Side : "—";
+  const hedge = hedgeQuote
+    ? leveragedKoreanHedge(1_000, hedgeQuote.productPriceHkd, hedgeQuote.stockPriceUsd, hedgeQuote.usdKrw, 7.84, targetLeverage)
+    : null;
+  const hedgeFresh = Boolean(hedgeQuote?.cashLive && monitorNow - hedgeQuote.updatedAt <= 30_000 && Math.abs(monitorNow - hedgeQuote.fxTime) <= 60_000);
+  const applyLeverage = () => {
+    const value = Number(leverageInput);
+    if (!Number.isFinite(value) || value < 1.1 || value > 2) { setLeverageInput(targetLeverage.toFixed(2)); return; }
+    setTargetLeverage(value);
+    setCashFairNow(null);
+    void load({ leverage: value });
+  };
   const chooseRelationship = (id: string) => {
     const relationship = relationships.find((item) => item.id === id);
     if (!relationship) return;
@@ -990,8 +1075,8 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
 
   return <main className={styles.shell}><div className={styles.frame}>
     <header className={styles.topbar}>
-      <div><p className={styles.eyebrow}>{pairOnly ? "SK HYNIX · 7709 PRICE COMPARISON" : "TEN-SECOND RELATIVE VALUE"}</p><h1>{pairOnly ? "SK Hynix ↔ 7709" : "Relative Value Monitor"}</h1><p>{pairOnly ? "Choose the Futu 7709 cash quote or Binance 7709 perpetual. Compare each market price with an anchor-based +2× theoretical fair price." : "The selected predictor explains the paired contract's move. Live midpoint, theoretical return and deviation refresh every 10 seconds; the historical curve remains aligned to one-minute candles."}</p></div>
-      <div className={styles.topActions}><span className={styles.releaseBadge}>RELEASE 08.14 · 7D + NEWS HOLD</span><span title={pairOnly && !followingLive ? "Historical mode pauses live updates" : liveError || (lastLiveAt ? `Last live update ${formatTime(lastLiveAt)} HKT` : "Waiting for live quote")} className={`${styles.connection} ${lastLiveAt && !liveError && (!pairOnly || followingLive) ? styles.online : ""}`}><i />{pairOnly && !followingLive ? "History · paused" : loading && !analysis ? "Loading history" : liveError ? pairOnly && relationshipId === "skhynix-csop2l-futu" ? "Cash book closed / stale" : "Live quote retrying" : lastLiveAt ? `Live · ${pairOnly ? "2s" : "10s"}` : "Connecting live"}</span><PageSwitcher active={pairOnly ? "skhynix" : "blog"} /></div>
+      <div><p className={styles.eyebrow}>{pairConfig ? `${pairConfig.stockName.toUpperCase()} · ${dedicatedProduct} PRICE COMPARISON` : "TEN-SECOND RELATIVE VALUE"}</p><h1>{pairConfig ? `${pairConfig.stockName} ↔ ${dedicatedProduct}` : "Relative Value Monitor"}</h1><p>{pairConfig ? `Compare Futu ${dedicatedProduct} cash with its Binance perpetual, see an anchor-based fair-price scenario, and size a ${pairConfig.stockCode} / FX hedge.` : "The selected predictor explains the paired contract's move. Live midpoint, theoretical return and deviation refresh every 10 seconds; the historical curve remains aligned to one-minute candles."}</p></div>
+      <div className={styles.topActions}><span className={styles.releaseBadge}>RELEASE 08.14 · 7D + NEWS HOLD</span><span title={pairOnly && !followingLive ? "Historical mode pauses live updates" : liveError || (lastLiveAt ? `Last live update ${formatTime(lastLiveAt)} HKT` : "Waiting for live quote")} className={`${styles.connection} ${lastLiveAt && !liveError && (!pairOnly || followingLive) ? styles.online : ""}`}><i />{pairOnly && !followingLive ? "History · paused" : loading && !analysis ? "Loading history" : liveError ? pairConfig && relationshipId === pairConfig.cashRelationship ? "Cash book closed / stale" : "Live quote retrying" : lastLiveAt ? `Live · ${pairOnly ? "2s" : "10s"}` : "Connecting live"}</span><PageSwitcher active={dedicatedProduct === "7709" ? "skhynix" : dedicatedProduct === "7747" ? "samsung" : "blog"} /></div>
     </header>
 
     <section className={styles.universeStrip}>
@@ -1020,11 +1105,20 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
       </aside>}
 
       <div className={styles.analysisColumn}>
-        {pairOnly && <section className={styles.sourceSelector} aria-label="7709 price source">
-          <div><span>7709 PRICE SOURCE</span><strong>Compare cash and perpetual pricing</strong><small>Only this pair changes; the rest of Relative Value Monitor stays as before.</small></div>
+        {pairConfig && <section className={styles.hedgePanel} aria-label={`${dedicatedProduct} stock and FX hedge sizing`}>
+          <div className={styles.hedgeHeader}><div><span>HEDGE RATIO · FIRST</span><h2>1,000 shares of {dedicatedProduct}</h2><p>{hedgeFresh ? "Live Futu cash midpoint" : hedgeQuote ? `Last Futu cash price · ${formatTime(hedgeQuote.productTime, true)} HKT · indicative` : "Waiting for Futu cash price"} · {hedgeQuote ? `USD/KRW ${hedgeQuote.usdKrw.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "USD/KRW unavailable"}</p></div><label>Assumed daily factor <input type="number" min="1.1" max="2" step="0.01" value={leverageInput} onChange={(event) => setLeverageInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") applyLeverage(); }} /><button type="button" onClick={applyLeverage}>Apply</button></label></div>
+          {hedge ? <div className={styles.hedgeGrid}>
+            <div><span>STOCK-EQUIVALENT HEDGE</span><strong>≈ {hedge.stockShares.toLocaleString("en-US", { maximumFractionDigits: 1 })} shares</strong><small>{pairConfig.stockCode} · {pairConfig.stockName} · opposite ETF side</small></div>
+            <div><span>FX HEDGE FOR LONG ETF · SHORT USD/KRW</span><strong>USD {hedge.stockExposureUsd.toLocaleString("en-US", { maximumFractionDigits: 0 })}</strong><small>Sell USD / buy KRW on ≈ KRW {hedge.stockExposureKrw.toLocaleString("en-US", { maximumFractionDigits: 0 })} model notional · reverse for short ETF</small></div>
+            <div><span>INPUTS USED</span><strong>HKD {hedge.productHkd.toLocaleString("en-US", { maximumFractionDigits: 0 })}</strong><small>ETF cash notional · implied {pairConfig.stockCode} KRW {hedge.impliedStockKrw.toLocaleString("en-US", { maximumFractionDigits: 0 })}/share · β {targetLeverage.toFixed(2)}×</small></div>
+          </div> : <p className={styles.hedgeUnavailable}>{hedgeError || "Waiting for Futu cash ETF price, underlying quote and USD/KRW rate."} No hedge quantity is shown until all three are available.</p>}
+          <p className={styles.hedgeCaveat}>Scenario only: Binance {pairConfig.stockPerp} × USD/KRW gives an <em>implied</em> KRX share price, not a verified KRX cash quote. For a long ETF hedged with a short USD-priced stock proxy, the model FX leg is short USD/KRW (sell USD / buy KRW); reverse both sides for a short ETF. HKD/USD is fixed at 7.84. CSOP may set the actual daily factor below 2×; <a href={pairConfig.issuerUrl} target="_blank" rel="noreferrer">check the issuer notice ↗</a> before trading. Actual cash-stock settlement and product FX mechanics may differ.</p>
+        </section>}
+        {pairConfig && <section className={styles.sourceSelector} aria-label={`${dedicatedProduct} price source`}>
+          <div><span>{dedicatedProduct} PRICE SOURCE</span><strong>Compare cash and perpetual pricing</strong><small>Only this pair changes; the rest of Relative Value Monitor stays as before.</small></div>
           <div className={styles.sourceOptions}>
-            <button type="button" aria-pressed={relationshipId === "skhynix-csop2l-futu"} className={relationshipId === "skhynix-csop2l-futu" ? styles.sourceActive : ""} onClick={() => chooseRelationship("skhynix-csop2l-futu")}>Futu · HK.07709 cash</button>
-            <button type="button" aria-pressed={relationshipId === "skhynix-csop2l"} className={relationshipId === "skhynix-csop2l" ? styles.sourceActive : ""} onClick={() => chooseRelationship("skhynix-csop2l")}>Binance · 7709 perp</button>
+            <button type="button" aria-pressed={relationshipId === pairConfig.cashRelationship} className={relationshipId === pairConfig.cashRelationship ? styles.sourceActive : ""} onClick={() => chooseRelationship(pairConfig.cashRelationship)}>Futu · HK.0{dedicatedProduct} cash</button>
+            <button type="button" aria-pressed={relationshipId === pairConfig.perpRelationship} className={relationshipId === pairConfig.perpRelationship ? styles.sourceActive : ""} onClick={() => chooseRelationship(pairConfig.perpRelationship)}>Binance · {dedicatedProduct} perp</button>
           </div>
           <Link href="/blog">All relative-value pairs ↗</Link>
         </section>}
@@ -1045,7 +1139,7 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
         {error && <div className={styles.errorBox}><strong>Prediction unavailable</strong><span>{error}</span><button onClick={() => void load()}>Retry</button></div>}
 
         {analysis && selected && <>
-          {pairOnly && analysis.points.length > 0 && (() => {
+          {pairConfig && analysis.points.length > 0 && (() => {
             const cash = selected.asset2.venue === "futu";
             const factor = cash ? 7.84 : 1;
             const latest = analysis.points.at(-1)!;
@@ -1055,10 +1149,10 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
             const fairPriceUsd = currentProjection?.priceUsd ?? latest.asset2TheoreticalPrice;
             const premiumPct = (latest.asset2 / fairPriceUsd - 1) * 100;
             return <section className={styles.fairPanel}>
-              <div className={styles.fairHead}><div><span>7709 THEORETICAL FAIR PRICE{cash ? currentProjection ? " · CURRENT" : " · LAST ALIGNED" : ""}</span><h2>{(fairPriceUsd * factor).toFixed(digits)} <small>{unit}</small></h2><p>Anchor 7709 price × [1 + 2 × ((SK Hynix now / anchor) × (USD/KRW now / anchor) − 1)] · as of {formatTime(currentProjection?.updatedAt ?? latest.t, true)} HKT</p></div><div><span>7709 MARKET PRICE{currentProjection ? " · LAST CASH" : ""}</span><strong>{(latest.asset2 * factor).toFixed(digits)} {unit}</strong><small>{currentProjection ? "Last cash vs current fair (indicative)" : "Market vs fair"}: {formatPct(premiumPct, 3)} · market as of {formatTime(latest.t, true)} HKT</small></div></div>
-              <div className={styles.fairLegend}><span><i className={styles.legendB} />7709 market</span><span><i className={styles.legendTheory} />7709 theoretical fair price</span></div>
-              <FairPriceChart points={analysis.points} cash={cash} currentFair={currentProjection} />
-              <p className={styles.fairCaveat}>Anchor: first aligned 7709 and SK Hynix quote at {formatTime(analysis.points[0].t, true)} HKT. {cash ? "Futu HKD prices shown in HKD; the model converts at a fixed 7.84 HKD/USD for calculation. Outside a fresh HK cash book the chart stays at the last aligned observation, not a live executable price." : "Binance perpetual prices shown in USDT. The estimate is anchored to the selected 7709 perp price, not to the cash ETF NAV; funding and basis can persist."} Fair value is conditional on that anchor, not an independent valuation.</p>
+              <div className={styles.fairHead}><div><span>{dedicatedProduct} THEORETICAL FAIR PRICE{cash ? currentProjection ? " · CURRENT" : " · LAST ALIGNED" : ""}</span><h2>{(fairPriceUsd * factor).toFixed(digits)} <small>{unit}</small></h2><p>Anchor {dedicatedProduct} price × [1 + {analysis.model.beta.toFixed(2)} × (({pairConfig.stockName} now / anchor) × (USD/KRW now / anchor) − 1)] · as of {formatTime(currentProjection?.updatedAt ?? latest.t, true)} HKT</p></div><div><span>{dedicatedProduct} MARKET PRICE{currentProjection ? " · LAST CASH" : ""}</span><strong>{(latest.asset2 * factor).toFixed(digits)} {unit}</strong><small>{currentProjection ? "Last cash vs current fair (indicative)" : "Market vs fair"}: {formatPct(premiumPct, 3)} · market as of {formatTime(latest.t, true)} HKT</small></div></div>
+              <div className={styles.fairLegend}><span><i className={styles.legendB} />{dedicatedProduct} market</span><span><i className={styles.legendTheory} />{dedicatedProduct} theoretical fair price</span></div>
+              <FairPriceChart points={analysis.points} cash={cash} productCode={dedicatedProduct!} currentFair={currentProjection} />
+              <p className={styles.fairCaveat}>Anchor: first aligned {dedicatedProduct} and {pairConfig.stockName} quote at {formatTime(analysis.points[0].t, true)} HKT. {cash ? "Futu HKD prices are converted at the fixed 7.84 HKD/USD assumption. Outside a fresh HK cash book, the market series is last aligned, not live executable." : `Binance perpetual prices are in USDT. This is anchored to the ${dedicatedProduct} perp, not ETF NAV.`} The displayed β {analysis.model.beta.toFixed(2)}× is an assumption until checked against CSOP&apos;s daily target; fair value is conditional on the anchor, not an independent valuation.</p>
             </section>;
           })()}
           <section className={styles.heroCard}>
@@ -1082,13 +1176,13 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
 
           <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>THEORETICAL RETURN ENGINE</span><h3>{selected.asset2.symbol} actual versus model</h3><p>{analysis.points.length.toLocaleString()} aligned points · {analysis.interval} resolution</p></div><div className={styles.legend}><span><i className={styles.legendA} />{selected.asset1.symbol} actual</span><span><i className={styles.legendB} />{selected.asset2.symbol} actual</span><span><i className={styles.legendTheory} />{selected.asset2.symbol} theoretical</span></div></div><PredictionChart points={analysis.points} relationship={selected} /></section>
 
-          {selected.predictorFx && <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>FX INPUT</span><h3>USD/KRW change from the selected anchor</h3><p>Only the relative FX move enters the 7709 theoretical price; the absolute exchange-rate level does not.</p></div><div className={styles.errorSnapshot}><span>LATEST FX MOVE</span><strong>{formatPct(analysis.stats.fxReturn ?? 0, 3)}</strong></div></div><FxChart points={analysis.points} /></section>}
+          {selected.predictorFx && <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>FX INPUT</span><h3>USD/KRW change from the selected anchor</h3><p>Only the relative FX move enters the theoretical product price; the absolute exchange-rate level does not.</p></div><div className={styles.errorSnapshot}><span>LATEST FX MOVE</span><strong>{formatPct(analysis.stats.fxReturn ?? 0, 3)}</strong></div></div><FxChart points={analysis.points} /></section>}
 
           <section className={`${styles.chartPanel} ${styles.errorChartPanel}`}><div className={styles.panelHead}><div><span>PREDICTION ERROR HISTORY</span><h3>Actual {selected.asset2.symbol} minus theoretical return</h3><p>Cumulative percentage-point error from the selected anchor · ±2% broadcast threshold</p></div><div className={styles.errorSnapshot}><span>LATEST ERROR</span><strong className={analysis.stats.predictionError >= 0 ? styles.positive : styles.negative}>{formatPct(analysis.stats.predictionError, 3)}</strong></div></div><PredictionErrorChart points={analysis.points} /></section>
 
           {!formulaOnly && <section className={styles.chartPanel}><div className={styles.panelHead}><div><span>STANDARDIZED ERROR MONITOR</span><h3>Prediction error significance</h3></div><p>Watch at ±1.5σ · dislocation at ±2σ · suppressed when model quality is weak.</p></div><ResidualChart points={analysis.points} /></section>}
 
-          {neutralPrices && neutralAsset1Shares !== null && neutralAsset1Shares500 !== null && <section className={styles.neutralPanel}>
+          {!pairOnly && neutralPrices && neutralAsset1Shares !== null && neutralAsset1Shares500 !== null && <section className={styles.neutralPanel}>
             <div className={styles.neutralIntro}><span>LIVE β-NEUTRAL SHARE PAIRS</span><h3>Ready-sized market-neutral legs</h3><p>Both presets update from live midpoints every {pairOnly ? "2" : "10"} seconds. Quantities target |β| : 1 notionals before exchange step-size rounding.</p></div>
             <div className={`${styles.neutralPreset} ${styles.neutralPrimary}`}>
               <span>100-SHARE PRESET</span>
@@ -1105,7 +1199,7 @@ export default function RelativeValueBlog({ pairOnly = false }: { pairOnly?: boo
 
           <section className={styles.methodPanel}>
             <div><span>{analysis.model.method === "reference" ? "RULE VALIDATION" : "MODEL TRAINING"}</span><h3>{formulaOnly ? "The supplied beta runs without a minimum history requirement." : "The backtest never refits on its own result."}</h3><p>{formulaOnly ? "This contract is too new for a meaningful holdout test, so the engine skips regression and applies the supplied leverage multiplier directly. Validation metrics will appear automatically once enough aligned hourly history exists." : analysis.model.method === "reference" ? "This relationship has an explicit beta, so the site does not fit a coefficient. The preceding 45-day hourly history and holdout sample only test how reliably the zero-intercept structural formula behaved before the selected backtest." : "The coefficient is estimated from a 45-day hourly history ending three days before the selected backtest. The final 25% is kept out of training and reports correlation, R², error and coefficient drift."}</p></div>
-            <div><span>PREDICTION EQUATION</span><h3>{selected.predictorFx ? `${selected.asset2.symbol} price = P₀ × {1 + β × [(SKHXₜ / SKHX₀) × (USD/KRWₜ / USD/KRW₀) − 1]}.` : analysis.model.method === "reference" ? `${selected.asset2.symbol} = locked β × ${selected.asset1.symbol}.` : `${selected.asset2.symbol} = α × time + fitted β × ${selected.asset1.symbol}.`}</h3><p>{selected.predictorFx ? `Only the FX change between the selected anchor and each observation is used. For 7709, β is 2, so the KRW-local simple return since the anchor is doubled once.` : `The engine works in log-return space. It converts ${selected.asset1.symbol}'s cumulative move over the selected period into ${selected.asset2.symbol}'s theoretical move, then compares that number with ${selected.asset2.symbol}'s actual return. Funding, liquidity and oracle timing remain outside the formula.`}</p></div>
+            <div><span>PREDICTION EQUATION</span><h3>{selected.predictorFx ? `${selected.asset2.symbol} price = P₀ × {1 + β × [(${selected.asset1.symbol}ₜ / ${selected.asset1.symbol}₀) × (USD/KRWₜ / USD/KRW₀) − 1]}.` : analysis.model.method === "reference" ? `${selected.asset2.symbol} = locked β × ${selected.asset1.symbol}.` : `${selected.asset2.symbol} = α × time + fitted β × ${selected.asset1.symbol}.`}</h3><p>{selected.predictorFx ? `Only the FX change between the selected anchor and each observation is used. β ${analysis.model.beta.toFixed(2)}× is the selected scenario; verify the issuer's daily factor because the product is Max 2×, not necessarily fixed 2×.` : `The engine works in log-return space. It converts ${selected.asset1.symbol}'s cumulative move over the selected period into ${selected.asset2.symbol}'s theoretical move, then compares that number with ${selected.asset2.symbol}'s actual return. Funding, liquidity and oracle timing remain outside the formula.`}</p></div>
           </section>
 
           <section className={styles.sources}><div><span>RELATIONSHIP RESEARCH</span><h3>Issuer objectives and underlying links</h3></div><div className={styles.sourceGrid}>

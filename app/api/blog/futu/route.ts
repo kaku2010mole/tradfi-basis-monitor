@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     let live: number | null = null;
     try { live = futuLivePrice(leg); } catch { /* Historical cash prices remain readable after the HK session closes. */ }
     if (!points.length && live === null) throw new Error(`${symbol} Futu price history is unavailable.`);
-    return Response.json({ symbol, usdHkd, interval, live, points, generatedAt: Date.now() }, { headers: { "Cache-Control": "no-store, max-age=0" } });
+    return Response.json({ symbol, usdHkd, interval, live, points: url.searchParams.get("latestOnly") === "1" ? points.slice(-1) : points, generatedAt: Date.now() }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Futu data unavailable." }, { status: 503, headers: { "Cache-Control": "no-store, max-age=0" } });
   }

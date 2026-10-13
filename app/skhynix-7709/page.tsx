@@ -1,5 +1,5 @@
 import RelativeValueBlog from "../blog/page";
 
 export default function Skhynix7709Page() {
-  return <RelativeValueBlog pairOnly />;
+  return <RelativeValueBlog dedicatedProduct="7709" />;
 }

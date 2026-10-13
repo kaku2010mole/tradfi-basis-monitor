@@ -6,6 +6,7 @@ import {
   projectRelationship,
   RELATIONSHIPS,
   Relationship,
+  SAMSUNG_7747_FUTU,
   SKHYNIX_7709_FUTU,
   TRAINING_INTERVAL,
   trainRelationshipModel,
@@ -85,7 +86,7 @@ async function getSeries(leg: Relationship["asset1"], start: number, end: number
 
 async function getFixedModel(relationship: Relationship, now: number) {
   const { trainingStart, trainingEnd } = fixedTrainingWindow(now);
-  const key = `${relationship.id}:${trainingEnd}`;
+  const key = `${relationship.id}:${relationship.referenceBeta ?? "fit"}:${trainingEnd}`;
   const cached = modelCache.get(key);
   if (cached) return cached;
   const trainingSeries = (leg: Relationship["asset1"]) => getSeries(leg, trainingStart, trainingEnd, TRAINING_INTERVAL).catch((error) => {
@@ -158,7 +159,14 @@ function customRelationship(url: URL): Relationship | null {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const now = Date.now();
-  const relationship = [...RELATIONSHIPS, SKHYNIX_7709_FUTU].find((item) => item.id === (url.searchParams.get("relationship") || "qqq-ustech")) ?? customRelationship(url);
+  const selectedRelationship = [...RELATIONSHIPS, SKHYNIX_7709_FUTU, SAMSUNG_7747_FUTU].find((item) => item.id === (url.searchParams.get("relationship") || "qqq-ustech")) ?? customRelationship(url);
+  const leverageText = url.searchParams.get("targetLeverage");
+  const leverage = leverageText === null ? null : Number(leverageText);
+  if (leverage !== null && (!Number.isFinite(leverage) || leverage < 1.1 || leverage > 2)) {
+    return Response.json({ error: "Daily leverage assumption must be between 1.10 and 2.00." }, { status: 400 });
+  }
+  const dedicatedKorean = selectedRelationship && ["skhynix-csop2l", "skhynix-csop2l-futu", "samsung-csop2l", "samsung-csop2l-futu"].includes(selectedRelationship.id);
+  const relationship = leverage !== null && dedicatedKorean ? { ...selectedRelationship, referenceBeta: leverage } : selectedRelationship;
   const end = Math.min(Number(url.searchParams.get("end") || now), now);
   const start = Number(url.searchParams.get("start") || end - 24 * 60 * 60_000);
   if (!relationship) return Response.json({ error: "Unknown relationship." }, { status: 400 });

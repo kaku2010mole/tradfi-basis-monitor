@@ -88,16 +88,16 @@ export const RELATIONSHIPS: Relationship[] = [
     asset1: { venue: "binance", symbol: "SKHYNIXUSDT", label: "Binance SKHYNIX" }, asset2: { venue: "binance", symbol: "CSOPSKHYNIX2LUSDT", label: "Binance CSOP SKHYNIX 2L" },
     referenceBeta: 2, leveraged: true,
     predictorFx: { symbol: "KRW=X", label: "USD/KRW", source: "posley-ibkr" },
-    thesis: "Use only the change in USD/KRW from the selected anchor to recover SKHX's KRW-local return, then apply 7709's explicit +2 daily objective.",
-    caveat: "Theory doubles the KRW-local simple return since the anchor: (SKHXₜ/SKHX₀) × (USD/KRWₜ/USD/KRW₀) − 1. The FX level itself is not added. Daily reset, swap costs, oracle timing and liquidity can still create a fillable deviation.",
+    thesis: "Use the change in USD/KRW from the anchor to recover SK Hynix's KRW-local return, then apply the selected daily leverage assumption (maximum 2×).",
+    caveat: "CSOP's leverage factor can change daily and be below 2×. The default 2× is a scenario, not a verified factor; check the issuer's daily notice. Daily reset, swap costs, oracle timing and liquidity can create deviations.",
   },
   {
     id: "samsung-csop2l", title: "SAMSUNG → CSOP SAMSUNG 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
     asset1: { venue: "binance", symbol: "SAMSUNGUSDT", label: "Binance SAMSUNG" }, asset2: { venue: "binance", symbol: "CSOPSAMSUNG2LUSDT", label: "Binance CSOP SAMSUNG 2L" },
     referenceBeta: 2, leveraged: true,
     predictorFx: { symbol: "KRW=X", label: "USD/KRW", source: "posley-ibkr" },
-    thesis: "Use only the change in USD/KRW from the selected anchor to recover Samsung's KRW-local return, then apply the product's explicit +2 daily objective.",
-    caveat: "Theory doubles the KRW-local simple return since the anchor: (Samsungₜ/Samsung₀) × (USD/KRWₜ/USD/KRW₀) − 1. The FX level itself is not added. Daily reset, swap costs, oracle timing and liquidity can still create a fillable deviation.",
+    thesis: "Use the change in USD/KRW from the anchor to recover Samsung's KRW-local return, then apply the selected daily leverage assumption (maximum 2×).",
+    caveat: "CSOP's leverage factor can change daily and be below 2×. The default 2× is a scenario, not a verified factor; check the issuer's daily notice. Daily reset, swap costs, oracle timing and liquidity can create deviations.",
   },
   {
     id: "qqq-ustech", title: "QQQ → USTECH", short: "Cross-venue Nasdaq technology proxy", kind: "same-benchmark",
@@ -236,18 +236,33 @@ export const SKHYNIX_7709_FUTU: Relationship = {
   asset2: { venue: "futu", symbol: "HK.07709", label: "Futu CSOP SK Hynix 2L · USD/unit", usdHkd: 7.84 },
   referenceBeta: 2, leveraged: true,
   predictorFx: { symbol: "KRW=X", label: "USD/KRW", source: "posley-ibkr" },
-  thesis: "Compare the same +2× theoretical move with the exchange-listed 7709 cash price from Futu OpenD, rather than with the Binance 7709 perpetual.",
-  caveat: "Futu 7709 trades in HKD and is converted at the displayed fixed 7.84 HKD/USD assumption; percentage returns do not depend on that constant. Cash trading hours, daily reset and a closed or stale quote can differ from the 24/7 perpetual. A cash/perp difference is not automatically executable.",
+  thesis: "Compare the assumed leveraged move with the exchange-listed 7709 cash price from Futu OpenD, rather than with the Binance 7709 perpetual.",
+  caveat: "Futu 7709 trades in HKD and is converted at the displayed fixed 7.84 HKD/USD assumption; percentage returns do not depend on that constant. CSOP may lower its daily leverage factor below 2×. Cash trading hours, daily reset and a closed or stale quote can differ from the 24/7 perpetual.",
 };
 
 export const SKHYNIX_7709_CHOICES = [RELATIONSHIPS[0], SKHYNIX_7709_FUTU];
 
-export function skhynix7709FairPrice(anchor7709: number, anchorSkhynix: number, currentSkhynix: number, anchorUsdKrw: number, currentUsdKrw: number) {
-  if (![anchor7709, anchorSkhynix, currentSkhynix, anchorUsdKrw, currentUsdKrw].every((value) => Number.isFinite(value) && value > 0)) return null;
-  const krwLocalGrossReturn = currentSkhynix / anchorSkhynix * currentUsdKrw / anchorUsdKrw;
-  const fairPrice = anchor7709 * (1 + 2 * (krwLocalGrossReturn - 1));
+// Dedicated Samsung cash comparison; the general ranking still has only one Samsung model.
+export const SAMSUNG_7747_FUTU: Relationship = {
+  id: "samsung-csop2l-futu", title: "SAMSUNG → 7747 · Futu cash", short: "HK.07747 cash price instead of the Binance perp", kind: "leveraged-long",
+  asset1: { venue: "binance", symbol: "SAMSUNGUSDT", label: "Binance SAMSUNG" },
+  asset2: { venue: "futu", symbol: "HK.07747", label: "Futu CSOP Samsung 2L · USD/unit", usdHkd: 7.84 },
+  referenceBeta: 2, leveraged: true,
+  predictorFx: { symbol: "KRW=X", label: "USD/KRW", source: "posley-ibkr" },
+  thesis: "Compare the anchor-based Korean-local Samsung return with the exchange-listed 7747 cash price from Futu OpenD.",
+  caveat: "Futu 7747 trades in HKD and is converted at the displayed fixed 7.84 HKD/USD assumption. CSOP may lower its daily leverage factor below 2×; set the factor from the issuer notice before treating this as a hedge. Cash trading hours, reset, costs and stale quotes can differ from the perpetual.",
+};
+
+export const SAMSUNG_7747_CHOICES = [RELATIONSHIPS[1], SAMSUNG_7747_FUTU];
+
+export function leveragedKoreanFairPrice(anchorProduct: number, anchorStockUsd: number, currentStockUsd: number, anchorUsdKrw: number, currentUsdKrw: number, beta = 2) {
+  if (![anchorProduct, anchorStockUsd, currentStockUsd, anchorUsdKrw, currentUsdKrw, beta].every((value) => Number.isFinite(value) && value > 0)) return null;
+  const krwLocalGrossReturn = currentStockUsd / anchorStockUsd * currentUsdKrw / anchorUsdKrw;
+  const fairPrice = anchorProduct * (1 + beta * (krwLocalGrossReturn - 1));
   return Number.isFinite(fairPrice) && fairPrice > 0 ? fairPrice : null;
 }
+
+export const skhynix7709FairPrice = leveragedKoreanFairPrice;
 
 const mean = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 const standardDeviation = (values: number[], center = mean(values)) => values.length < 2 ? 0 : Math.sqrt(values.reduce((sum, value) => sum + (value - center) ** 2, 0) / (values.length - 1));

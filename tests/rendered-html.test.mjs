@@ -393,19 +393,55 @@ test("isolates SK Hynix / 7709 with Futu cash and Binance perp choices and a fai
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /SK Hynix ↔ 7709/);
-  assert.match(html, /Futu · HK\.07709 cash/);
-  assert.match(html, /Binance · 7709 perp/);
+  assert.match(html, /HEDGE RATIO · FIRST/);
+  assert.match(html, /1,000 shares of/);
+  assert.match(html.replaceAll("<!-- -->", ""), /Futu · HK\.07709 cash/);
+  assert.match(html.replaceAll("<!-- -->", ""), /Binance · 7709 perp/);
   assert.match(html, /LIVE MONITORING/);
   assert.match(html, /Prices refresh automatically every 2 seconds/);
   assert.match(html, /View history/);
   assert.doesNotMatch(html, /History start · HKT|Backtest start · HKT/);
   assert.match(switcher, /href="\/skhynix-7709"/);
-  assert.match(page, /7709 THEORETICAL FAIR PRICE/);
+  assert.match(page, /THEORETICAL FAIR PRICE/);
+  assert.match(page, /onPointerLeave=\{onPointerLeave\} onBlur=\{onBlur\}/);
+  assert.match(page, /const hedge = hedgeQuote/);
+  assert.doesNotMatch(page, /leveragedKoreanHedge\(1_000, neutralPrices\.asset2/);
   assert.match(page, /FairPriceChart/);
   assert.match(relativeValue, /id: "skhynix-csop2l-futu"/);
   assert.match(relativeValue, /symbol: "HK\.07709"/);
   assert.match(pusher, /HK\.07709/);
   assert.match(analysisRoute, /SKHYNIX_7709_FUTU/);
+});
+
+test("adds a separate 7747 page and sizes both Korean stock and FX legs from a 1,000-unit ETF position", async () => {
+  const [response, switcher, model, pusher, route, hedgeSource] = await Promise.all([
+    render("/samsung-7747"),
+    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/relativeValue.ts", import.meta.url), "utf8"),
+    readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/blog/analysis/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/leveragedKoreanHedge.ts", import.meta.url), "utf8"),
+  ]);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Samsung Electronics ↔ 7747/);
+  assert.match(html, /1,000 shares of/);
+  assert.match(html.replaceAll("<!-- -->", ""), /Futu · HK\.07747 cash/);
+  assert.match(html.replaceAll("<!-- -->", ""), /Binance · 7747 perp/);
+  assert.match(html, /005930/);
+  assert.match(switcher, /href="\/samsung-7747"/);
+  assert.match(model, /id: "samsung-csop2l-futu"/);
+  assert.match(model, /symbol: "HK\.07747"/);
+  assert.match(pusher, /HK\.07747/);
+  assert.match(route, /targetLeverage/);
+  const { leveragedKoreanHedge } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(hedgeSource)).toString("base64")}`);
+  const result = leveragedKoreanHedge(1_000, 20, 100, 1300, 8, 1.5);
+  assert.equal(result.productHkd, 20_000);
+  assert.equal(result.productUsd, 2_500);
+  assert.equal(result.stockShares, 37.5);
+  assert.equal(result.stockExposureUsd, 3_750);
+  assert.equal(result.stockExposureKrw, 4_875_000);
+  assert.equal(leveragedKoreanHedge(1_000, 0, 100, 1300, 8, 2), null);
 });
 
 test("estimates the current 7709 price from the KRW-local SK Hynix move", async () => {
@@ -415,7 +451,7 @@ test("estimates the current 7709 price from the KRW-local SK Hynix move", async 
   assert.equal(skhynix7709FairPrice(10, 100, 30, 1300, 1300), null);
 });
 
-test("Futu 7709 keeps cash history but never treats a closed or stale book as live", async () => {
+test("Futu 7709 and 7747 keep cash history but never treat a closed or stale book as live", async () => {
   const prior = globalThis.__FUTU_PUSH_SNAPSHOT__;
   const now = Date.now();
   const first = Math.floor((now - 3 * 60_000) / 60_000) * 60_000;
@@ -423,8 +459,8 @@ test("Futu 7709 keeps cash history but never treats a closed or stale book as li
     receivedAt: now,
     payload: {
       generatedAt: now,
-      quotes: [{ symbol: "HK.07709", marketState: "MORNING", bid: 79.9, ask: 80.1, marketTimestamp: now }],
-      history: { "HK.07709": [[first, 79], [first + 60_000, 79.5]] },
+      quotes: [{ symbol: "HK.07709", marketState: "MORNING", bid: 79.9, ask: 80.1, marketTimestamp: now }, { symbol: "HK.07747", marketState: "MORNING", bid: 89.9, ask: 90.1, marketTimestamp: now }],
+      history: { "HK.07709": [[first, 79], [first + 60_000, 79.5]], "HK.07747": [[first, 89], [first + 60_000, 89.5]] },
     },
   };
   try {
@@ -432,12 +468,19 @@ test("Futu 7709 keeps cash history but never treats a closed or stale book as li
     const live = await render(url.slice("http://localhost".length));
     assert.equal(live.status, 200);
     assert.ok(Math.abs((await live.json()).live - 80 / 7.84) < 1e-10);
+    const samsungUrl = `http://localhost/api/blog/futu?symbol=HK.07747&usdHkd=7.84&start=${first - 60_000}&end=${now}&interval=1m`;
+    assert.ok(Math.abs((await (await render(samsungUrl.slice("http://localhost".length))).json()).live - 90 / 7.84) < 1e-10);
     globalThis.__FUTU_PUSH_SNAPSHOT__.payload.quotes[0].marketState = "CLOSED";
+    globalThis.__FUTU_PUSH_SNAPSHOT__.payload.quotes[1].marketState = "CLOSED";
     const closed = await render(url.slice("http://localhost".length));
     assert.equal(closed.status, 200);
     const closedPayload = await closed.json();
     assert.equal(closedPayload.live, null);
+    assert.equal((await (await render(samsungUrl.slice("http://localhost".length))).json()).live, null);
     assert.equal(closedPayload.points.at(-1).t, first + 60_000);
+    const compactCash = await (await render(`${samsungUrl.slice("http://localhost".length)}&latestOnly=1`)).json();
+    assert.equal(compactCash.points.length, 1);
+    assert.equal(compactCash.points[0].t, first + 60_000);
     globalThis.__FUTU_PUSH_SNAPSHOT__.payload.quotes[0].marketState = "MORNING";
     globalThis.__FUTU_PUSH_SNAPSHOT__.payload.quotes[0].marketTimestamp = now - 60_000;
     assert.equal((await (await render(url.slice("http://localhost".length))).json()).live, null);
