@@ -1,15 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { equityBasis, equitySpreads, preferCashLast } from "../lib/equityBasis";
+import { equityBasis, equitySpreads, impliedAdrBook, preferCashLast } from "../lib/equityBasis";
 import styles from "./KoreanPerpMonitor.module.css";
 
 const COGNITO_CLIENT_ID = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID ?? "5qup0una5tdma3l33pnn1gm87i";
 const COGNITO_DOMAIN = process.env.NEXT_PUBLIC_COGNITO_DOMAIN ?? "posley.auth.us-east-1.amazoncognito.com";
 
-type VenueQuote = { venue: string; symbol: string; bid: number | null; ask: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null; buyKoreaSellPerp: number | null; buyPerpSellKorea: number | null };
+type VenueQuote = { venue: string; symbol: string; sharesPerPerp?: number; bid: number | null; ask: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null; buyKoreaSellPerp: number | null; buyPerpSellKorea: number | null };
 type Session = "PRE-MARKET" | "OPENING AUCTION" | "REGULAR" | "AFTER-HOURS OPENING" | "AFTER-HOURS" | "LUNCH" | "CLOSED";
-type AdrQuote = { symbol: string; sharesPerAdr: number; source: string; marketState: string | null; bid: number | null; ask: number | null; last: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null; buyAdrSellPerp: number | null; buyPerpSellAdr: number | null };
+type AdrQuote = { symbol: string; sharesPerAdr: number; source: string; marketState: string | null; bid: number | null; ask: number | null; last: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null };
 type Row = { code: string; name: string; market: "KRX" | "TSE"; session: Session; currency: "KRW" | "JPY"; sharesPerPerp: number; cashBidKrw: number | null; cashAskKrw: number | null; cashLast: number | null; cashBidQty: number | null; cashAskQty: number | null; cashUpdatedAt: number | null; cashBidUsd: number | null; cashAskUsd: number | null; venues: VenueQuote[]; adr?: AdrQuote | null; mappingNote: string | null };
 type FxBook = { source: string; bid: number | null; ask: number | null; last: number | null; updatedAt: number | null };
 type BitgetOnlyKorean = { code: string; name: string; chineseName: string; symbol: string; bid: number | null; ask: number | null; last: number | null; updatedAt: number | null; impliedBidKrw: number | null; impliedAskKrw: number | null; impliedLastKrw: number | null };
@@ -24,7 +24,7 @@ const POLL_MS = 2_000;
 const EDGE_MAX_AGE_MS = 60_000;
 const isFresh = (timestamp: number | null | undefined, now: number) => Boolean(timestamp && now - timestamp <= EDGE_MAX_AGE_MS && timestamp - now < 5_000);
 const adrSpreads = (row: Row, adr: AdrQuote, perp: VenueQuote) => {
-  const scale = row.sharesPerPerp / adr.sharesPerAdr;
+  const scale = (perp.sharesPerPerp ?? row.sharesPerPerp) / adr.sharesPerAdr;
   const spreads = equitySpreads(adr.bid === null ? null : adr.bid * scale, adr.ask === null ? null : adr.ask * scale, perp);
   return { buyAdrSellPerp: spreads.buyKoreaSellPerp, buyPerpSellAdr: spreads.buyPerpSellKorea };
 };
@@ -42,7 +42,7 @@ function mergeRows(previous: Row[] = [], incoming: Row[] = []) {
     const prior = priorByCode.get(row.code);
     if (!prior) return row;
     const cash = (row.cashLast != null || row.cashBidKrw != null || row.cashAskKrw != null) && (row.cashUpdatedAt ?? 0) >= (prior.cashUpdatedAt ?? 0) ? row : prior;
-    const priorVenues = new Map(prior.venues.map((quote) => [quote.venue, quote]));
+    const priorVenues = new Map(prior.venues.map((quote) => [quote.symbol, quote]));
     return {
       ...row,
       cashBidKrw: cash.cashBidKrw, cashAskKrw: cash.cashAskKrw,
@@ -53,7 +53,7 @@ function mergeRows(previous: Row[] = [], incoming: Row[] = []) {
       cashUpdatedAt: cash.cashUpdatedAt,
       adr: row.adr && (row.adr.bid !== null || row.adr.ask !== null || row.adr.last !== null) && (row.adr.updatedAt ?? 0) >= (prior.adr?.updatedAt ?? 0) ? row.adr : prior.adr ?? row.adr,
       venues: row.venues.map((quote) => {
-        const older = priorVenues.get(quote.venue);
+        const older = priorVenues.get(quote.symbol);
         if (!older) return quote;
         const book = quote.bid !== null && quote.ask !== null && (quote.updatedAt ?? 0) >= (older.updatedAt ?? 0) ? quote : older;
         return { ...book, buyKoreaSellPerp: quote.buyKoreaSellPerp, buyPerpSellKorea: quote.buyPerpSellKorea };
@@ -128,22 +128,25 @@ export default function KoreanPerpMonitor() {
   const liveEdges = (payload.rows ?? []).flatMap((row) => {
     const fx = row.market === "TSE" ? payload.yenFx : payload.fx;
     const cashActive = row.session === "REGULAR" || row.market === "KRX" && row.session === "AFTER-HOURS";
-    const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, row.sharesPerPerp,
-      preferCashLast(row.market, row.session, row.cashUpdatedAt, clock));
-    const cashEdges = cashActive && !basis.usesLast && !basis.usesFxLast && row.cashBidQty && row.cashAskQty && isFresh(row.cashUpdatedAt, clock) && isFresh(fx?.updatedAt, clock)
+    const cashEdges = cashActive && row.cashBidQty && row.cashAskQty && isFresh(row.cashUpdatedAt, clock) && isFresh(fx?.updatedAt, clock)
       ? row.venues.flatMap((quote) => {
         if (!isFresh(quote.updatedAt, clock) || !quote.bidQty || !quote.askQty) return [];
+        const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, quote.sharesPerPerp ?? row.sharesPerPerp,
+          preferCashLast(row.market, row.session, row.cashUpdatedAt, clock));
+        if (basis.usesLast || basis.usesFxLast) return [];
         const spreads = equitySpreads(basis.cashBidUsd, basis.cashAskUsd, quote);
-        return [{ value: spreads.buyKoreaSellPerp, direction: `Buy ${row.market} · sell ${quote.venue}`, name: row.name, code: row.code, source: row.market === "KRX" ? "KRX route unverified" : "Live TSE BBO" },
-          { value: spreads.buyPerpSellKorea, direction: `Buy ${quote.venue} · sell ${row.market}`, name: row.name, code: row.code, source: row.market === "KRX" ? "KRX route unverified" : "Live TSE BBO" }];
+        return [{ value: spreads.buyKoreaSellPerp, direction: `Buy ${row.market} · sell ${quote.symbol}`, name: row.name, code: row.code, source: row.market === "KRX" ? "KRX route unverified" : "Live TSE BBO" },
+          { value: spreads.buyPerpSellKorea, direction: `Buy ${quote.symbol} · sell ${row.market}`, name: row.name, code: row.code, source: row.market === "KRX" ? "KRX route unverified" : "Live TSE BBO" }];
       }) : [];
     const adr = row.adr;
-    const perp = row.venues.find((quote) => quote.venue === "Bitget");
     const adrActive = payload.sessions?.US === "REGULAR" && (!adr?.marketState || ["MORNING", "AFTERNOON", "REGULAR"].includes(adr.marketState.toUpperCase()));
-    const adrBasis = adr && perp ? adrSpreads(row, adr, perp) : null;
-    const adrEdges = adr && perp && adrActive && isFresh(adr.updatedAt, clock) && isFresh(perp.updatedAt, clock) && adr.bidQty && adr.askQty && perp.bidQty && perp.askQty
-      ? [{ value: adrBasis?.buyAdrSellPerp ?? null, direction: `Buy ${adr.symbol} · sell Bitget`, name: row.name, code: row.code, source: "Live U.S. ADR BBO" },
-        { value: adrBasis?.buyPerpSellAdr ?? null, direction: `Buy Bitget · sell ${adr.symbol}`, name: row.name, code: row.code, source: "Live U.S. ADR BBO" }] : [];
+    const adrEdges = adr && adrActive && isFresh(adr.updatedAt, clock) && adr.bidQty && adr.askQty
+      ? row.venues.flatMap((perp) => {
+        if (!isFresh(perp.updatedAt, clock) || !perp.bidQty || !perp.askQty) return [];
+        const adrBasis = adrSpreads(row, adr, perp);
+        return [{ value: adrBasis.buyAdrSellPerp, direction: `Buy ${adr.symbol} · sell ${perp.symbol}`, name: row.name, code: row.code, source: "Live U.S. ADR BBO" },
+          { value: adrBasis.buyPerpSellAdr, direction: `Buy ${perp.symbol} · sell ${adr.symbol}`, name: row.name, code: row.code, source: "Live U.S. ADR BBO" }];
+      }) : [];
     return [...cashEdges, ...adrEdges].flatMap((edge) => edge.value !== null && edge.value > 0 ? [{ ...edge, value: edge.value }] : []);
   }).sort((left, right) => right.value - left.value);
   const activeCashRows = (payload.rows ?? []).filter((row) => row.session === "REGULAR" || row.market === "KRX" && row.session === "AFTER-HOURS");
@@ -181,47 +184,54 @@ export default function KoreanPerpMonitor() {
     const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, row.sharesPerPerp,
       preferCashLast(row.market, row.session, row.cashUpdatedAt, clock));
     const adr = row.adr;
-    const perp = row.venues.find((quote) => quote.venue === "Bitget");
     const adrActive = payload.sessions?.US === "REGULAR" && (!adr?.marketState || ["MORNING", "AFTERNOON", "REGULAR"].includes(adr.marketState.toUpperCase()));
-    const adrLive = Boolean(adr && perp && adrActive && isFresh(adr.updatedAt, clock) && isFresh(perp.updatedAt, clock) && adr.bidQty && adr.askQty && perp.bidQty && perp.askQty);
-    const adrBasis = adr && perp ? adrSpreads(row, adr, perp) : null;
-    const adrHeadline = adrBasis ? [
-      { value: adrBasis.buyAdrSellPerp, direction: `Buy ${adr?.symbol} · sell Bitget` },
-      { value: adrBasis.buyPerpSellAdr, direction: `Buy Bitget · sell ${adr?.symbol}` },
-    ].filter((edge): edge is { value: number; direction: string } => edge.value !== null).sort((left, right) => right.value - left.value)[0] : null;
-    const adrTone = spreadTone(adrHeadline?.value);
+    const adrComparisons = adr ? row.venues.filter((quote) => quote.venue === "Bitget").map((perp) => ({
+      perp, spreads: adrSpreads(row, adr, perp), implied: impliedAdrBook(perp, perp.sharesPerPerp ?? row.sharesPerPerp, adr.sharesPerAdr),
+      live: Boolean(adrActive && isFresh(adr.updatedAt, clock) && isFresh(perp.updatedAt, clock) && adr.bidQty && adr.askQty && perp.bidQty && perp.askQty),
+    })) : [];
+    const adrLive = adrComparisons.some(({ live }) => live);
+    const adrHeadline = adrComparisons.filter(({ live }) => live).flatMap(({ perp, spreads }) => [
+      { value: spreads.buyAdrSellPerp, direction: `Buy ${adr?.symbol} · sell ${perp.symbol}` },
+      { value: spreads.buyPerpSellAdr, direction: `Buy ${perp.symbol} · sell ${adr?.symbol}` },
+    ]).filter((edge): edge is { value: number; direction: string } => edge.value !== null).sort((left, right) => right.value - left.value)[0];
+    const impliedHeadline = adrComparisons[0]?.implied;
+    const impliedMid = impliedHeadline?.bid != null && impliedHeadline.ask != null ? (impliedHeadline.bid + impliedHeadline.ask) / 2 : impliedHeadline?.bid ?? impliedHeadline?.ask ?? null;
+    const adrTone = adrComparisons.reduce<SpreadTone>((tone, { spreads }) => strongerTone(tone,
+      strongerTone(spreadTone(spreads.buyAdrSellPerp), spreadTone(spreads.buyPerpSellAdr))), "quiet");
     const cashComparisons = row.venues.map((quote) => {
-      const spreads = equitySpreads(basis.cashBidUsd, basis.cashAskUsd, quote);
-      const live = cashActive && !basis.usesLast && !basis.usesFxLast && Boolean(row.cashBidQty && row.cashAskQty && quote.bidQty && quote.askQty) && isFresh(row.cashUpdatedAt, clock) && isFresh(fx?.updatedAt, clock) && isFresh(quote.updatedAt, clock);
+      const quoteBasis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, quote.sharesPerPerp ?? row.sharesPerPerp,
+        preferCashLast(row.market, row.session, row.cashUpdatedAt, clock));
+      const spreads = equitySpreads(quoteBasis.cashBidUsd, quoteBasis.cashAskUsd, quote);
+      const live = cashActive && !quoteBasis.usesLast && !quoteBasis.usesFxLast && Boolean(row.cashBidQty && row.cashAskQty && quote.bidQty && quote.askQty) && isFresh(row.cashUpdatedAt, clock) && isFresh(fx?.updatedAt, clock) && isFresh(quote.updatedAt, clock);
       const tone = strongerTone(spreadTone(spreads.buyKoreaSellPerp), spreadTone(spreads.buyPerpSellKorea));
-      return { quote, spreads, live, tone };
+      return { quote, basis: quoteBasis, spreads, live, tone };
     });
     const cashSummaryLive = cashComparisons.some(({ live }) => live);
     const headlineComparisons = cashSummaryLive ? cashComparisons.filter(({ live }) => live) : cashComparisons;
     const cashHeadline = headlineComparisons.flatMap(({ quote, spreads }) => [
-      { value: spreads.buyKoreaSellPerp, direction: `Buy ${row.market} · sell ${quote.venue}` },
-      { value: spreads.buyPerpSellKorea, direction: `Buy ${quote.venue} · sell ${row.market}` },
+      { value: spreads.buyKoreaSellPerp, direction: `Buy ${row.market} · sell ${quote.symbol}` },
+      { value: spreads.buyPerpSellKorea, direction: `Buy ${quote.symbol} · sell ${row.market}` },
     ]).filter((edge): edge is { value: number; direction: string } => edge.value !== null).sort((left, right) => right.value - left.value)[0];
     const cashTone = spreadTone(cashHeadline?.value);
     const rowTone = strongerTone(cashTone, adrTone);
-    const adrCard = adr && perp ? <div className={`${styles.referenceCard} ${styles.adrCard} ${toneClass(adrTone)}`} key="adr">
-      <div className={styles.referenceHead}><div><span className={styles.referenceTag}>U.S. ADR ↔ BITGET</span><strong>{adr.symbol} / {perp.symbol}</strong></div><span className={adrLive ? styles.livePill : styles.indicativePill}>{adrLive ? "LIVE US BBO" : `${payload.sessions?.US ?? "US"} · INDICATIVE`}</span></div>
-      <div className={styles.referencePrices}><span>ADR BID / ASK <b>{fmt(adr.bid)} / {fmt(adr.ask)}</b></span><span>BITGET BID / ASK <b>{fmt(perp.bid)} / {fmt(perp.ask)}</b></span></div>
-      <div className={styles.referenceEdges}><span className={toneClass(spreadTone(adrBasis?.buyAdrSellPerp))}>BUY ADR · SELL PERP<b>{pct(adrBasis?.buyAdrSellPerp ?? null)}</b></span><span className={toneClass(spreadTone(adrBasis?.buyPerpSellAdr))}>BUY PERP · SELL ADR<b>{pct(adrBasis?.buyPerpSellAdr ?? null)}</b></span></div>
-      <small className={styles.referenceFoot}>1 ADR = {adr.sharesPerAdr} TSE {adr.sharesPerAdr === 1 ? "share" : "shares"} · 1 perp = {row.sharesPerPerp} · {adr.source} {time(adr.updatedAt)} HKT{!adrLive ? " · Last quotes only" : ""}</small>
-    </div> : null;
-    const cashCards = cashComparisons.map(({ quote, spreads, live, tone }) => {
-      return <div className={`${styles.referenceCard} ${toneClass(tone)}`} key={quote.venue}>
+    const adrCards = adrComparisons.map(({ perp, spreads, implied, live }) => <div className={`${styles.referenceCard} ${styles.adrCard} ${toneClass(strongerTone(spreadTone(spreads.buyAdrSellPerp), spreadTone(spreads.buyPerpSellAdr)))}`} key={`adr:${perp.symbol}`}>
+      <div className={styles.referenceHead}><div><span className={styles.referenceTag}>U.S. ADR ↔ BITGET</span><strong>{adr?.symbol} / {perp.symbol}</strong></div><span className={live ? styles.livePill : styles.indicativePill}>{live ? "LIVE US BBO" : "IMPLIED · NO LIVE ADR EDGE"}</span></div>
+      <div className={styles.referencePrices}><span>IMPLIED ADR BID / ASK <b>{fmt(implied.bid)} / {fmt(implied.ask)}</b></span><span>ADR MARKET BID / ASK <b>{fmt(adr?.bid ?? null)} / {fmt(adr?.ask ?? null)}</b></span></div>
+      <div className={styles.referenceEdges}><span className={toneClass(spreadTone(spreads.buyAdrSellPerp))}>BUY ADR · SELL PERP<b>{pct(spreads.buyAdrSellPerp)}</b></span><span className={toneClass(spreadTone(spreads.buyPerpSellAdr))}>BUY PERP · SELL ADR<b>{pct(spreads.buyPerpSellAdr)}</b></span></div>
+      <small className={styles.referenceFoot}>1 ADR = {adr?.sharesPerAdr} TSE shares · 1 {perp.symbol} = {perp.sharesPerPerp ?? row.sharesPerPerp} TSE shares · implied = perp × ADR shares / perp shares · {adr?.source}{!live ? " · Indicative only" : ""}</small>
+    </div>);
+    const cashCards = cashComparisons.map(({ quote, basis: quoteBasis, spreads, live, tone }) => {
+      return <div className={`${styles.referenceCard} ${toneClass(tone)}`} key={quote.symbol}>
         <div className={styles.referenceHead}><div><span className={styles.referenceTag}>{row.market} CASH ↔ {quote.venue.toUpperCase()}</span><strong>{quote.symbol}</strong></div><span className={live ? styles.livePill : styles.indicativePill}>{live ? row.session === "AFTER-HOURS" ? "AFTER-HOURS BBO" : "LIVE BBO" : `${row.session} · INDICATIVE`}</span></div>
-        <div className={styles.referencePrices}><span>CASH · USD EQUIV <b>{fmt(basis.cashBidUsd)} / {fmt(basis.cashAskUsd)}</b></span><span>PERP BID / ASK <b>{fmt(quote.bid)} / {fmt(quote.ask)}</b></span></div>
+        <div className={styles.referencePrices}><span>CASH · USD EQUIV <b>{fmt(quoteBasis.cashBidUsd)} / {fmt(quoteBasis.cashAskUsd)}</b></span><span>PERP BID / ASK <b>{fmt(quote.bid)} / {fmt(quote.ask)}</b></span></div>
         <div className={styles.referenceEdges}><span className={toneClass(spreadTone(spreads.buyKoreaSellPerp))}>BUY {row.market} · SELL PERP<b>{pct(spreads.buyKoreaSellPerp)}</b></span><span className={toneClass(spreadTone(spreads.buyPerpSellKorea))}>BUY PERP · SELL {row.market}<b>{pct(spreads.buyPerpSellKorea)}</b></span></div>
-        <small className={styles.referenceFoot}>{quote.venue} {time(quote.updatedAt)} HKT · Top size {fmt(quote.bidQty)} / {fmt(quote.askQty)}{!live ? basis.usesLast ? " · Cash last / incomplete book" : row.session === "OPENING AUCTION" ? " · Auction book, not yet executable" : " · Indicative book" : ""}</small>
+        <small className={styles.referenceFoot}>{quote.venue} {time(quote.updatedAt)} HKT · 1 perp = {quote.sharesPerPerp ?? row.sharesPerPerp} ordinary shares · Top size {fmt(quote.bidQty)} / {fmt(quote.askQty)}{!live ? quoteBasis.usesLast ? " · Cash last / incomplete book" : row.session === "OPENING AUCTION" ? " · Auction book, not yet executable" : " · Indicative book" : ""}</small>
       </div>;
     });
     return <details className={`${styles.assetRow} ${row.market === "KRX" ? styles.koreaRow : styles.japanRow} ${rowTone === "high" ? styles.highSpreadRow : rowTone === "medium" ? styles.mediumSpreadRow : ""}`} key={row.code}>
-      <summary className={styles.assetSummary}><span className={styles.summaryIdentity}><small>{row.market} {row.code} · {row.session}</small><strong>{row.name}</strong><em>{row.currency} {basis.usesLast && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} / ${fmt(row.cashAskKrw, 0)}`}</em></span><span className={styles.summarySignals}><span className={`${styles.cashSignal} ${toneClass(cashTone)}`}><small>{row.market} CASH · {cashSummaryLive ? "BBO" : "INDICATIVE"}</small><strong>{pct(cashHeadline?.value ?? null)}</strong><em>{cashHeadline?.direction ?? "No comparable cash quote"}</em></span>{adr && <span className={`${styles.adrSignal} ${toneClass(adrTone)}`}><small>U.S. ADR {adr.symbol} · {adrLive ? "LIVE" : "INDICATIVE"}</small><strong>{pct(adrHeadline?.value ?? null)}</strong><em>{adrHeadline?.direction ?? "No comparable ADR quote"}</em></span>}</span><span className={styles.summaryToggle}>Details <b>⌄</b></span></summary>
-      <div className={styles.assetDetails}><div className={styles.identity}><small>{row.market} {row.code}</small><strong>{row.name}</strong><span className={styles.cashPrice}>{row.currency} {basis.usesLast && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} bid / ${fmt(row.cashAskKrw, 0)} ask`}</span><span className={styles.sessionLabel}>{row.session} · {dateTime(row.cashUpdatedAt)} HKT</span>{row.sharesPerPerp !== 1 && <em>1 perp = {row.sharesPerPerp} TSE shares</em>}</div>
-        <div className={styles.references}>{row.market === "TSE" && adrActive && adrCard}{cashCards}{row.market === "TSE" && !adrActive && adrCard}</div>
+      <summary className={styles.assetSummary}><span className={styles.summaryIdentity}><small>{row.market} {row.code} · {row.session}</small><strong>{row.name}</strong><em>{row.currency} {basis.usesLast && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} / ${fmt(row.cashAskKrw, 0)}`}</em></span><span className={styles.summarySignals}><span className={`${styles.cashSignal} ${toneClass(cashTone)}`}><small>{row.market} CASH · {cashSummaryLive ? "BBO" : "INDICATIVE"}</small><strong>{pct(cashHeadline?.value ?? null)}</strong><em>{cashHeadline?.direction ?? "No comparable cash quote"}</em></span>{adr && <span className={`${styles.adrSignal} ${toneClass(adrTone)}`}><small>U.S. ADR {adr.symbol} · {adrLive ? "LIVE" : "IMPLIED USD"}</small><strong>{adrHeadline ? pct(adrHeadline.value) : fmt(impliedMid)}</strong><em>{adrHeadline?.direction ?? `Bitget-implied ADR bid / ask ${fmt(impliedHeadline?.bid ?? null)} / ${fmt(impliedHeadline?.ask ?? null)} · no ADR spread`}</em></span>}</span><span className={styles.summaryToggle}>Details <b>⌄</b></span></summary>
+      <div className={styles.assetDetails}><div className={styles.identity}><small>{row.market} {row.code}</small><strong>{row.name}</strong><span className={styles.cashPrice}>{row.currency} {basis.usesLast && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} bid / ${fmt(row.cashAskKrw, 0)} ask`}</span><span className={styles.sessionLabel}>{row.session} · {dateTime(row.cashUpdatedAt)} HKT</span></div>
+        <div className={styles.references}>{row.market === "TSE" && adrActive && adrCards}{cashCards}{row.market === "TSE" && !adrActive && adrCards}</div>
         {row.mappingNote && <p className={styles.mapping}>{row.mappingNote}</p>}</div>
     </details>;
   };

@@ -33,3 +33,12 @@ export function equitySpreads(cashBidUsd: number | null, cashAskUsd: number | nu
     buyPerpSellKorea: cashBidUsd !== null && ask !== null ? (cashBidUsd / ask - 1) * 100 : null,
   };
 }
+
+// A synthetic ADR quote from a perp is a unit conversion, never an ADR book.
+export function impliedAdrBook(perp: Book, sharesPerPerp: number, sharesPerAdr: number) {
+  const ratio = valid(sharesPerPerp) !== null && valid(sharesPerAdr) !== null ? sharesPerAdr / sharesPerPerp : null;
+  return {
+    bid: ratio !== null && valid(perp.bid) !== null ? Number(perp.bid) * ratio : null,
+    ask: ratio !== null && valid(perp.ask) !== null ? Number(perp.ask) * ratio : null,
+  };
+}

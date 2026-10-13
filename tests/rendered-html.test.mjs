@@ -159,7 +159,8 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(component, /equity_monitor_id_token/);
   assert.doesNotMatch(component, /005935/);
   for (const code of ["034020", "035420", "042700", "066570", "454910"]) assert.match(route, new RegExp(code));
-  for (const code of ["285A", "5802", "6758", "6857", "6920", "7203", "8035", "8306", "9984"]) assert.match(route, new RegExp(`code: "${code}"`));
+  for (const code of ["285A", "5802", "6758", "6857", "6920", "6976", "6981", "7203", "8035", "8306", "9984"]) assert.match(route, new RegExp(`code: "${code}"`));
+  for (const symbol of ["TAIYOYUDENUSDT", "MURATAUSDT", "TOYOTAUSDT", "TMUSDT"]) assert.match(route, new RegExp(symbol));
   assert.doesNotMatch(route, /005935/);
   assert.match(route, /DOOSENERUSDT/);
   assert.match(route, /DOOSBOTUSDT/);
@@ -180,7 +181,9 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(posley, /FX:USD:JPY/);
   assert.match(officePusher, /STK:\$\{code\}:TSEJ:JPY/);
   assert.match(officePusher, /FX:USD:JPY/);
-  assert.match(officePusher, /relay silent for 90s/);
+  assert.match(officePusher, /silent for 90s/);
+  assert.match(officePusher, /KEY_GROUPS = \[KEYS\.slice\(0, 20\), KEYS\.slice\(20\)\]/);
+  assert.match(officePusher, /"6976", "6981"/);
   assert.match(officePusher, /specific_data/);
   assert.match(officePusher, /if \(stale && \(last === null \|\| !staleMarketTimes\.length\)\) return null/);
   assert.match(officePusher, /bid: !stale && bid\.size !== null \? bid\.price : null/);
@@ -211,7 +214,11 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(route, /equityBasis/);
   assert.match(worker, /TSE/);
   assert.match(worker, /285A/);
-  assert.match(route, /code: "7203"[^\n]*sharesPerPerp: 10/);
+  assert.match(route, /code: "7203"[^\n]*sharesPerPerp: 1[^\n]*additionalBitgetSymbol: "TMUSDT"[^\n]*additionalSharesPerPerp: 10/);
+  assert.match(route, /code: "6976"[^\n]*adrSymbol: "TYOYY", sharesPerAdr: 0\.25/);
+  assert.match(route, /code: "6981"[^\n]*adrSymbol: "MRAAY", sharesPerAdr: 0\.5/);
+  assert.match(component, /IMPLIED ADR BID \/ ASK/);
+  assert.match(component, /impliedAdrBook\(perp, perp\.sharesPerPerp \?\? row\.sharesPerPerp, adr\.sharesPerAdr\)/);
   assert.match(route, /adrSymbol: "SONY", sharesPerAdr: 1/);
   assert.match(route, /adrSymbol: "TM", sharesPerAdr: 10/);
   assert.match(route, /adrSymbol: "MUFG", sharesPerAdr: 1/);
@@ -857,7 +864,7 @@ test("FX-adjusts SKHX to CSOP 2L prediction error everywhere", async () => {
 
 test("keeps numeric basis through closed, pre-market and stale cash quotes", async () => {
   const source = await readFile(new URL("../app/lib/equityBasis.ts", import.meta.url), "utf8");
-  const { equityBasis, equitySpreads, preferCashLast } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString("base64")}`);
+  const { equityBasis, equitySpreads, impliedAdrBook, preferCashLast } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString("base64")}`);
   const cash = { bid: 19000, ask: 19200, last: 19120 };
   const fx = { bid: 156, ask: 157 };
   for (const session of ["CLOSED", "PRE-MARKET", "OPENING AUCTION", "LUNCH", "AFTER-HOURS OPENING"]) {
@@ -890,6 +897,12 @@ test("keeps numeric basis through closed, pre-market and stale cash quotes", asy
   const missing = equityBasis({ last: 3000 }, {});
   assert.equal(equitySpreads(missing.cashBidUsd, missing.cashAskUsd, { bid: 200, ask: 201 }).buyKoreaSellPerp, null);
   assert.equal(equityBasis({ last: 0 }, { last: 150 }).cashBidUsd, null);
+  assert.deepEqual(impliedAdrBook({ bid: 67.45, ask: 67.51 }, 1, 0.25), { bid: 16.8625, ask: 16.8775 }); // TYOYY
+  assert.deepEqual(impliedAdrBook({ bid: 47.84, ask: 47.87 }, 1, 0.5), { bid: 23.92, ask: 23.935 }); // MRAAY
+  const toyotaAdr = impliedAdrBook({ bid: 18.865, ask: 18.879 }, 1, 10);
+  assert.ok(Math.abs(toyotaAdr.bid - 188.65) < 1e-9 && Math.abs(toyotaAdr.ask - 188.79) < 1e-9); // TOYOTAUSDT -> TM
+  assert.deepEqual(impliedAdrBook({ bid: 187.73, ask: 189.27 }, 10, 10), { bid: 187.73, ask: 189.27 }); // TMUSDT -> TM
+  assert.deepEqual(impliedAdrBook({ bid: null, ask: null }, 1, 10), { bid: null, ask: null });
 });
 
 test("routes Tencent aliases to Hyperliquid and computes HK auction and historical basis", async () => {

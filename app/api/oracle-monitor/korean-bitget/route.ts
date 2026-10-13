@@ -21,18 +21,25 @@ const BITGET_ONLY_KOREAN_STOCKS = [
   { code: "035720", name: "Kakao", chineseName: "卡考", symbol: "KAKAOUSDT" },
   { code: "105560", name: "KB Financial Group", chineseName: "KB金融集团", symbol: "KBFGUSDT" },
 ] as const;
+// ADR shares/ADS: TYOYY 0.25 (SEC F-6, Aug 2026), MRAAY 0.5 (Citi/BNY),
+// TM 10 (Toyota SEC filing). New Bitget perp/share units are inferred from
+// contemporaneous contract index prices versus TSE and remain indicative.
 const JAPANESE_STOCKS = [
   { code: "285A", name: "Kioxia", bitgetSymbol: "KIOXIAUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
   { code: "5802", name: "Sumitomo Electric", bitgetSymbol: "SUMIELECUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
   { code: "6758", name: "Sony Group", bitgetSymbol: "SONYUSDT", sharesPerPerp: 1, adrSymbol: "SONY", sharesPerAdr: 1 },
   { code: "6857", name: "Advantest", bitgetSymbol: "ADVANTESTUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
   { code: "6920", name: "Lasertec", bitgetSymbol: "LASERTECUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
-  { code: "7203", name: "Toyota Motor", bitgetSymbol: "TMUSDT", sharesPerPerp: 10, adrSymbol: "TM", sharesPerAdr: 10 },
+  { code: "6976", name: "Taiyo Yuden", bitgetSymbol: "TAIYOYUDENUSDT", sharesPerPerp: 1, adrSymbol: "TYOYY", sharesPerAdr: 0.25 },
+  { code: "6981", name: "Murata Manufacturing", bitgetSymbol: "MURATAUSDT", sharesPerPerp: 1, adrSymbol: "MRAAY", sharesPerAdr: 0.5 },
+  { code: "7203", name: "Toyota Motor", bitgetSymbol: "TOYOTAUSDT", sharesPerPerp: 1, additionalBitgetSymbol: "TMUSDT", additionalSharesPerPerp: 10, adrSymbol: "TM", sharesPerAdr: 10 },
   { code: "8035", name: "Tokyo Electron", bitgetSymbol: "TOKYOELUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
   { code: "8306", name: "MUFG", bitgetSymbol: "MUFGUSDT", sharesPerPerp: 1, adrSymbol: "MUFG", sharesPerAdr: 1 },
   { code: "9984", name: "SoftBank Group", bitgetSymbol: "SOFTBANKUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
 ] as const;
-const ADR_SYMBOLS = JAPANESE_STOCKS.flatMap((stock) => stock.adrSymbol ? [stock.adrSymbol] : []);
+// The office feed only carries these U.S. books. TYOYY and MRAAY still get
+// a contract-derived ADR equivalent, without claiming a live ADR spread.
+const ADR_SYMBOLS = ["SONY", "TM", "MUFG"];
 
 type BitgetTicker = {
   symbol?: string; bidPr?: string; askPr?: string; bidSz?: string; askSz?: string; lastPr?: string; indexPrice?: string; ts?: string;
@@ -224,23 +231,27 @@ export async function GET(request: Request) {
       const basisFx = useBitgetFx ? { last: bitgetFxIndex } : yenFx ?? {};
       const { cashBidUsd, cashAskUsd } = equityBasis(cash ?? {}, basisFx, stock.sharesPerPerp,
         preferCashLast("TSE", sessions.TSE, cash?.timestamp, now));
-      const quote = tickers.get(stock.bitgetSymbol);
-      const bid = positive(quote?.bidPr); const ask = positive(quote?.askPr); const updatedAt = positive(quote?.ts);
+      const contracts = [{ symbol: stock.bitgetSymbol, sharesPerPerp: stock.sharesPerPerp },
+        ...("additionalBitgetSymbol" in stock ? [{ symbol: stock.additionalBitgetSymbol, sharesPerPerp: stock.additionalSharesPerPerp }] : [])];
       const adr = stock.adrSymbol ? books.get(stock.adrSymbol) : null;
-      const adrScale = stock.sharesPerAdr ? stock.sharesPerPerp / stock.sharesPerAdr : null;
       return {
         code: stock.code, name: stock.name, market: "TSE", session: sessions.TSE, currency: "JPY", sharesPerPerp: stock.sharesPerPerp,
-        mappingNote: stock.code === "7203" ? "TM is Toyota's U.S. ADR; one ADS represents 10 ordinary shares." : null,
+        mappingNote: stock.code === "7203" ? "Comparison assumes TOYOTAUSDT is priced per ordinary share and TMUSDT per ADR-equivalent (10 ordinary shares), consistent with their quoted prices. Confirm Bitget contract specifications before trading."
+          : stock.code === "6976" || stock.code === "6981" ? "Comparison assumes one Bitget contract unit tracks one TSE ordinary share, consistent with the current index price. Confirm Bitget contract specifications before trading." : null,
         cashBidKrw, cashAskKrw, cashBidQty: positive(cash?.bidSize), cashAskQty: positive(cash?.askSize), cashUpdatedAt: cash?.timestamp ?? null,
         cashLast: positive(cash?.last),
         cashBidUsd, cashAskUsd,
-        adr: stock.adrSymbol ? { symbol: stock.adrSymbol, sharesPerAdr: stock.sharesPerAdr, source: !adr ? "Waiting for ADR feed" : "source" in adr ? String(adr.source) : "Posley IBKR", marketState: adr && "marketState" in adr ? adr.marketState : null,
+        adr: stock.adrSymbol ? { symbol: stock.adrSymbol, sharesPerAdr: stock.sharesPerAdr, source: !adr ? "No live ADR feed" : "source" in adr ? String(adr.source) : "Posley IBKR", marketState: adr && "marketState" in adr ? adr.marketState : null,
           bid: positive(adr?.bid), ask: positive(adr?.ask), last: positive(adr?.last), bidQty: positive(adr?.bidSize), askQty: positive(adr?.askSize), updatedAt: adr?.timestamp ?? null,
-          buyAdrSellPerp: adrScale && positive(adr?.ask) && bid ? (bid / (Number(adr?.ask) * adrScale) - 1) * 100 : null,
-          buyPerpSellAdr: adrScale && positive(adr?.bid) && ask ? ((Number(adr?.bid) * adrScale) / ask - 1) * 100 : null,
         } : null,
-        venues: [{ venue: "Bitget", symbol: stock.bitgetSymbol, bid, ask, bidQty: positive(quote?.bidSz), askQty: positive(quote?.askSz), updatedAt,
-          ...equitySpreads(cashBidUsd, cashAskUsd, { bid, ask }) }],
+        venues: contracts.map(({ symbol, sharesPerPerp }) => {
+          const quote = tickers.get(symbol);
+          const bid = positive(quote?.bidPr); const ask = positive(quote?.askPr);
+          const contractBasis = equityBasis(cash ?? {}, basisFx, sharesPerPerp,
+            preferCashLast("TSE", sessions.TSE, cash?.timestamp, now));
+          return { venue: "Bitget", symbol, sharesPerPerp, bid, ask, bidQty: positive(quote?.bidSz), askQty: positive(quote?.askSz), updatedAt: positive(quote?.ts),
+            ...equitySpreads(contractBasis.cashBidUsd, contractBasis.cashAskUsd, { bid, ask }) };
+        }),
       };
     });
 
