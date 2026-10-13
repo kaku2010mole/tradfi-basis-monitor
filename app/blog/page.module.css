@@ -21,8 +21,10 @@
 .hedgeHeader>div>span,.hedgeGrid span { display:block; color:#587f6f; font:850 9px/1.2 monospace; letter-spacing:.11em; }
 .hedgeHeader h2 { margin:6px 0 5px; font-size:clamp(21px,3vw,30px); letter-spacing:-.04em; }
 .hedgeHeader p { margin:0; color:#587167; font-size:10px; line-height:1.5; }
+.hedgeControls { display:flex; align-items:center; flex-wrap:wrap; gap:10px 18px; }
 .hedgeHeader label { display:flex; align-items:center; flex-wrap:wrap; gap:7px; color:#547166; font-size:10px; font-weight:800; }
 .hedgeHeader input { width:70px; height:36px; padding:0 8px; border:1px solid #a5cbb9; border-radius:7px; background:#fff; color:#0b684c; font:850 13px monospace; }
+.hedgeHeader .hedgeUnitsInput { width:116px; }
 .hedgeHeader button { height:36px; padding:0 13px; border:0; border-radius:7px; background:#087f5b; color:#fff; cursor:pointer; font-size:10px; font-weight:850; }
 .hedgeGrid { display:grid; grid-template-columns:1.1fr 1.1fr .9fr; }
 .hedgeGrid>div { min-width:0; padding:20px; border-right:1px solid #e1ebe5; }

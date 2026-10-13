@@ -613,6 +613,7 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
   const [cashFairNow, setCashFairNow] = useState<{ priceUsd: number; updatedAt: number; anchorTime: number } | null>(null);
   const [hedgeQuote, setHedgeQuote] = useState<HedgeQuote | null>(null);
   const [hedgeError, setHedgeError] = useState("");
+  const [hedgeUnitsInput, setHedgeUnitsInput] = useState("1000");
   const [leverageInput, setLeverageInput] = useState("2.00");
   const [targetLeverage, setTargetLeverage] = useState(2);
   const [livePrices, setLivePrices] = useState<{ relationshipId: string; asset1: number; asset2: number; updatedAt: number } | null>(null);
@@ -968,8 +969,10 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
   const neutralAsset1Shares500 = neutralAsset1Shares === null ? null : neutralAsset1Shares * 5;
   const neutralAsset2Side = analysis?.stats.predictionError && analysis.stats.predictionError > 0 ? "SHORT" : "LONG";
   const neutralAsset1Side = analysis ? analysis.model.beta >= 0 ? neutralAsset2Side === "LONG" ? "SHORT" : "LONG" : neutralAsset2Side : "—";
-  const hedge = hedgeQuote
-    ? leveragedKoreanHedge(1_000, hedgeQuote.productPriceHkd, hedgeQuote.stockPriceUsd, hedgeQuote.usdKrw, 7.84, targetLeverage)
+  const hedgeUnits = Number(hedgeUnitsInput);
+  const validHedgeUnits = Number.isSafeInteger(hedgeUnits) && hedgeUnits > 0 && hedgeUnits <= 1_000_000_000;
+  const hedge = hedgeQuote && validHedgeUnits
+    ? leveragedKoreanHedge(hedgeUnits, hedgeQuote.productPriceHkd, hedgeQuote.stockPriceUsd, hedgeQuote.usdKrw, 7.84, targetLeverage)
     : null;
   const hedgeFresh = Boolean(hedgeQuote?.cashLive && monitorNow - hedgeQuote.updatedAt <= 30_000 && Math.abs(monitorNow - hedgeQuote.fxTime) <= 60_000);
   const applyLeverage = () => {
@@ -1106,13 +1109,19 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
 
       <div className={styles.analysisColumn}>
         {pairConfig && <section className={styles.hedgePanel} aria-label={`${dedicatedProduct} stock and FX hedge sizing`}>
-          <div className={styles.hedgeHeader}><div><span>HEDGE RATIO · FIRST</span><h2>1,000 shares of {dedicatedProduct}</h2><p>{hedgeFresh ? "Live Futu cash midpoint" : hedgeQuote ? `Last Futu cash price · ${formatTime(hedgeQuote.productTime, true)} HKT · indicative` : "Waiting for Futu cash price"} · {hedgeQuote ? `USD/KRW ${hedgeQuote.usdKrw.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "USD/KRW unavailable"}</p></div><label>Assumed daily factor <input type="number" min="1.1" max="2" step="0.01" value={leverageInput} onChange={(event) => setLeverageInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") applyLeverage(); }} /><button type="button" onClick={applyLeverage}>Apply</button></label></div>
+          <div className={styles.hedgeHeader}>
+            <div><span>HEDGE RATIO · FIRST</span><h2>{validHedgeUnits ? hedgeUnits.toLocaleString("en-US") : "Choose a number of"} shares of {dedicatedProduct}</h2><p>{hedgeFresh ? "Live Futu cash midpoint" : hedgeQuote ? `Last Futu cash price · ${formatTime(hedgeQuote.productTime, true)} HKT · indicative` : "Waiting for Futu cash price"} · {hedgeQuote ? `USD/KRW ${hedgeQuote.usdKrw.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "USD/KRW unavailable"}</p></div>
+            <div className={styles.hedgeControls}>
+              <label>{dedicatedProduct} shares to hedge <input className={styles.hedgeUnitsInput} aria-label={`${dedicatedProduct} shares to hedge`} type="number" min="1" max="1000000000" step="1" inputMode="numeric" value={hedgeUnitsInput} onChange={(event) => setHedgeUnitsInput(event.target.value)} /></label>
+              <label>Assumed daily factor <input type="number" min="1.1" max="2" step="0.01" value={leverageInput} onChange={(event) => setLeverageInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") applyLeverage(); }} /><button type="button" onClick={applyLeverage}>Apply</button></label>
+            </div>
+          </div>
           {hedge ? <div className={styles.hedgeGrid}>
-            <div><span>STOCK-EQUIVALENT HEDGE</span><strong>≈ {hedge.stockShares.toLocaleString("en-US", { maximumFractionDigits: 1 })} shares</strong><small>{pairConfig.stockCode} · {pairConfig.stockName} · opposite ETF side</small></div>
+            <div><span>MODEL STOCK EXPOSURE</span><strong>{hedge.stockShares.toLocaleString("en-US", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} shares</strong><small>{pairConfig.stockCode} · {pairConfig.stockName} · opposite ETF side · theoretical share-equivalent, not a rounded order size</small></div>
             <div><span>FX HEDGE FOR LONG ETF · SHORT USD/KRW</span><strong>USD {hedge.stockExposureUsd.toLocaleString("en-US", { maximumFractionDigits: 0 })}</strong><small>Sell USD / buy KRW on ≈ KRW {hedge.stockExposureKrw.toLocaleString("en-US", { maximumFractionDigits: 0 })} model notional · reverse for short ETF</small></div>
             <div><span>INPUTS USED</span><strong>HKD {hedge.productHkd.toLocaleString("en-US", { maximumFractionDigits: 0 })}</strong><small>ETF cash notional · implied {pairConfig.stockCode} KRW {hedge.impliedStockKrw.toLocaleString("en-US", { maximumFractionDigits: 0 })}/share · β {targetLeverage.toFixed(2)}×</small></div>
-          </div> : <p className={styles.hedgeUnavailable}>{hedgeError || "Waiting for Futu cash ETF price, underlying quote and USD/KRW rate."} No hedge quantity is shown until all three are available.</p>}
-          <p className={styles.hedgeCaveat}>Scenario only: Binance {pairConfig.stockPerp} × USD/KRW gives an <em>implied</em> KRX share price, not a verified KRX cash quote. For a long ETF hedged with a short USD-priced stock proxy, the model FX leg is short USD/KRW (sell USD / buy KRW); reverse both sides for a short ETF. HKD/USD is fixed at 7.84. CSOP may set the actual daily factor below 2×; <a href={pairConfig.issuerUrl} target="_blank" rel="noreferrer">check the issuer notice ↗</a> before trading. Actual cash-stock settlement and product FX mechanics may differ.</p>
+          </div> : <p className={styles.hedgeUnavailable}>{!validHedgeUnits ? "Enter a whole number of ETF shares between 1 and 1,000,000,000." : `${hedgeError || "Waiting for Futu cash ETF price, underlying quote and USD/KRW rate."} No hedge quantity is shown until all three are available.`}</p>}
+          <p className={styles.hedgeCaveat}>Scenario only: Binance {pairConfig.stockPerp} × USD/KRW gives an <em>implied</em> KRX share price, not a verified KRX cash quote. Stock exposure is displayed to three decimals without whole-share rounding and may not be directly executable. For a long ETF hedged with a short USD-priced stock proxy, the model FX leg is short USD/KRW (sell USD / buy KRW); reverse both sides for a short ETF. HKD/USD is fixed at 7.84. CSOP may set the actual daily factor below 2×; <a href={pairConfig.issuerUrl} target="_blank" rel="noreferrer">check the issuer notice ↗</a> before trading. Actual cash-stock settlement and product FX mechanics may differ.</p>
         </section>}
         {pairConfig && <section className={styles.sourceSelector} aria-label={`${dedicatedProduct} price source`}>
           <div><span>{dedicatedProduct} PRICE SOURCE</span><strong>Compare cash and perpetual pricing</strong><small>Only this pair changes; the rest of Relative Value Monitor stays as before.</small></div>

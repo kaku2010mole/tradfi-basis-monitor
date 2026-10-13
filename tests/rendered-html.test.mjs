@@ -394,7 +394,8 @@ test("isolates SK Hynix / 7709 with Futu cash and Binance perp choices and a fai
   const html = await response.text();
   assert.match(html, /SK Hynix ↔ 7709/);
   assert.match(html, /HEDGE RATIO · FIRST/);
-  assert.match(html, /1,000 shares of/);
+  assert.match(html.replaceAll("<!-- -->", ""), /1,000 shares of/);
+  assert.match(html, /7709 shares to hedge/);
   assert.match(html.replaceAll("<!-- -->", ""), /Futu · HK\.07709 cash/);
   assert.match(html.replaceAll("<!-- -->", ""), /Binance · 7709 perp/);
   assert.match(html, /LIVE MONITORING/);
@@ -405,6 +406,9 @@ test("isolates SK Hynix / 7709 with Futu cash and Binance perp choices and a fai
   assert.match(page, /THEORETICAL FAIR PRICE/);
   assert.match(page, /onPointerLeave=\{onPointerLeave\} onBlur=\{onBlur\}/);
   assert.match(page, /const hedge = hedgeQuote/);
+  assert.match(page, /MODEL STOCK EXPOSURE/);
+  assert.match(page, /leveragedKoreanHedge\(hedgeUnits,/);
+  assert.match(page, /minimumFractionDigits: 3, maximumFractionDigits: 3/);
   assert.doesNotMatch(page, /leveragedKoreanHedge\(1_000, neutralPrices\.asset2/);
   assert.match(page, /FairPriceChart/);
   assert.match(relativeValue, /id: "skhynix-csop2l-futu"/);
@@ -425,7 +429,8 @@ test("adds a separate 7747 page and sizes both Korean stock and FX legs from a 1
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /Samsung Electronics ↔ 7747/);
-  assert.match(html, /1,000 shares of/);
+  assert.match(html.replaceAll("<!-- -->", ""), /1,000 shares of/);
+  assert.match(html, /7747 shares to hedge/);
   assert.match(html.replaceAll("<!-- -->", ""), /Futu · HK\.07747 cash/);
   assert.match(html.replaceAll("<!-- -->", ""), /Binance · 7747 perp/);
   assert.match(html, /005930/);
@@ -441,6 +446,9 @@ test("adds a separate 7747 page and sizes both Korean stock and FX legs from a 1
   assert.equal(result.stockShares, 37.5);
   assert.equal(result.stockExposureUsd, 3_750);
   assert.equal(result.stockExposureKrw, 4_875_000);
+  const twiceTheUnits = leveragedKoreanHedge(2_000, 20, 100, 1300, 8, 1.5);
+  assert.equal(twiceTheUnits.stockShares, 75);
+  assert.equal(twiceTheUnits.stockExposureUsd, 7_500);
   assert.equal(leveragedKoreanHedge(1_000, 0, 100, 1300, 8, 2), null);
 });
 
