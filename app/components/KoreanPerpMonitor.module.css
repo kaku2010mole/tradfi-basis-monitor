@@ -12,4 +12,47 @@
 .summarySignals .spreadQuiet{background:#f1f5f4;color:#657976}.summarySignals .adrSignal.spreadQuiet{background:#f0f4f7;color:#6a8191}.summarySignals .spreadMedium{background:#e7f5ef;color:#126c52;box-shadow:inset 0 0 0 1px #b9dfcf}.summarySignals .spreadHigh{background:#fff0d7;color:#8b4b09;box-shadow:inset 0 0 0 1px #e8bf7d}
 .referenceCard.spreadMedium{border-color:#aad8c4}.referenceCard.spreadHigh{border-color:#dfa957;box-shadow:0 3px 12px rgba(154,91,15,.1)}.referenceCard .referenceEdges .spreadQuiet{background:#f7f9f9;color:#718487}.referenceCard .referenceEdges .spreadQuiet b{color:#566f72}.referenceCard .referenceEdges .spreadMedium{background:#e7f5ef;color:#126c52}.referenceCard .referenceEdges .spreadMedium b{color:#08745a}.referenceCard .referenceEdges .spreadHigh{background:#fff0d7;color:#8b4b09}.referenceCard .referenceEdges .spreadHigh b{color:#975006}
 @media(max-width:1050px){.signalDeck{grid-template-columns:1fr}.signalIntro small{max-width:none}.assetDetails{grid-template-columns:180px minmax(0,1fr)}.references{grid-template-columns:1fr}.summarySignals>span{grid-template-columns:1fr 70px;gap:4px}.summarySignals em{grid-column:1/-1}}
-@media(max-width:680px){.monitorHeader{align-items:flex-start;flex-direction:column;padding:18px}.signalDeck{padding:14px}.signalList{grid-template-columns:1fr}.toolRow{align-items:stretch;padding:11px 14px}.filters{width:100%}.filters button{flex:1;padding:0 6px}.fxGroup{width:100%}.fxGroup>span{flex:1;justify-content:space-between}.groupHead{align-items:flex-start;flex-direction:column;padding:15px}.groupHead>small{text-align:left}.assetSummary{align-items:flex-start;flex-direction:column;gap:9px}.summaryIdentity{flex:none}.summarySignals{width:100%;flex-direction:column}.summarySignals>span{grid-template-columns:1fr 75px}.summaryToggle{align-self:flex-end}.assetDetails{grid-template-columns:1fr;padding:11px}.references{grid-template-columns:1fr}.mapping{grid-column:1}.referenceEdges b{font-size:15px}.perpOnlyBlock{padding:15px}.perpOnlyHead{flex-direction:column}.perpOnlyHead>small{white-space:normal}.perpOnlySummary{grid-template-columns:1fr 1fr;gap:10px}.perpOnlySummaryKrw{grid-column:1/-1}.perpOnlySummary>b{grid-column:2;justify-self:end}}
+@media(max-width:680px){
+  .monitorHeader{align-items:flex-start;flex-direction:column;padding:14px;gap:10px}
+  .monitorHeader h2{font-size:22px}
+  .signalDeck{padding:10px;gap:10px}
+  .signalIntro strong{font-size:17px}
+  .signalList{grid-template-columns:1fr;gap:6px}
+  .signalItem{padding:8px 10px;gap:4px}
+  .toolRow{align-items:stretch;padding:10px}
+  .filters{width:100%}
+  .filters button{flex:1;padding:0 6px}
+  .fxGroup{width:100%}
+  .fxGroup>span{flex:1;justify-content:space-between}
+  .groupHead{align-items:flex-start;flex-direction:column;padding:12px;gap:4px}
+  .groupHead>small{text-align:left}
+  .assetSummary{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;min-height:0;padding:10px;gap:7px 6px}
+  .summaryIdentity{flex:none;gap:3px}
+  .summaryIdentity small{font-size:10px;line-height:1.2}
+  .summaryIdentity strong{font-size:14px;line-height:1.25}
+  .summaryIdentity em{font-size:11px;line-height:1.25}
+  /* Desktop's 240px flex-basis becomes HEIGHT in a mobile column. Use
+     content-sized grid rows so three folded signals cannot fill a screen. */
+  .summarySignals{display:grid;grid-column:1/-1;grid-template-columns:minmax(0,1fr);width:100%;gap:4px}
+  .summarySignals>span{flex:none;grid-template-columns:minmax(0,1fr) auto;padding:5px 7px;gap:3px 8px;border-radius:5px}
+  .summarySignals small{font-size:10px;line-height:1.25}
+  .summarySignals strong{font-size:13px;line-height:1.25;white-space:nowrap}
+  .summarySignals em{grid-column:1/-1;font-size:11px;line-height:1.3;font-style:normal}
+  .summaryToggle{grid-column:2;grid-row:1;align-self:center;font-size:10px}
+  .assetDetails{grid-template-columns:1fr;padding:10px;gap:9px}
+  .references{grid-template-columns:1fr}
+  .mapping{grid-column:1}
+  .referenceEdges b{font-size:15px}
+  .perpOnlyBlock{padding:12px}
+  .perpOnlyHead{flex-direction:column;gap:8px}
+  .perpOnlyHead>small{white-space:normal}
+  .perpOnlyGrid{gap:6px}
+  .perpOnlySummary{position:relative;grid-template-columns:minmax(0,1fr) minmax(0,1fr);padding:9px 10px;gap:7px}
+  .perpOnlySummary>span{gap:2px}
+  .perpOnlySummary>span:first-child{grid-column:1/-1;padding-right:20px}
+  .perpOnlySummary small{font-size:10px;line-height:1.25}
+  .perpOnlySummary strong{font-size:12px;line-height:1.3}
+  .perpOnlySummary em{font-size:10px;line-height:1.2}
+  .perpOnlySummaryKrw{grid-column:auto}
+  .perpOnlySummary>b{position:absolute;right:10px;top:10px;font-size:14px}
+}
