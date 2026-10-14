@@ -180,7 +180,7 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   ]) assert.match(route, new RegExp(`code: "${code}"[^\\n]*chineseName: "${name}"[^\\n]*symbol: "${symbol}"`));
   assert.match(route, /bitgetOnlyKorean/);
   assert.match(route, /Frankfurter daily reference/);
-  assert.match(route, /bid \* krwRate/);
+  assert.match(route, /const rows = KOREAN_STOCKS\.map/);
   assert.match(route, /binanceSymbol: "HANMIUSDT"/);
   assert.match(route, /bitgetSymbol: null, binanceSymbol: "HANMIUSDT"/);
   assert.match(route, /equitySpreads/);
@@ -291,11 +291,15 @@ test("converts Bitget-only Korean perps to KRW without inventing cash basis", as
     const data = await response.json();
     assert.equal(data.krwConversion.rate, 1350);
     assert.equal(data.krwConversion.live, true);
-    assert.equal(data.bitgetOnlyKorean.length, 5);
-    assert.deepEqual(data.bitgetOnlyKorean.map((stock) => stock.code), ["207940", "000270", "373220", "035720", "105560"]);
-    assert.equal(data.bitgetOnlyKorean[0].impliedBidKrw, 135000);
-    assert.equal(data.bitgetOnlyKorean[0].impliedAskKrw, 136350);
-    assert.equal(data.rows.some((row) => row.code === "207940"), false);
+    assert.deepEqual(data.bitgetOnlyKorean, []);
+    for (const code of ["207940", "000270", "373220", "035720", "105560"]) {
+      const row = data.rows.find((row) => row.code === code);
+      assert.equal(row.market, "KRX");
+      assert.equal(row.cashBidKrw, null);
+      assert.equal(row.cashAskKrw, null);
+      assert.equal(row.venues[0].bid, 100);
+      assert.equal(row.venues[0].buyKoreaSellPerp, null);
+    }
   } finally {
     globalThis.fetch = originalFetch;
     if (priorSnapshot) globalThis.__FUTU_PUSH_SNAPSHOT__ = priorSnapshot;
