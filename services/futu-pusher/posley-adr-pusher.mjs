@@ -9,18 +9,21 @@ const SYMBOLS = ["TCEHY", "XIACY", "KSHTY", "MPNGY", "PMRTY", "MMXGY", "LNVGY", 
 const KEYS = SYMBOLS.map((symbol) => `orderbook:ibkr:STK:${symbol}:SMART:USD`);
 const KOREAN_CODES = ["034020", "035420", "042700", "066570", "454910"];
 const KOREAN_KEYS = KOREAN_CODES.map((code) => `orderbook:ibkr:STK:${code}:KRX:KRW`);
+const FUTU_KOREAN_CODES = ["207940", "000270", "373220", "035720", "105560"];
+const FUTU_KOREAN_KEYS = FUTU_KOREAN_CODES.map((code) => `orderbook:futu:web_api:KR.${code}`);
 const JAPANESE_CODES = ["285A", "5802", "6758", "6857", "6920", "6976", "6981", "7203", "8035", "8306", "9984"];
 const JAPANESE_KEYS = JAPANESE_CODES.map((code) => `orderbook:ibkr:STK:${code}:TSEJ:JPY`);
 const FX_KEY = "orderbook:ibkr:FX:USD:KRW";
 const FX_JPY_KEY = "orderbook:ibkr:FX:USD:JPY";
 const FX_HL_KEY = "index_price:hyperliquid:xyz:KRW";
-KEYS.push(FX_KEY, FX_JPY_KEY, FX_HL_KEY, ...KOREAN_KEYS, ...JAPANESE_KEYS);
+KEYS.push(FX_KEY, FX_JPY_KEY, FX_HL_KEY, ...KOREAN_KEYS, ...JAPANESE_KEYS, ...FUTU_KOREAN_KEYS);
 // The office relay accepts at most 25 keys per WebSocket connection.
 const KEY_GROUPS = [KEYS.slice(0, 20), KEYS.slice(20)];
 const allowedKeys = new Map([
   ...SYMBOLS.map((symbol) => [`orderbook:ibkr:STK:${symbol}:SMART:USD`, `US.${symbol}`]),
   [FX_KEY, "FX.USDKRW"], [FX_JPY_KEY, "FX.USDJPY"], [FX_HL_KEY, "FX.USDKRW"],
   ...KOREAN_CODES.map((code) => [`orderbook:ibkr:STK:${code}:KRX:KRW`, `KRX.${code}`]),
+  ...FUTU_KOREAN_CODES.map((code) => [`orderbook:futu:web_api:KR.${code}`, `KRX.${code}`]),
   ...JAPANESE_CODES.map((code) => [`orderbook:ibkr:STK:${code}:TSEJ:JPY`, `TSE.${code}`]),
 ]);
 const latest = new Map();
@@ -99,7 +102,7 @@ const quoteFromEntry = (message) => {
     marketTimestamp: stale ? Math.max(...staleMarketTimes)
       : bid.size !== null && ask.size !== null && bookTimes.length ? Math.max(...bookTimes)
         : candidates.length ? Math.max(...candidates) : Date.now(),
-    source: message.key === FX_HL_KEY ? "Posley Hyperliquid KRW index" : isFx ? "Posley IBKR FX" : "Posley office relay",
+    source: message.key === FX_HL_KEY ? "Posley Hyperliquid KRW index" : isFx ? "Posley IBKR FX" : message.key.startsWith("orderbook:futu:web_api:") ? "Posley Futu Web API" : "Posley office relay",
   };
 };
 
@@ -137,10 +140,8 @@ const connectGroup = (keys, groupIndex) => {
         const message = JSON.parse(String(event.data));
         if (message.type === "subscribed") {
           const accepted = new Set(message.keys ?? message.subscribed ?? []);
-          if (accepted.size) {
-            const rejected = keys.filter((key) => !accepted.has(key));
-            if (rejected.length) console.error(`Posley ADR relay group ${groupIndex} missing subscriptions: ${rejected.join(", ")}`);
-          }
+          const rejected = keys.filter((key) => !accepted.has(key));
+          if (rejected.length) console.error(`Posley ADR relay group ${groupIndex} missing subscriptions: ${rejected.join(", ")}`);
         }
         if (message.type !== "entry") return;
         const quote = quoteFromEntry(message);

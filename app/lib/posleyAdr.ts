@@ -3,7 +3,9 @@ const COGNITO_DOMAIN = process.env.NEXT_PUBLIC_COGNITO_DOMAIN?.trim() || "posley
 const COGNITO_CLIENT_ID = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID?.trim() || "5qup0una5tdma3l33pnn1gm87i";
 const TOKEN_REFRESH_MARGIN_MS = 5 * 60_000;
 const RECONNECT_BACKOFF_MS = 3_000;
-const MAX_SYMBOLS = 24;
+// The stock monitor now needs 26 names including ADRs and FX. Never silently
+// truncate the tail of a request: that previously dropped required FX streams.
+const MAX_SYMBOLS = 48;
 
 export type PosleyAdrBook = {
   symbol: string;
@@ -75,8 +77,12 @@ const marketTimestamp = (data: Record<string, string>) => {
   return Number.isFinite(emitted) && emitted > 0 ? emitted : 0;
 };
 
-const normalizeSymbols = (symbols: string[]) => [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase())
-  .filter((symbol) => /^[A-Z0-9.]{1,16}$/.test(symbol)))].slice(0, MAX_SYMBOLS);
+const normalizeSymbols = (symbols: string[]) => {
+  const normalized = [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase())
+    .filter((symbol) => /^[A-Z0-9.]{1,16}$/.test(symbol)))];
+  if (normalized.length > MAX_SYMBOLS) throw new Error(`Posley request exceeds ${MAX_SYMBOLS} symbols.`);
+  return normalized;
+};
 
 const symbolForStream = (streamKey: string, symbols: Set<string>) => {
   const [category, venue, ...codeParts] = streamKey.toUpperCase().split(":");
