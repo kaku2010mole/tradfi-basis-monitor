@@ -5,22 +5,23 @@ export const dynamic = "force-dynamic";
 
 const BITGET_TICKERS = "https://api.bitget.com/api/v2/mix/market/tickers?productType=usdt-futures";
 const BINANCE_BOOKS = "https://fapi.binance.com/fapi/v1/ticker/bookTicker";
-const KOREAN_STOCKS = [
+const EXISTING_KOREAN_STOCKS = [
   { code: "034020", name: "Doosan Enerbility", bitgetSymbol: "DOOSENERUSDT", binanceSymbol: null },
   { code: "035420", name: "NAVER", bitgetSymbol: "NAVERUSDT", binanceSymbol: "NAVERUSDT" },
   { code: "042700", name: "Hanmi Semiconductor", bitgetSymbol: null, binanceSymbol: "HANMIUSDT" },
   { code: "066570", name: "LG Electronics", bitgetSymbol: "LGELECTRONICSUSDT", binanceSymbol: "LGELECTRONICSUSDT" },
   { code: "454910", name: "Doosan Robotics", bitgetSymbol: "DOOSBOTUSDT", binanceSymbol: null },
 ] as const;
-// These contracts have no subscribed KRX cash book. Show a currency conversion only,
-// never an implied cash/perpetual spread or an executable cross-venue signal.
-const BITGET_ONLY_KOREAN_STOCKS = [
+// Posley publishes these cash books through Futu Web API, not IBKR.
+// Keep the original KRW conversion only while a cash observation is unavailable.
+const FUTU_KOREAN_STOCKS = [
   { code: "207940", name: "Samsung Biologics", chineseName: "三星生物制剂", symbol: "SSBIOLOGICSUSDT" },
   { code: "000270", name: "Kia", chineseName: "起亚汽车", symbol: "KIAUSDT" },
   { code: "373220", name: "LG Energy Solution", chineseName: "LG新能源", symbol: "LGENERGYUSDT" },
   { code: "035720", name: "Kakao", chineseName: "卡考", symbol: "KAKAOUSDT" },
   { code: "105560", name: "KB Financial Group", chineseName: "KB金融集团", symbol: "KBFGUSDT" },
 ] as const;
+const KOREAN_STOCKS = [...EXISTING_KOREAN_STOCKS, ...FUTU_KOREAN_STOCKS.map((stock) => ({ ...stock, bitgetSymbol: stock.symbol, binanceSymbol: null }))];
 // ADR shares/ADS: TYOYY 0.25 (SEC F-6, Aug 2026), MRAAY 0.5 (Citi/BNY),
 // TM 10 (Toyota SEC filing). New Bitget perp/share units are inferred from
 // contemporaneous contract index prices versus TSE and remain indicative.
@@ -188,7 +189,11 @@ export async function GET(request: Request) {
     const bitgetFxIndex = positive(bitgetFx?.indexPrice);
     const useBitgetFx = !fresh(yenFx?.timestamp) && fresh(bitgetFxTime) && bitgetFxIndex !== null;
 
-    const rows = KOREAN_STOCKS.map((stock) => {
+    const hasCashObservation = (code: string) => {
+      const cash = books.get(code);
+      return positive(cash?.bid) !== null || positive(cash?.ask) !== null || positive(cash?.last) !== null;
+    };
+    const rows = KOREAN_STOCKS.filter((stock) => !("symbol" in stock) || hasCashObservation(stock.code)).map((stock) => {
       const cash = books.get(stock.code);
       const cashBidKrw = positive(cash?.bid);
       const cashAskKrw = positive(cash?.ask);
@@ -202,7 +207,9 @@ export async function GET(request: Request) {
         ...equitySpreads(cashBidUsd, cashAskUsd, venue),
       }] : []);
       return {
-        code: stock.code, name: stock.name, market: "KRX", session: sessions.KRX, currency: "KRW", sharesPerPerp: 1, venues,
+        code: stock.code, name: stock.name, chineseName: "chineseName" in stock ? stock.chineseName : null,
+        cashSource: cash && "source" in cash ? String(cash.source) : cash?.streamKey?.includes("futu:web_api") ? "Posley Futu Web API" : "Posley IBKR",
+        market: "KRX", session: sessions.KRX, currency: "KRW", sharesPerPerp: 1, venues,
         mappingNote: stock.code === "042700" ? "Binance HANMIUSDT is the exact 042700 contract. Bitget HANMIUSDT is Hanmi Pharm, so it is deliberately excluded." : null,
         cashBidKrw, cashAskKrw, cashBidQty: positive(cash?.bidSize), cashAskQty: positive(cash?.askSize), cashUpdatedAt: cash?.timestamp ?? null,
         cashLast: positive(cash?.last),
@@ -210,7 +217,7 @@ export async function GET(request: Request) {
       };
     });
 
-    const bitgetOnlyKorean = BITGET_ONLY_KOREAN_STOCKS.map((stock) => {
+    const bitgetOnlyKorean = FUTU_KOREAN_STOCKS.filter((stock) => !hasCashObservation(stock.code)).map((stock) => {
       const quote = tickers.get(stock.symbol);
       const bid = positive(quote?.bidPr);
       const ask = positive(quote?.askPr);
