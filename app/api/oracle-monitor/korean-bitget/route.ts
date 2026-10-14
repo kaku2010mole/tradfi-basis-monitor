@@ -13,7 +13,7 @@ const EXISTING_KOREAN_STOCKS = [
   { code: "454910", name: "Doosan Robotics", bitgetSymbol: "DOOSBOTUSDT", binanceSymbol: null },
 ] as const;
 // Posley publishes these cash books through Futu Web API, not IBKR.
-// Keep the original KRW conversion only while a cash observation is unavailable.
+// These names stay in the normal Korean group even during a cash-feed outage.
 const FUTU_KOREAN_STOCKS = [
   { code: "207940", name: "Samsung Biologics", chineseName: "三星生物制剂", symbol: "SSBIOLOGICSUSDT" },
   { code: "000270", name: "Kia", chineseName: "起亚汽车", symbol: "KIAUSDT" },
@@ -189,11 +189,7 @@ export async function GET(request: Request) {
     const bitgetFxIndex = positive(bitgetFx?.indexPrice);
     const useBitgetFx = !fresh(yenFx?.timestamp) && fresh(bitgetFxTime) && bitgetFxIndex !== null;
 
-    const hasCashObservation = (code: string) => {
-      const cash = books.get(code);
-      return positive(cash?.bid) !== null || positive(cash?.ask) !== null || positive(cash?.last) !== null;
-    };
-    const rows = KOREAN_STOCKS.filter((stock) => !("symbol" in stock) || hasCashObservation(stock.code)).map((stock) => {
+    const rows = KOREAN_STOCKS.map((stock) => {
       const cash = books.get(stock.code);
       const cashBidKrw = positive(cash?.bid);
       const cashAskKrw = positive(cash?.ask);
@@ -217,19 +213,8 @@ export async function GET(request: Request) {
       };
     });
 
-    const bitgetOnlyKorean = FUTU_KOREAN_STOCKS.filter((stock) => !hasCashObservation(stock.code)).map((stock) => {
-      const quote = tickers.get(stock.symbol);
-      const bid = positive(quote?.bidPr);
-      const ask = positive(quote?.askPr);
-      const last = positive(quote?.lastPr);
-      const updatedAt = positive(quote?.ts);
-      return {
-        ...stock, bid, ask, last, updatedAt,
-        impliedBidKrw: bid !== null && krwRate !== null ? bid * krwRate : null,
-        impliedAskKrw: ask !== null && krwRate !== null ? ask * krwRate : null,
-        impliedLastKrw: last !== null && krwRate !== null ? last * krwRate : null,
-      };
-    });
+    // Keep the response field for older clients; no separate conversion-only area.
+    const bitgetOnlyKorean: never[] = [];
 
     const japanRows = JAPANESE_STOCKS.map((stock) => {
       const cash = books.get(stock.code);
