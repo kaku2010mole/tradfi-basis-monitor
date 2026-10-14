@@ -7,11 +7,21 @@ website. No browser login or trading credentials are required.
 
 The checked-in SQLite database seeds the 90-day public-market-data archive and
 the locally collected samples available at integration time. New samples are
-recorded once per minute. Render's current service has no persistent disk, so
-samples collected after this seed may be lost when the instance is replaced.
-To retain them across redeploys, attach persistent storage only after approval
-and set `JLP_DATA_DIR` to that mounted directory. The service copies the seed
-on first use of an empty data directory. `JLP_PORT` defaults to `8788`.
+bucketed by observation minute and written immediately after successful fetches.
+Later failures never remove successful observations. Failed disk writes retain
+the original minute timestamps in a retry queue, retried every five seconds.
+SIGTERM also flushes pending rows. No missing minutes are fabricated.
+
+Persistent storage requires an approved Render disk. The launcher selects
+`/var/data/jlp` when that mount exists, or respects an explicit `JLP_DATA_DIR`.
+Without either, the local fallback remains ephemeral on Render. The service
+copies the seed only on first use of an empty data directory. Export the full
+90-day CSV before the first disk migration and merge real observations into the
+seed with `import_history.py`; never replace an existing persistent database.
+`JLP_PORT` defaults to `8788`. `/api/state` exposes recorder write time, pending
+rows, errors and whether the data directory is a mount point. Collectors run
+without an open browser. A disk prevents history loss on deploy, not collection
+during server downtime; upstream outages still create honest chart gaps.
 
 Run `python3 -m unittest -v test_data.py` in this directory to check the rate,
 hedge, freshness, and history calculations.

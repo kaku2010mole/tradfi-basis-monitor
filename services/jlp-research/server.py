@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 import shutil
+import signal
 import sqlite3
 import subprocess
 import threading
@@ -20,7 +21,7 @@ from monitoring import jupiter_liquidations as liquidation_feed
 ROOT = Path(__file__).resolve().parent
 SEED_DB = ROOT / 'data' / 'research.sqlite3'
 DB = Path(os.environ.get('JLP_DATA_DIR', str(ROOT / 'data'))) / 'research.sqlite3'
-DB.parent.mkdir(exist_ok=True)
+DB.parent.mkdir(parents=True, exist_ok=True)
 if DB != SEED_DB and not DB.exists() and SEED_DB.exists():
     shutil.copy2(SEED_DB, DB)
 JLP = '27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4'
@@ -35,9 +36,17 @@ MARKETS={'BTC':'3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh',
          'SOL':'So11111111111111111111111111111111111111112'}
 RECORD_INTERVAL_MS = 60000
 STOP = threading.Event()
+LAST_WRITE = None
+
+class ClosingConnection(sqlite3.Connection):
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
 
 def connect():
-    c = sqlite3.connect(DB, timeout=20)
+    c = sqlite3.connect(DB, timeout=20, factory=ClosingConnection)
     c.execute('PRAGMA journal_mode=WAL')
     return c
 
@@ -67,38 +76,39 @@ def number(v, positive=False):
     return n
 
 def store(name, body, rows=()):
-    # Live updates stay in memory. Only the latest batch per source is retained.
+    # Timestamp at observation, not at a later flush. A failed request must never
+    # discard an earlier successful sample. Keep pending rows across write errors.
+    now = int(time.time()*1000)
     with LOCK:
         STATE[name] = body
-        PENDING[name] = tuple(rows)
+        if name in LIVE_SOURCES:
+            if body.get('error') or not 0 <= now-body.get('fetchedAt',0) < 45000:
+                rows = ()
+            else:
+                rows = [(k,t//RECORD_INTERVAL_MS*RECORD_INTERVAL_MS,v,s) for k,t,v,s in rows]
+        for k,t,v,s in rows:
+            PENDING[(k,t,s)] = (k,t,v,s)
+        # SQLite UPSERT keeps one observed point per metric/minute, while writing
+        # every successful fetch immediately instead of risking a minute in RAM.
+        persist()
 
 def persist():
-    """One transaction per minute, with at most one live point per minute.
-
-    The bucket represents a recorded snapshot, not an average. Strategy's four
-    components always share the same timestamp. UPSERT also prevents duplicate
-    minute samples after a service restart.
-    """
-    now=int(time.time()*1000)
-    bucket=now//RECORD_INTERVAL_MS*RECORD_INTERVAL_MS
+    """Durably save observations; retries never retimestamp or invent samples."""
+    global LAST_WRITE
     with LOCK, connect() as c:
         c.executemany('INSERT OR REPLACE INTO cache VALUES (?,?)',
                       [(name,json.dumps(body)) for name,body in STATE.items()])
-        for name,rows in PENDING.items():
-            if name in LIVE_SOURCES:
-                body=STATE.get(name,{})
-                if body.get('error') or not 0<=now-body.get('fetchedAt',0)<45000:
-                    continue
-                rows=[(k,bucket,v,s) for k,t,v,s in rows]
-            c.executemany('INSERT OR REPLACE INTO samples VALUES (?,?,?,?)',rows)
+        c.executemany('INSERT OR REPLACE INTO samples VALUES (?,?,?,?)',PENDING.values())
         c.commit()
         PENDING.clear()
+        LAST_WRITE = int(time.time()*1000)
+        STATE.pop('persistence',None)
 
 def fail(name, error):
     with LOCK:
         prior = dict(STATE.get(name, {}))
-    prior.update(error=str(error), attemptedAt=int(time.time()*1000))
-    store(name, prior)
+        prior.update(error=str(error), attemptedAt=int(time.time()*1000))
+        STATE[name] = prior
 
 def derive_hedges(d):
     """First-order NAV delta with custody balances / trader positions held fixed.
@@ -335,6 +345,9 @@ class Handler(SimpleHTTPRequestHandler):
         if p.path=='/api/state':
             with LOCK: d=dict(STATE)
             d['now']=int(time.time()*1000)
+            d['recorder']=dict(lastWriteAt=LAST_WRITE,pendingRows=len(PENDING),
+                storage='persistent-disk' if os.path.ismount(DB.parent) else 'local-directory',
+                error=STATE.get('persistence',{}).get('error'),intervalMs=RECORD_INTERVAL_MS)
             with connect() as c: d['collectionStartedAt']=c.execute("SELECT MIN(ts) FROM samples WHERE metric='borrow_apr'").fetchone()[0]
             return self.send(json.dumps(d,allow_nan=False))
         if p.path=='/api/liquidations.csv':
@@ -385,8 +398,18 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
 if __name__=='__main__':
-    for name,fn,interval in [('pool',pool,10),('loan',loan,15),('price',price,15),('funding',funding,10),('strategy',strategy,10),('activity',activity,20),('liquidations',liquidations,15),('history',history,3600),('persistence',persist,60)]:
+    # Wake the main thread without waiting for slow upstream network requests.
+    # Completed observations are already on disk; flush any retry queue on exit.
+    def request_stop(signum, frame):
+        STOP.set()
+    signal.signal(signal.SIGTERM,request_stop)
+    signal.signal(signal.SIGINT,request_stop)
+    for name,fn,interval in [('pool',pool,10),('loan',loan,15),('price',price,15),('funding',funding,10),('strategy',strategy,10),('activity',activity,20),('liquidations',liquidations,15),('history',history,3600),('persistence',persist,5)]:
         threading.Thread(target=loop,args=(name,fn,interval),daemon=True).start()
     port=int(os.environ.get('JLP_PORT','8788'))
     print(f'JLP research dashboard: http://127.0.0.1:{port}',flush=True)
-    ThreadingHTTPServer(('127.0.0.1',port),Handler).serve_forever()
+    with ThreadingHTTPServer(('127.0.0.1',port),Handler) as httpd:
+        httpd.timeout=.5
+        while not STOP.is_set():
+            httpd.handle_request()
+    persist()

@@ -130,20 +130,20 @@ class DataTests(unittest.TestCase):
         l['fetchedAt']=now-60000
         with self.assertRaises(ValueError):server.neutral_carry(p,q,l,f,now)
 
-    def test_live_updates_write_only_latest_value_at_minute_flush(self):
-        ts=self.now*1000
-        for i in range(6):server.store('loan',dict(fetchedAt=ts,apr=i,error=None),[('borrow_apr',ts+i,i,'Jupiter JLP Loan')])
+    def test_live_updates_write_immediately_and_upsert_within_minute(self):
+        ts=self.now//60*60000
+        for i in range(6):server.store('loan',dict(fetchedAt=self.now*1000,apr=i,error=None),[('borrow_apr',ts+i,i,'Jupiter JLP Loan')])
         self.assertEqual(server.STATE['loan']['apr'],5)
-        with server.connect() as c:self.assertEqual(c.execute('SELECT COUNT(*) FROM samples').fetchone()[0],0)
+        with server.connect() as c:self.assertEqual(c.execute('SELECT COUNT(*) FROM samples').fetchone()[0],1)
         with patch.object(server.time,'time',return_value=self.now):server.persist()
         with server.connect() as c:
             rows=c.execute('SELECT ts,value FROM samples').fetchall()
             self.assertEqual(rows,[(ts//60000*60000,5)])
-        server.store('loan',dict(fetchedAt=ts,apr=6,error=None),[('borrow_apr',ts,6,'Jupiter JLP Loan')])
+        server.store('loan',dict(fetchedAt=self.now*1000,apr=6,error=None),[('borrow_apr',ts,6,'Jupiter JLP Loan')])
         with patch.object(server.time,'time',return_value=self.now):server.persist()
         with server.connect() as c:self.assertEqual(c.execute('SELECT COUNT(*) FROM samples').fetchone()[0],1)
-        server.store('loan',dict(fetchedAt=ts+60000,apr=7,error=None),[('borrow_apr',ts+60000,7,'Jupiter JLP Loan')])
-        with patch.object(server.time,'time',return_value=self.now+60):server.persist()
+        with patch.object(server.time,'time',return_value=ts/1000+60):
+            server.store('loan',dict(fetchedAt=ts+60000,apr=7,error=None),[('borrow_apr',ts+60000,7,'Jupiter JLP Loan')])
         with server.connect() as c:self.assertEqual(c.execute('SELECT COUNT(*) FROM samples').fetchone()[0],2)
 
     def test_minute_strategy_components_remain_aligned_and_stale_samples_skip(self):
@@ -155,5 +155,35 @@ class DataTests(unittest.TestCase):
         with server.connect() as c:
             self.assertEqual(c.execute('SELECT COUNT(DISTINCT ts), COUNT(*) FROM samples').fetchone(),(1,4))
             self.assertEqual(c.execute("SELECT COUNT(*) FROM samples WHERE metric='nav'").fetchone()[0],0)
+
+    def test_failed_refresh_cannot_erase_observed_history(self):
+        ts=self.now*1000
+        server.store('loan',dict(fetchedAt=ts,apr=6),[('borrow_apr',ts,6,'Jupiter JLP Loan')])
+        server.fail('loan',RuntimeError('temporary timeout'))
+        with patch.object(server.time,'time',return_value=self.now+180):server.persist()
+        with server.connect() as c:
+            self.assertEqual(c.execute('SELECT ts,value FROM samples').fetchall(),[(ts//60000*60000,6)])
+
+    def test_failed_disk_write_retries_all_original_minutes(self):
+        ts=self.now//60*60000
+        for i in range(3):
+            observed=ts+i*60000
+            with patch.object(server.time,'time',return_value=observed/1000),patch.object(server,'connect',side_effect=sqlite3.OperationalError('disk busy')):
+                with self.assertRaises(sqlite3.OperationalError):
+                    server.store('loan',dict(fetchedAt=observed,apr=i),[('borrow_apr',observed,i,'Jupiter JLP Loan')])
+            server.fail('loan',RuntimeError('disk busy'))
+        self.assertEqual(len(server.PENDING),3)
+        with patch.object(server.time,'time',return_value=self.now+300):server.persist()
+        with server.connect() as c:
+            self.assertEqual(c.execute('SELECT ts,value FROM samples ORDER BY ts').fetchall(),[(ts+i*60000,i) for i in range(3)])
+        self.assertFalse(server.PENDING)
+
+    def test_reopen_reads_saved_sample_without_flush_or_memory(self):
+        ts=self.now*1000
+        server.store('loan',dict(fetchedAt=ts,apr=6),[('borrow_apr',ts,6,'Jupiter JLP Loan')])
+        server.STATE.clear();server.PENDING.clear()
+        with server.connect() as c:
+            self.assertEqual(c.execute('SELECT value FROM samples').fetchone()[0],6)
+            self.assertEqual(json.loads(c.execute("SELECT body FROM cache WHERE name='loan'").fetchone()[0])['apr'],6)
 
 if __name__=='__main__':unittest.main()

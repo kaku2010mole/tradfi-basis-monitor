@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const legacyOrderbookDirectories = new Set([
@@ -21,7 +22,12 @@ let restartTimer;
 function startJlp() {
   jlp = spawn(process.env.JLP_PYTHON || "python3", [jlpService], {
     stdio: "inherit",
-    env: { ...process.env, JLP_PORT: process.env.JLP_PORT || "8788" },
+    env: {
+      ...process.env,
+      JLP_PORT: process.env.JLP_PORT || "8788",
+      ...(process.env.JLP_DATA_DIR ? {} : existsSync("/var/data/jlp")
+        ? { JLP_DATA_DIR: "/var/data/jlp" } : {}),
+    },
   });
   jlp.on("error", (error) => console.error("JLP data service failed to start:", error));
   jlp.on("exit", (code, signal) => {
