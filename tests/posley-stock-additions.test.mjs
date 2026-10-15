@@ -11,11 +11,53 @@ test('remote discovery matches Futu KR keys and retains both FX names beyond 24 
   const source = await readFile(new URL('../app/lib/posleyAdr.ts', import.meta.url), 'utf8');
   const module = await import('data:text/javascript;base64,' + Buffer.from(stripTypeScriptTypes(source) + '\nexport { normalizeSymbols, symbolForStream };').toString('base64'));
   const requested = ['034020','035420','042700','066570','454910', ...korean,
-    '285A','5802','6758','6857','6920',...japanese,'7203','8035','8306','9984','SONY','TM','MUFG','USDKRW','USDJPY'];
-  assert.equal(requested.length, 26);
+    '285A','5802','6758','6857','6920',...japanese,'7203','8035','8306','9983','9984','SONY','TM','MUFG','USDKRW','USDJPY'];
+  assert.equal(requested.length, 27);
   assert.deepEqual(module.normalizeSymbols(requested), requested);
   for (const code of korean) assert.equal(module.symbolForStream(`orderbook:futu:web_api:KR.${code}`, new Set(requested)), code);
   for (const code of japanese) assert.equal(module.symbolForStream(`orderbook:ibkr:STK:${code}:TSEJ:JPY`, new Set(requested)), code);
+});
+
+test('Fast Retailing stays in Japan with Bitget quotes, without inventing a missing cash basis', async () => {
+  const {default: worker} = await import('../dist/server/index.js');
+  const ctx = {waitUntil(){},passThroughOnException(){}};
+  await worker.fetch(new Request('http://localhost/basis'), {ASSETS:{fetch:async()=>new Response('',{status:404})}}, ctx);
+  const originalFetch=globalThis.fetch, previous=globalThis.__FUTU_PUSH_SNAPSHOT__, clock=Date.now;
+  const stamp=Date.parse('2026-10-15T01:00:00Z');
+  Date.now=()=>stamp;
+  globalThis.__FUTU_PUSH_SNAPSHOT__={receivedAt:stamp,payload:{quotes:[
+    {symbol:'FX.USDJPY',bid:157,ask:158,marketTimestamp:stamp},
+    {symbol:'FX.USDKRW',bid:1349,ask:1351,marketTimestamp:stamp},
+  ]}};
+  globalThis.fetch=async url=>{
+    if(String(url).includes('api.bitget.com'))return Response.json({code:'00000',data:[{symbol:'FASTRETAILINGUSDT',bidPr:'481.23',askPr:'481.58',bidSz:'6.4',askSz:'1.77',ts:String(stamp)}]});
+    if(String(url).includes('fapi.binance.com'))return Response.json([]);
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    const getRow=async()=>{
+      const response=await worker.fetch(new Request('http://localhost/api/oracle-monitor/korean-bitget'),{},ctx);
+      const data=await response.json();
+      assert.equal(response.status,200,JSON.stringify(data));
+      const rows=data.rows.filter(row=>row.code==='9983');
+      assert.equal(rows.length,1);
+      return rows[0];
+    };
+    let row=await getRow();
+    assert.equal(row.name,'Fast Retailing'); assert.equal(row.market,'TSE'); assert.equal(row.currency,'JPY');
+    assert.match(row.chineseName,/迅销/); assert.equal(row.showPerpQuote,true);
+    assert.equal(row.adr,null); assert.equal(row.cashBidKrw,null); assert.equal(row.cashAskKrw,null);
+    assert.equal(row.venues[0].symbol,'FASTRETAILINGUSDT'); assert.equal(row.venues[0].bid,481.23); assert.equal(row.venues[0].ask,481.58);
+    assert.equal(row.venues[0].buyKoreaSellPerp,null); assert.equal(row.venues[0].buyPerpSellKorea,null);
+    assert.match(row.mappingNote,/Waiting for the Posley TSE 9983/);
+    // Future genuine cash observations are accepted by the authenticated ingest.
+    const response=await worker.fetch(new Request('http://localhost/api/hk-auction/ingest',{method:'POST',headers:{Authorization:'Bearer test-stock-ingest'},body:JSON.stringify({generatedAt:stamp,quotes:[{symbol:'TSE.9983',bid:75800,ask:75810,bidSize:100,askSize:200,marketTimestamp:stamp}]})}),{FUTU_PUSH_TOKEN:'test-stock-ingest'},ctx);
+    assert.equal(response.status,202);
+    row=await getRow();
+    assert.equal(row.cashBidKrw,75800); assert.equal(row.cashBidUsd,75800/158); assert.equal(row.cashAskUsd,75810/157);
+    assert.equal(row.venues[0].buyKoreaSellPerp,(481.23/(75810/157)-1)*100);
+    assert.doesNotMatch(row.mappingNote,/Waiting for/);
+  } finally {globalThis.fetch=originalFetch;Date.now=clock;if(previous)globalThis.__FUTU_PUSH_SNAPSHOT__=previous;else delete globalThis.__FUTU_PUSH_SNAPSHOT__;}
 });
 
 test('office pusher maps the actual sources and does not refresh closed Japanese heartbeats', async () => {

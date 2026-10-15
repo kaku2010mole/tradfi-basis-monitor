@@ -159,8 +159,10 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
   assert.match(component, /equity_monitor_id_token/);
   assert.doesNotMatch(component, /005935/);
   for (const code of ["034020", "035420", "042700", "066570", "454910"]) assert.match(route, new RegExp(code));
-  for (const code of ["285A", "5802", "6758", "6857", "6920", "6976", "6981", "7203", "8035", "8306", "9984"]) assert.match(route, new RegExp(`code: "${code}"`));
-  for (const symbol of ["TAIYOYUDENUSDT", "MURATAUSDT", "TOYOTAUSDT", "TMUSDT"]) assert.match(route, new RegExp(symbol));
+  for (const code of ["285A", "5802", "6758", "6857", "6920", "6976", "6981", "7203", "8035", "8306", "9983", "9984"]) assert.match(route, new RegExp(`code: "${code}"`));
+  for (const symbol of ["TAIYOYUDENUSDT", "MURATAUSDT", "TOYOTAUSDT", "TMUSDT", "FASTRETAILINGUSDT"]) assert.match(route, new RegExp(symbol));
+  assert.match(component, /row\.showPerpQuote && row\.venues\.map/);
+  assert.match(component, /bid \/ ask · not cash/);
   for (const [code, jpSymbol, adrSymbol] of [["6758", "JPSONYUSDT", "SONYUSDT"], ["8306", "JPMUFGUSDT", "MUFGUSDT"]]) {
     assert.match(route, new RegExp(`code: "${code}"[^\\n]*bitgetSymbol: "${jpSymbol}"[^\\n]*additionalBitgetSymbol: "${adrSymbol}"[^\\n]*comparePerps: true`));
   }
