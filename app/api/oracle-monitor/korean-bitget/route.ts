@@ -36,12 +36,18 @@ const JAPANESE_STOCKS = [
   { code: "7203", name: "Toyota Motor", bitgetSymbol: "TOYOTAUSDT", sharesPerPerp: 1, additionalBitgetSymbol: "TMUSDT", additionalSharesPerPerp: 10, adrSymbol: "TM", sharesPerAdr: 10 },
   { code: "8035", name: "Tokyo Electron", bitgetSymbol: "TOKYOELUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
   { code: "8306", name: "MUFG", bitgetSymbol: "JPMUFGUSDT", sharesPerPerp: 1, additionalBitgetSymbol: "MUFGUSDT", additionalSharesPerPerp: 1, comparePerps: true, adrSymbol: "MUFG", sharesPerAdr: 1 },
-  { code: "9983", name: "Fast Retailing", chineseName: "迅销（优衣库母公司）", bitgetSymbol: "FASTRETAILINGUSDT", sharesPerPerp: 1, showPerpQuote: true, adrSymbol: null, sharesPerAdr: null },
+  { code: "9983", name: "Fast Retailing", chineseName: "迅销（优衣库母公司）", bitgetSymbol: "FASTRETAILINGUSDT", sharesPerPerp: 1, showPerpQuote: true, cashFeedPending: true, adrSymbol: null, sharesPerAdr: null },
   { code: "9984", name: "SoftBank Group", bitgetSymbol: "SOFTBANKUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
 ] as const;
 // The office feed only carries these U.S. books. TYOYY and MRAAY still get
 // a contract-derived ADR equivalent, without claiming a live ADR spread.
 const ADR_SYMBOLS = ["SONY", "TM", "MUFG"];
+
+// A known-unavailable new cash feed must not force healthy office books through
+// remote OAuth or report a login failure. Monitor it once a real quote exists.
+const expectedJapaneseCodes = (observed: ReadonlySet<string>) => JAPANESE_STOCKS
+  .filter((stock) => !("cashFeedPending" in stock) || !stock.cashFeedPending || observed.has(stock.code))
+  .map((stock) => stock.code);
 
 type BitgetTicker = {
   symbol?: string; bidPr?: string; askPr?: string; bidSz?: string; askSz?: string; lastPr?: string; indexPrice?: string; ts?: string;
@@ -121,8 +127,8 @@ function officeRelaySnapshot() {
     return [{ symbol: code, streamKey: `office:${quote.symbol}`, bid: positive(quote.bid), ask: positive(quote.ask), last: positive(quote.last), bidSize: positive(quote.bidSize), askSize: positive(quote.askSize), timestamp, marketState: quote.marketState ?? null, source: quote.source ?? (quote.symbol?.startsWith("US.") ? "Futu OpenD" : "Posley office relay") }];
   });
   if (!books.length) return null;
-  const wanted = [...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), ...(usSession(Date.now()) === "REGULAR" ? ADR_SYMBOLS : []), "USDKRW", "USDJPY"];
   const found = new Set(books.map((book) => book.symbol));
+  const wanted = [...KOREAN_STOCKS.map((stock) => stock.code), ...expectedJapaneseCodes(found), ...(usSession(Date.now()) === "REGULAR" ? ADR_SYMBOLS : []), "USDKRW", "USDJPY"];
   return { configured: true, state: wanted.every((symbol) => found.has(symbol)) ? "live" : "partial", error: "", books, missing: wanted.filter((symbol) => !found.has(symbol)), timestamp: Date.now(), source: "office relay" };
 }
 
@@ -136,7 +142,7 @@ export async function GET(request: Request) {
     const tseSession = marketSession("TSE", nowForSession);
     const activeOfficeSymbols = [
       ...(["PRE-MARKET", "REGULAR", "AFTER-HOURS OPENING", "AFTER-HOURS"].includes(krxSession) ? [...KOREAN_STOCKS.map((stock) => stock.code), "USDKRW"] : []),
-      ...(["OPENING AUCTION", "REGULAR"].includes(tseSession) ? [...JAPANESE_STOCKS.map((stock) => stock.code), "USDJPY"] : []),
+      ...(["OPENING AUCTION", "REGULAR"].includes(tseSession) ? [...expectedJapaneseCodes(new Set(office?.books.map((book) => book.symbol))), "USDJPY"] : []),
       ...(usSession(nowForSession) === "REGULAR" ? ADR_SYMBOLS : []),
     ];
     const officeFreshSymbols = new Set(office?.books.filter((book) => nowForSession - book.timestamp <= QUOTE_MAX_AGE_MS && book.timestamp - nowForSession < 5_000).map((book) => book.symbol));
@@ -159,7 +165,7 @@ export async function GET(request: Request) {
     office?.books.forEach((book) => {
       if ((mergedBooks.get(book.symbol)?.timestamp ?? 0) < book.timestamp) mergedBooks.set(book.symbol, book);
     });
-    const wantedSymbols = [...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), ...(usSession(Date.now()) === "REGULAR" ? ADR_SYMBOLS : []), "USDKRW", "USDJPY"];
+    const wantedSymbols = [...KOREAN_STOCKS.map((stock) => stock.code), ...expectedJapaneseCodes(new Set(mergedBooks.keys())), ...(usSession(Date.now()) === "REGULAR" ? ADR_SYMBOLS : []), "USDKRW", "USDJPY"];
     const unavailable = wantedSymbols.filter((symbol) => {
       const book = mergedBooks.get(symbol);
       return !book || !Number.isFinite(book.timestamp) || Date.now() - book.timestamp > QUOTE_MAX_AGE_MS;

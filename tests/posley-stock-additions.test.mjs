@@ -26,6 +26,8 @@ test('Fast Retailing stays in Japan with Bitget quotes, without inventing a miss
   const stamp=Date.parse('2026-10-15T01:00:00Z');
   Date.now=()=>stamp;
   globalThis.__FUTU_PUSH_SNAPSHOT__={receivedAt:stamp,payload:{quotes:[
+    ...['034020','035420','042700','066570','454910',...korean].map(code=>({symbol:`KRX.${code}`,bid:100000,ask:100100,marketTimestamp:stamp})),
+    ...['285A','5802','6758','6857','6920',...japanese,'7203','8035','8306','9984'].map(code=>({symbol:`TSE.${code}`,bid:1000,ask:1001,marketTimestamp:stamp})),
     {symbol:'FX.USDJPY',bid:157,ask:158,marketTimestamp:stamp},
     {symbol:'FX.USDKRW',bid:1349,ask:1351,marketTimestamp:stamp},
   ]}};
@@ -39,6 +41,9 @@ test('Fast Retailing stays in Japan with Bitget quotes, without inventing a miss
       const response=await worker.fetch(new Request('http://localhost/api/oracle-monitor/korean-bitget'),{},ctx);
       const data=await response.json();
       assert.equal(response.status,200,JSON.stringify(data));
+      assert.equal(data.posley.state,'live');
+      assert.equal(data.posley.error,'');
+      assert.deepEqual(data.posley.missing,[]);
       const rows=data.rows.filter(row=>row.code==='9983');
       assert.equal(rows.length,1);
       return rows[0];
