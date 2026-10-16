@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import PageSwitcher from "./PageSwitcher";
 import { equityBasis, equitySpreads, impliedAdrBook, perpetualPairBasis, preferCashLast } from "../lib/equityBasis";
 import styles from "./KoreanPerpMonitor.module.css";
 
@@ -86,7 +87,7 @@ async function beginPosleyLogin() {
   const verifier = base64Url(crypto.getRandomValues(new Uint8Array(48)));
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
   sessionStorage.setItem("equity_monitor_pkce", verifier);
-  sessionStorage.setItem("equity_monitor_return_to", "/oracle");
+  sessionStorage.setItem("equity_monitor_return_to", "/stock-basis");
   const params = new URLSearchParams({ client_id: COGNITO_CLIENT_ID, response_type: "code", scope: "openid email profile", redirect_uri: `${location.origin}/`, identity_provider: "Google", code_challenge_method: "S256", code_challenge: base64Url(new Uint8Array(digest)) });
   location.assign(`https://${COGNITO_DOMAIN}/oauth2/authorize?${params}`);
 }
@@ -270,7 +271,7 @@ export default function KoreanPerpMonitor() {
   };
 
   return <section className={styles.monitor} aria-label="Korean and Japanese stock cross-venue basis">
-    <header className={styles.monitorHeader}><div><p>KRX · TSE · U.S. ADR / PERPETUALS</p><h2>Stock cross-venue basis</h2><span>Live quote edges first. Closed-market comparisons remain visible and explicitly indicative.</span></div><div className={styles.status}><i />{payload.sessions ? `KRX ${payload.sessions.KRX} · TSE ${payload.sessions.TSE} · US ${payload.sessions.US}` : "CONNECTING"}</div></header>
+    <header className={styles.monitorHeader}><div><p>KRX · TSE · U.S. ADR / PERPETUALS</p><h1>Stock cross-venue basis</h1><span>Live quote edges first. Closed-market comparisons remain visible and explicitly indicative.</span></div><div className={styles.monitorActions}><div className={styles.status}><i />{payload.sessions ? `KRX ${payload.sessions.KRX} · TSE ${payload.sessions.TSE} · US ${payload.sessions.US}` : "CONNECTING"}</div><PageSwitcher active="stock-basis" /></div></header>
     <div className={styles.signalDeck}><div className={styles.signalIntro}><span>LIVE QUOTE RADAR</span><strong>{liveEdges.length ? `${liveEdges.length} positive edges` : "No live positive edge"}</strong><small>Card colors: positive spreads ≥1% amber, ≥0.3% teal, including closed-market comparisons. Radar ranks live edges only; INDICATIVE is not executable.</small></div><div className={styles.signalList}>{liveEdges.slice(0, 3).map((edge, index) => <div key={`${edge.code}:${edge.direction}`} className={`${styles.signalItem} ${toneClass(spreadTone(edge.value))}`}><small>0{index + 1} · {edge.source}</small><strong>{edge.name}<b>{pct(edge.value)}</b></strong><span>{edge.direction}</span></div>)}{!liveEdges.length && <p>{radarMessage}</p>}</div></div>
     <div className={styles.toolRow}><div className={styles.filters} role="group" aria-label="Filter stock market">{(["ALL", "KRX", "TSE"] as const).map((market) => <button key={market} className={effectiveMarket === market ? styles.activeFilter : ""} onClick={() => setMarketFilter(market)}>{market === "ALL" ? "All stocks" : market === "KRX" ? "Korea" : "Japan + ADR"}</button>)}</div><div className={styles.fxGroup}><span>USD/KRW <b>{payload.fx?.bid != null && payload.fx?.ask != null ? `${fmt(payload.fx.bid)} / ${fmt(payload.fx.ask)}` : fmt(payload.fx?.last ?? null)}</b><small>{isFresh(payload.fx?.updatedAt, clock) && payload.fx?.bid && payload.fx.ask ? "LIVE BBO" : "LAST / INDICATIVE"}</small></span><span>USD/JPY <b>{payload.yenFx?.bid != null && payload.yenFx?.ask != null ? `${fmt(payload.yenFx.bid)} / ${fmt(payload.yenFx.ask)}` : fmt(payload.yenFx?.last ?? null)}</b><small>{isFresh(payload.yenFx?.updatedAt, clock) && payload.yenFx?.bid && payload.yenFx.ask ? "LIVE BBO" : payload.yenFx?.source.includes("index") ? "INDEX / INDICATIVE" : "LAST / INDICATIVE"}</small></span></div></div>
     {(loginError || error || payload.posley?.error) && <div className={styles.notice}><span>{loginError || error || payload.posley?.error}</span><button disabled={loginBusy} onClick={() => void connect()}>{loginBusy ? "Checking…" : "Connect Posley"}</button></div>}

@@ -4,7 +4,7 @@ import Link from "next/link";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
-  active: "jlp" | "basis" | "oracle" | "blog" | "skhynix" | "samsung" | "polymarket" | "auction" | "dividends";
+  active: "jlp" | "basis" | "oracle" | "blog" | "skhynix" | "samsung" | "stock-basis" | "polymarket" | "auction" | "dividends";
 };
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
@@ -40,9 +40,9 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
           <span>Samsung ↔ 7747</span>
           <small>Cash, perpetual and 005930 hedge sizing</small>
         </Link>
-        <Link href="/polymarket" aria-current={active === "polymarket" ? "page" : undefined}>
-          <span>Funding &amp; Basis</span>
-          <small>Poly ↔ HL ↔ Binance funding and price spreads</small>
+        <Link href="/stock-basis" aria-current={active === "stock-basis" ? "page" : undefined}>
+          <span>Stock cross-venue basis</span>
+          <small>Korea, Japan &amp; U.S. ADR versus perpetuals</small>
         </Link>
         <Link href="/hk-auction" aria-current={active === "auction" ? "page" : undefined}>
           <span>HK auction basis</span>
