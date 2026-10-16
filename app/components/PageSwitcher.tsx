@@ -50,7 +50,7 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         </Link>
         <Link href="/dividends" aria-current={active === "dividends" ? "page" : undefined}>
           <span>Dividend calendar</span>
-          <small>Binance + Bitget stock and ETF ex-dates</small>
+          <small>Dividends + US, Japan &amp; Korea earnings</small>
         </Link>
       </nav>
     </details>
