@@ -203,6 +203,33 @@ export function parseBiologics(html: string, issuer: EarningsIssuer) {
   return result;
 }
 
+// Public-source observations verified on 2026-10-16 before deployment. Some issuer/
+// exchange sites reject data-centre requests. Retain these observations, never bypass
+// that rejection and never imply a successful live recheck. A successful source
+// response takes precedence, including corrections/removals from that response.
+export function verifiedScheduleFallback(issuers: EarningsIssuer[], failedSources: string[]) {
+  const observations: Array<{ id: string; date: string; time: string | null; source: string; kind: EarningsEvent["kind"] }> = [
+    { id: "KR:000660", date: "2026-10-28", time: "09:00", source: "KRX KIND earnings", kind: "earnings_call" },
+    { id: "KR:009150", date: "2026-10-28", time: "13:00", source: "KRX KIND earnings", kind: "earnings_call" },
+    { id: "KR:066570", date: "2026-10-28", time: "16:00", source: "KRX KIND earnings", kind: "earnings_call" },
+    { id: "KR:005930", date: "2026-10-29", time: "10:00", source: "KRX KIND earnings", kind: "earnings_call" },
+    { id: "KR:105560", date: "2026-10-29", time: "16:00", source: "KRX KIND earnings", kind: "earnings_call" },
+    { id: "KR:000270", date: "2026-10-30", time: null, source: "KRX KIND earnings", kind: "earnings_call" },
+    { id: "KR:373220", date: "2026-11-03", time: "10:00", source: "KRX KIND earnings", kind: "earnings_call" },
+    { id: "KR:035720", date: "2026-11-05", time: "09:00", source: "KRX KIND earnings", kind: "earnings_call" },
+    { id: "JP:6758", date: "2026-11-05", time: "15:30", source: "Sony IR", kind: "results" },
+    { id: "JP:6758", date: "2026-11-05", time: "16:30", source: "Sony IR", kind: "earnings_call" },
+  ];
+  return observations.flatMap(row => {
+    const issuer = issuers.find(i => i.id === row.id);
+    if (!issuer || !failedSources.includes(row.source)) return [];
+    const sourceUrl = row.source === "Sony IR" ? SONY_URL : `${KIND_URL}?method=searchIRScheduleMain&gubun=iRSchedule`;
+    return [event(issuer, row.date, sourceUrl, `${row.source} · verified snapshot 16 Oct 2026; live refresh unavailable`, {
+      timeLocal: row.time, kind: row.kind, stale: true, checkedAt: Date.parse("2026-10-16T03:47:35Z"),
+    })];
+  });
+}
+
 type Cached = { value: unknown; expires: number; checkedAt: number };
 type Store = typeof globalThis & { __EARNINGS_SOURCE_CACHE__?: Map<string, Cached>; __EARNINGS_INFLIGHT__?: Map<string, Promise<unknown>> };
 async function memo<T>(key: string, ttl: number, fn: () => Promise<T>): Promise<T> {
@@ -297,6 +324,12 @@ export async function scanEarnings(month: string, previous?: EarningsPayload): P
     const failed = (old.sourceLabel.startsWith("Nasdaq") && failedUsDates.includes(old.reportDate)) || sourceStatus.some(s => !s.ok && s.url === old.sourceUrl) || (old.sourceLabel.startsWith("JPX") && sourceStatus.some(s => s.name === "JPX earnings" && !s.ok));
     if (failed && !events.has(old.eventId)) events.set(old.eventId, { ...old, stale: true });
   }
+  const snapshots = verifiedScheduleFallback(issuers, sourceStatus.filter(s => !s.ok).map(s => s.name));
+  let retainedSnapshots = 0;
+  for (const snapshot of snapshots) {
+    if (snapshot.calendarDate.startsWith(month) && !events.has(snapshot.eventId)) { events.set(snapshot.eventId, snapshot); retainedSnapshots++; }
+  }
+  if (retainedSnapshots) warnings.push(`${retainedSnapshots} earnings events retained from the verified 16 Oct 2026 snapshot. Live source refresh unavailable; marked STALE with verification time in details.`);
   if (!bn.length || !bg.length) warnings.push("Exchange listing scan incomplete; only successfully verified listings are counted.");
   const result = [...events.values()].sort((a, b) => a.calendarDate.localeCompare(b.calendarDate) || (a.timeHkt ?? "99:99").localeCompare(b.timeHkt ?? "99:99") || a.company.localeCompare(b.company));
   const missing = issuers.filter(i => !result.some(e => e.id === i.id)).map(i => ({ ...i, reason: "No exact earnings date found for this month in the checked sources; not confirmation of no earnings" }));

@@ -76,6 +76,16 @@ test('company IR dates are parsed from HTML and unreadable payloads are never co
   assert.equal(events[0].calendarDate,'2026-10-21');assert.equal(events[0].status,'confirmed');assert.equal(events[0].timeHkt,null);
   assert.throws(()=>lib.parseBiologics('{"events":[]}',issuer('KR:207940')),/incomplete/);
 });
+test('previously verified public observations survive data-centre rejection without masquerading as live',()=>{
+  const all=lib.mapEarningsUniverse(['KIA','SKHYNIX','KAKAO','SONY','LGENERGY'].map(b=>listing(b)),[]).issuers;
+  assert.deepEqual(lib.verifiedScheduleFallback(all,[]),[]);
+  const rows=lib.verifiedScheduleFallback(all,['KRX KIND earnings','Sony IR']);
+  assert.equal(rows.length,6);assert.ok(rows.every(e=>e.stale&&e.checkedAt===Date.parse('2026-10-16T03:47:35Z')));
+  assert.equal(rows.find(e=>e.code==='000660').timeHkt,'08:00');
+  assert.equal(rows.find(e=>e.code==='000270').timeHkt,null);
+  assert.equal(rows.find(e=>e.code==='6758'&&e.kind==='results').timeHkt,'14:30');
+  assert.equal(rows.find(e=>e.code==='6758'&&e.kind==='earnings_call').timeHkt,'15:30');
+});
 
 test('complete scan matches all three markets and retains failed source observations as stale', async()=>{
   const fetchBefore=globalThis.fetch;reset();
