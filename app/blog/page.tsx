@@ -30,6 +30,7 @@ import {
   RelativeValueAlertSnapshot,
 } from "../lib/relativeValueAlerts";
 import { leveragedKoreanHedge } from "../lib/leveragedKoreanHedge";
+import { bitgetBooks, bitgetLivePrice, bitgetMidpoint, bitgetSeries, relativeUniverse, type BitgetBook } from "../lib/bitgetRelativeMarket";
 import styles from "./page.module.css";
 
 type Analysis = {
@@ -42,7 +43,7 @@ type Analysis = {
     count: number;
     symbols: string[];
     typeCounts: Record<string, number>;
-    candidates: Array<{ id: string; available: boolean }>;
+    candidates: Array<{ id: string; available: boolean | null }>;
   };
   model: TrainedModel;
   points: ProjectionPoint[];
@@ -80,9 +81,9 @@ const LIVE_REFRESH_MS = 10_000;
 const PAIR_LIVE_REFRESH_MS = 2_000;
 const NEUTRAL_UNIT_SHARES = 100;
 const DIRECT_BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
-const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v7";
-const CUSTOM_RELATIONSHIPS_KEY = "relative-value-custom-relationships-v1";
-const HIDDEN_RELATIONSHIPS_KEY = "relative-value-hidden-relationships-v1";
+const MODEL_CACHE_PREFIX = "relative-value-fixed-model-v8";
+const CUSTOM_RELATIONSHIPS_KEY = "relative-value-custom-relationships-v2-etf";
+const HIDDEN_RELATIONSHIPS_KEY = "relative-value-hidden-relationships-v2-etf";
 const DIRECT_RANKING_BASELINE_CACHE = new Map<string, Promise<number>>();
 
 const DEDICATED_PRODUCTS = {
@@ -91,9 +92,9 @@ const DEDICATED_PRODUCTS = {
 } as const;
 
 type CustomDraft = {
-  asset1Venue: "binance" | "hyperliquid";
+  asset1Venue: "binance" | "hyperliquid" | "bitget";
   asset1Symbol: string;
-  asset2Venue: "binance" | "hyperliquid";
+  asset2Venue: "binance" | "hyperliquid" | "bitget";
   asset2Symbol: string;
   referenceBeta: string;
 };
@@ -166,6 +167,7 @@ async function directLivePrices(relationship: Relationship) {
     return payload.live!;
   };
   const legPrice = async (leg: Relationship["asset1"]) => {
+    if (leg.venue === "bitget") return bitgetLivePrice(leg.symbol);
     if (leg.venue === "binance") return binancePrice(leg.symbol);
     if (leg.venue === "futu") return futuPrice(leg);
     const dex = leg.symbol.includes(":") ? leg.symbol.split(":", 1)[0] : "";
@@ -191,15 +193,22 @@ async function directLivePrices(relationship: Relationship) {
 
 async function rankInBrowser(relationships: Relationship[], start: number, end: number): Promise<RankingRow[]> {
   type Book = { symbol?: string; bidPrice?: string; askPrice?: string };
-  const books = await directBinance<Book[]>("/fapi/v1/ticker/bookTicker");
+  const legs = relationships.flatMap((item) => [item.asset1, item.asset2]);
+  const [books, bitget] = await Promise.all([
+    legs.some((leg) => leg.venue === "binance") ? directBinance<Book[]>("/fapi/v1/ticker/bookTicker").catch(() => []) : [],
+    legs.some((leg) => leg.venue === "bitget") ? bitgetBooks().catch(() => [] as BitgetBook[]) : [],
+  ]);
+  const bitgetBySymbol = new Map(bitget.map((book) => [book.symbol, book]));
   const rankingFxRows = relationships.some((item) => item.predictorFx) ? await directFxSeries(start, end, "1m") : [];
   const bookBySymbol = new Map(books.flatMap((book) => book.symbol ? [[book.symbol, book] as const] : []));
   const hyperLegs = relationships.flatMap((item) => [item.asset1, item.asset2]).filter((leg) => leg.venue === "hyperliquid");
   const dexNames = [...new Set(hyperLegs.map((leg) => leg.symbol.includes(":") ? leg.symbol.split(":", 1)[0] : ""))];
   const dexMids = new Map(await Promise.all(dexNames.map(async (dex) => {
-    const response = await fetch("https://api.hyperliquid.xyz/info", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(dex ? { type: "allMids", dex } : { type: "allMids" }), cache: "no-store", signal: AbortSignal.timeout(8_000) });
-    if (!response.ok) throw new Error(`Hyperliquid HTTP ${response.status}`);
-    return [dex, await response.json() as Record<string, string>] as const;
+    try {
+      const response = await fetch("https://api.hyperliquid.xyz/info", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(dex ? { type: "allMids", dex } : { type: "allMids" }), cache: "no-store", signal: AbortSignal.timeout(8_000) });
+      if (!response.ok) throw new Error(`Hyperliquid HTTP ${response.status}`);
+      return [dex, await response.json() as Record<string, string>] as const;
+    } catch { return [dex, {} as Record<string, string>] as const; }
   })));
   const futuLegs = [...new Map(relationships.flatMap((item) => [item.asset1, item.asset2]).filter((leg) => leg.venue === "futu").map((leg) => [`${leg.symbol}:${leg.usdHkd ?? 7.84}`, leg])).values()];
   const futuMids = new Map(await Promise.all(futuLegs.map(async (leg) => {
@@ -213,7 +222,7 @@ async function rankInBrowser(relationships: Relationship[], start: number, end: 
     const saved = DIRECT_RANKING_BASELINE_CACHE.get(key);
     if (saved) return saved;
     if (DIRECT_RANKING_BASELINE_CACHE.size > 240) DIRECT_RANKING_BASELINE_CACHE.clear();
-    const promise = leg.venue === "binance" ? directBinance<Array<[number, string, string, string, string]>>(`/fapi/v1/klines?${new URLSearchParams({ symbol: leg.symbol, interval: "1m", startTime: String(baselineStart), limit: "1" })}`).then((rows) => Number(rows[0]?.[4])) : leg.venue === "futu" ? directSeries(leg, baselineStart, baselineStart + 5 * 60_000, "1m").then((rows) => Number(rows[0]?.value)) : fetch("https://api.hyperliquid.xyz/info", {
+    const promise = leg.venue === "bitget" ? bitgetSeries(leg.symbol, Math.floor(baselineStart / 60_000) * 60_000, Math.floor(baselineStart / 60_000) * 60_000, "1m").then((rows) => { if (!rows[0]?.value) throw new Error(`${leg.symbol} baseline unavailable.`); return rows[0].value; }) : leg.venue === "binance" ? directBinance<Array<[number, string, string, string, string]>>(`/fapi/v1/klines?${new URLSearchParams({ symbol: leg.symbol, interval: "1m", startTime: String(baselineStart), limit: "1" })}`).then((rows) => Number(rows[0]?.[4])) : leg.venue === "futu" ? directSeries(leg, baselineStart, baselineStart + 5 * 60_000, "1m").then((rows) => Number(rows[0]?.value)) : fetch("https://api.hyperliquid.xyz/info", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "candleSnapshot", req: { coin: leg.symbol, interval: "1m", startTime: baselineStart, endTime: baselineStart + 5 * 60_000 } }), cache: "no-store", signal: AbortSignal.timeout(8_000),
     }).then(async (response) => Number((await response.json() as Array<{ c?: string }>)[0]?.c));
     DIRECT_RANKING_BASELINE_CACHE.set(key, promise);
@@ -221,6 +230,7 @@ async function rankInBrowser(relationships: Relationship[], start: number, end: 
     return promise;
   };
   const live = (leg: Relationship["asset1"]) => {
+    if (leg.venue === "bitget") return bitgetMidpoint(bitgetBySymbol.get(leg.symbol));
     if (leg.venue === "binance") {
       const book = bookBySymbol.get(leg.symbol); const bid = Number(book?.bidPrice); const ask = Number(book?.askPrice);
       return Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0 ? (bid + ask) / 2 : null;
@@ -264,6 +274,7 @@ async function rankInBrowser(relationships: Relationship[], start: number, end: 
 }
 
 async function directSeries(leg: Relationship["asset1"], start: number, end: number, interval: string): Promise<PricePoint[]> {
+  if (leg.venue === "bitget") return bitgetSeries(leg.symbol, start, end, interval);
   if (leg.venue === "binance") {
     const rows: Array<[number, string, string, string, string]> = [];
     const step = INTERVAL_MS[interval] ?? 60_000;
@@ -326,22 +337,17 @@ async function directFixedModel(relationship: Relationship, now: number) {
 
 async function analyzeInBrowser(relationship: Relationship, start: number, end: number): Promise<Analysis> {
   const interval = observationInterval(start, end);
-  const [model, asset1Rows, asset2Rows, fxRows, exchangeInfo] = await Promise.all([
+  const relationships = RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship];
+  const [model, asset1Rows, asset2Rows, fxRows, universe] = await Promise.all([
     directFixedModel(relationship, start),
     directSeries(relationship.asset1, start, end, interval),
     directSeries(relationship.asset2, start, end, interval),
     relationship.predictorFx ? directFxSeries(start, end, interval) : Promise.resolve([]),
-    directBinance<{ symbols?: Array<{ symbol?: string; status?: string; underlyingType?: string; underlyingSubType?: string[] }> }>("/fapi/v1/exchangeInfo"),
+    relativeUniverse(relationships, () => directBinance<{ symbols?: Array<{ symbol?: string; status?: string }> }>("/fapi/v1/exchangeInfo")),
   ]);
-  const projection = projectRelationship(asset1Rows, asset2Rows, model, fxRows);
-  const tradFi = (exchangeInfo.symbols ?? []).filter((item) => item.status === "TRADING" && item.underlyingSubType?.some((tag) => tag.toLowerCase() === "tradfi"));
-  const symbols = tradFi.flatMap((item) => item.symbol ? [item.symbol] : []).sort();
-  const active = new Set(symbols);
-  const typeCounts = tradFi.reduce<Record<string, number>>((counts, item) => { const type = item.underlyingType || "OTHER"; counts[type] = (counts[type] ?? 0) + 1; return counts; }, {});
   return {
-    generatedAt: Date.now(), interval, observation: { start, end, maxDurationMs: maxObservationMs(relationship) }, relationship, relationships: RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship], model,
-    universe: { count: symbols.length, symbols, typeCounts, candidates: (RELATIONSHIPS.some((item) => item.id === relationship.id) ? RELATIONSHIPS : [...RELATIONSHIPS, relationship]).map((item) => ({ id: item.id, available: [item.asset1, item.asset2].every((leg) => leg.venue !== "binance" || active.has(leg.symbol)) })) },
-    ...projection,
+    generatedAt: Date.now(), interval, observation: { start, end, maxDurationMs: maxObservationMs(relationship) }, relationship, relationships, model, universe,
+    ...projectRelationship(asset1Rows, asset2Rows, model, fxRows),
   };
 }
 
@@ -597,7 +603,7 @@ function ResidualChart({ points }: { points: ProjectionPoint[] }) {
 export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProduct?: "7709" | "7747" }) {
   const pairOnly = Boolean(dedicatedProduct);
   const pairConfig = dedicatedProduct ? DEDICATED_PRODUCTS[dedicatedProduct] : null;
-  const initialRelationshipId = pairConfig?.perpRelationship ?? "qqq-ustech";
+  const initialRelationshipId = pairConfig?.perpRelationship ?? "kodex200-kr200";
   const requestRef = useRef<AbortController | null>(null);
   const [relationshipId, setRelationshipId] = useState(initialRelationshipId);
   const [startInput, setStartInput] = useState(() => toHktInput(INITIAL_START));
@@ -661,8 +667,8 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
     const frame = window.requestAnimationFrame(() => {
       const validCustom = savedCustom.filter((item) => item?.kind === "custom"
         && /^custom-[a-z0-9-]{4,32}$/i.test(item.id)
-        && (item.asset1?.venue === "binance" || item.asset1?.venue === "hyperliquid")
-        && (item.asset2?.venue === "binance" || item.asset2?.venue === "hyperliquid")
+        && (item.asset1?.venue === "binance" || item.asset1?.venue === "hyperliquid" || item.asset1?.venue === "bitget")
+        && (item.asset2?.venue === "binance" || item.asset2?.venue === "hyperliquid" || item.asset2?.venue === "bitget")
         && typeof item.asset1?.symbol === "string" && typeof item.asset2?.symbol === "string").slice(0, 30);
       const validHidden = savedHidden.filter((id) => RELATIONSHIPS.some((item) => item.id === id));
       setCustomRelationships(validCustom);
@@ -1006,7 +1012,7 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
 
   const normalizeSymbol = (venue: CustomDraft["asset1Venue"], value: string) => {
     const trimmed = value.trim();
-    if (venue === "binance") return trimmed.toUpperCase();
+    if (venue === "binance" || venue === "bitget") return trimmed.toUpperCase();
     const colon = trimmed.indexOf(":");
     return colon > 0 ? `${trimmed.slice(0, colon).toLowerCase()}:${trimmed.slice(colon + 1).toUpperCase()}` : trimmed.toUpperCase();
   };
@@ -1014,10 +1020,10 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
   const addRelationship = () => {
     const asset1Symbol = normalizeSymbol(customDraft.asset1Venue, customDraft.asset1Symbol);
     const asset2Symbol = normalizeSymbol(customDraft.asset2Venue, customDraft.asset2Symbol);
-    const valid = (venue: CustomDraft["asset1Venue"], symbol: string) => venue === "binance" ? /^[A-Z0-9_]{2,32}$/.test(symbol) : /^[A-Z0-9._:-]{2,40}$/i.test(symbol);
+    const valid = (venue: CustomDraft["asset1Venue"], symbol: string) => venue !== "hyperliquid" ? /^[A-Z0-9_]{2,32}$/.test(symbol) : /^[A-Z0-9._:-]{2,40}$/i.test(symbol);
     const referenceBeta = customDraft.referenceBeta.trim() === "" ? null : Number(customDraft.referenceBeta);
     if (!valid(customDraft.asset1Venue, asset1Symbol) || !valid(customDraft.asset2Venue, asset2Symbol)) {
-      setPairError("Enter valid Binance symbols or Hyperliquid coins such as mkts:USTECH.");
+      setPairError("Enter valid Binance / Bitget symbols or Hyperliquid coins such as xyz:KR200.");
       return;
     }
     if (referenceBeta !== null && (!Number.isFinite(referenceBeta) || Math.abs(referenceBeta) > 20)) {
@@ -1034,8 +1040,8 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
       title: `${asset1Symbol} → ${asset2Symbol}`,
       short: "Custom relative-value relationship",
       kind: "custom",
-      asset1: { venue: customDraft.asset1Venue, symbol: asset1Symbol, label: `${customDraft.asset1Venue === "binance" ? "Binance" : "Hyperliquid"} ${asset1Symbol}` },
-      asset2: { venue: customDraft.asset2Venue, symbol: asset2Symbol, label: `${customDraft.asset2Venue === "binance" ? "Binance" : "Hyperliquid"} ${asset2Symbol}` },
+      asset1: { venue: customDraft.asset1Venue, symbol: asset1Symbol, label: `${customDraft.asset1Venue === "binance" ? "Binance" : customDraft.asset1Venue === "bitget" ? "Bitget" : "Hyperliquid"} ${asset1Symbol}` },
+      asset2: { venue: customDraft.asset2Venue, symbol: asset2Symbol, label: `${customDraft.asset2Venue === "binance" ? "Binance" : customDraft.asset2Venue === "bitget" ? "Bitget" : "Hyperliquid"} ${asset2Symbol}` },
       referenceBeta,
       leveraged: referenceBeta !== null && Math.abs(referenceBeta) > 1,
       thesis: referenceBeta === null ? `Estimate ${asset2Symbol} from ${asset1Symbol} with a historical regression coefficient.` : `Apply the user-defined structural beta ${referenceBeta} directly to ${asset1Symbol}'s move to estimate ${asset2Symbol}.`,
@@ -1083,8 +1089,8 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
     </header>
 
     <section className={styles.universeStrip}>
-      <div><span>BINANCE TRADEFI SCAN</span><strong>{analysis?.universe ? `${analysis.universe.count} active contracts` : "Scanning universe…"}</strong></div>
-      <div><span>VISIBLE MODELS</span><strong>{analysis?.universe ? `${relationships.filter((item) => availability.get(item.id) !== false).length}/${relationships.length} available` : `${relationships.length} defined`}</strong></div>
+      <div><span>MONITORED CONTRACT SCAN</span><strong>{analysis?.universe ? `${analysis.universe.count} active contracts` : "Scanning universe…"}</strong></div>
+      <div><span>VISIBLE MODELS</span><strong>{analysis?.universe ? `${relationships.filter((item) => availability.get(item.id) === true).length}/${relationships.length} listing verified` : `${relationships.length} defined`}</strong></div>
       <div><span>FIXED TRAINING CUTOFF</span><strong>{analysis ? `${formatDate(analysis.model.trainingEnd)} HKT` : "Three days before current session"}</strong></div>
       <div><span>MODEL MODE</span><strong className={analysis ? styles[formulaOnly ? "locked" : analysis.model.quality] : ""}>{analysis ? formulaOnly ? "BETA LOCKED" : analysis.model.quality.toUpperCase() : "—"}</strong></div>
     </section>
@@ -1094,8 +1100,8 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
         <div className={styles.sectionLabel}><span>|PREDICTION ERROR| RANKING</span><div><small>{rankingLoading ? "Updating…" : rankingUpdatedAt ? `${formatTime(rankingUpdatedAt)} HKT` : `${relationships.length} models`}</small><button onClick={() => setPairManagerOpen((open) => !open)}>{pairManagerOpen ? "Close" : "Manage"}</button></div></div>
         {pairManagerOpen && <div className={styles.pairManager}>
           <strong>Add relationship</strong>
-          <div className={styles.legFields}><label>Predictor venue<select value={customDraft.asset1Venue} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset1Venue: event.target.value as CustomDraft["asset1Venue"] }))}><option value="binance">Binance</option><option value="hyperliquid">Hyperliquid</option></select></label><label>Predictor symbol<input value={customDraft.asset1Symbol} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset1Symbol: event.target.value }))} placeholder={customDraft.asset1Venue === "binance" ? "QQQUSDT" : "mkts:USTECH"} /></label></div>
-          <div className={styles.legFields}><label>Target venue<select value={customDraft.asset2Venue} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset2Venue: event.target.value as CustomDraft["asset2Venue"] }))}><option value="binance">Binance</option><option value="hyperliquid">Hyperliquid</option></select></label><label>Target symbol<input value={customDraft.asset2Symbol} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset2Symbol: event.target.value }))} placeholder={customDraft.asset2Venue === "binance" ? "TQQQUSDT" : "mkts:US500"} /></label></div>
+          <div className={styles.legFields}><label>Predictor venue<select value={customDraft.asset1Venue} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset1Venue: event.target.value as CustomDraft["asset1Venue"] }))}><option value="binance">Binance</option><option value="bitget">Bitget</option><option value="hyperliquid">Hyperliquid</option></select></label><label>Predictor symbol<input value={customDraft.asset1Symbol} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset1Symbol: event.target.value }))} placeholder={customDraft.asset1Venue === "hyperliquid" ? "xyz:KR200" : "DISKUSDT"} /></label></div>
+          <div className={styles.legFields}><label>Target venue<select value={customDraft.asset2Venue} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset2Venue: event.target.value as CustomDraft["asset2Venue"] }))}><option value="binance">Binance</option><option value="bitget">Bitget</option><option value="hyperliquid">Hyperliquid</option></select></label><label>Target symbol<input value={customDraft.asset2Symbol} onChange={(event) => setCustomDraft((draft) => ({ ...draft, asset2Symbol: event.target.value }))} placeholder={customDraft.asset2Venue === "hyperliquid" ? "xyz:KR200" : "SOXLUSDT"} /></label></div>
           <label>Reference beta · recommended for new contracts<input type="number" min="-20" max="20" step="0.1" value={customDraft.referenceBeta} onChange={(event) => setCustomDraft((draft) => ({ ...draft, referenceBeta: event.target.value }))} placeholder="Multiplier used directly" /></label>
           <button className={styles.addPairButton} onClick={addRelationship}>Add and analyze</button>
           {pairError && <p>{pairError}</p>}
@@ -1211,14 +1217,9 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
             <div><span>PREDICTION EQUATION</span><h3>{selected.predictorFx ? `${selected.asset2.symbol} price = P₀ × {1 + β × [(${selected.asset1.symbol}ₜ / ${selected.asset1.symbol}₀) × (USD/KRWₜ / USD/KRW₀) − 1]}.` : analysis.model.method === "reference" ? `${selected.asset2.symbol} = locked β × ${selected.asset1.symbol}.` : `${selected.asset2.symbol} = α × time + fitted β × ${selected.asset1.symbol}.`}</h3><p>{selected.predictorFx ? `Only the FX change between the selected anchor and each observation is used. β ${analysis.model.beta.toFixed(2)}× is the selected scenario; verify the issuer's daily factor because the product is Max 2×, not necessarily fixed 2×.` : `The engine works in log-return space. It converts ${selected.asset1.symbol}'s cumulative move over the selected period into ${selected.asset2.symbol}'s theoretical move, then compares that number with ${selected.asset2.symbol}'s actual return. Funding, liquidity and oracle timing remain outside the formula.`}</p></div>
           </section>
 
-          <section className={styles.sources}><div><span>RELATIONSHIP RESEARCH</span><h3>Issuer objectives and underlying links</h3></div><div className={styles.sourceGrid}>
-            <a href="https://www.invesco.com/content/dam/invesco/hk/en/pdf/factsheet/Invesco_QQQ_factsheet_EN.pdf" target="_blank" rel="noreferrer"><b>Invesco QQQ</b><small>Nasdaq-100 tracking objective ↗</small></a>
-            <a href="https://www.proshares.com/our-etfs/leveraged-and-inverse/tbt" target="_blank" rel="noreferrer"><b>ProShares TBT</b><small>−2× daily Treasury objective ↗</small></a>
-            <a href="https://www.direxion.com/product/daily-20-year-treasury-bull-bear-3x-etfs" target="_blank" rel="noreferrer"><b>Direxion TMF</b><small>+3× daily Treasury objective ↗</small></a>
-            <a href="https://www.direxion.com/product/daily-small-cap-bull-bear-3x-etfs" target="_blank" rel="noreferrer"><b>Direxion TZA</b><small>−3× Russell 2000 daily target ↗</small></a>
-            <a href="https://graniteshares.com/etfs/mvll/" target="_blank" rel="noreferrer"><b>GraniteShares MVLL</b><small>+2× MRVL daily target ↗</small></a>
-            <a href="https://www.sec.gov/Archives/edgar/data/1587982/000121390026057930/ea0291169-05_497.htm" target="_blank" rel="noreferrer"><b>Tradr SNXX filing</b><small>+2× SNDK daily fund ↗</small></a>
-            <a href="https://www.vaneck.com/us/en/investments/semiconductor-etf-smh-fact-sheet.pdf" target="_blank" rel="noreferrer"><b>VanEck SMH</b><small>Semiconductor basket composition ↗</small></a>
+          <section className={styles.sources}><div><span>DATA SOURCES</span><h3>Market prices, not guaranteed convergence</h3></div><div className={styles.sourceGrid}>
+            <a href="https://www.bitget.com/docs/catalog/classic-contract-market/classic-contract-market" target="_blank" rel="noreferrer"><b>Bitget public market data</b><small>Historical trade candles and fresh bid/ask midpoints ↗</small></a>
+            {pairConfig && <a href={pairConfig.issuerUrl} target="_blank" rel="noreferrer"><b>CSOP product reference</b><small>Verify the daily leverage assumption ↗</small></a>}
           </div></section>
 
           <section className={styles.modelPanel}>

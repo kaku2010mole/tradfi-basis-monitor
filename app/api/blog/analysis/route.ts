@@ -7,13 +7,16 @@ import {
   RELATIONSHIPS,
   Relationship,
   SAMSUNG_7747_FUTU,
+  SAMSUNG_7747_PERP,
   SKHYNIX_7709_FUTU,
+  SKHYNIX_7709_PERP,
   TRAINING_INTERVAL,
   trainRelationshipModel,
   TrainedModel,
 } from "../../../lib/relativeValue";
 import { futuPriceSeries } from "../../../lib/futuMarket";
 import { usdKrwSeries } from "../../../lib/fxMarket";
+import { bitgetSeries, relativeUniverse } from "../../../lib/bitgetRelativeMarket";
 
 const BINANCE_HOSTS = [
   "https://fapi.binance.com",
@@ -67,6 +70,7 @@ async function getSeries(leg: Relationship["asset1"], start: number, end: number
       return Number.isFinite(value) && value > 0 ? [{ t: row[0], value }] : [];
     });
   }
+  if (leg.venue === "bitget") return bitgetSeries(leg.symbol, start, end, interval);
   if (leg.venue === "futu") return futuPriceSeries(leg, start, end, interval);
   const response = await fetch(HYPERLIQUID_INFO, {
     method: "POST",
@@ -106,25 +110,7 @@ async function getFixedModel(relationship: Relationship, now: number) {
   return model;
 }
 
-async function scanUniverse(relationships: Relationship[]) {
-  const payload = await fetchBinance<ExchangeInfo>("/fapi/v1/exchangeInfo");
-  const symbols = (payload.symbols ?? []).filter((item) => item.status === "TRADING" && item.underlyingSubType?.some((tag) => tag.toLowerCase() === "tradfi"));
-  const active = new Set(symbols.map((item) => item.symbol).filter(Boolean) as string[]);
-  const typeCounts = symbols.reduce<Record<string, number>>((counts, item) => {
-    const type = item.underlyingType || "OTHER";
-    counts[type] = (counts[type] ?? 0) + 1;
-    return counts;
-  }, {});
-  return {
-    count: symbols.length,
-    symbols: [...active].sort(),
-    typeCounts,
-    candidates: relationships.map((relationship) => ({
-      id: relationship.id,
-      available: [relationship.asset1, relationship.asset2].every((leg) => leg.venue !== "binance" || active.has(leg.symbol)),
-    })),
-  };
-}
+const scanUniverse = (relationships: Relationship[]) => relativeUniverse(relationships, () => fetchBinance<ExchangeInfo>("/fapi/v1/exchangeInfo"));
 
 const BINANCE_SYMBOL = /^[A-Z0-9_]{2,32}$/;
 const HYPERLIQUID_SYMBOL = /^[A-Z0-9._:-]{2,40}$/i;
@@ -132,12 +118,12 @@ const HYPERLIQUID_SYMBOL = /^[A-Z0-9._:-]{2,40}$/i;
 function customRelationship(url: URL): Relationship | null {
   const id = url.searchParams.get("relationship") || "";
   if (!/^custom-[a-z0-9-]{4,32}$/i.test(id)) return null;
-  const asset1Venue = url.searchParams.get("asset1Venue") === "hyperliquid" ? "hyperliquid" : "binance";
-  const asset2Venue = url.searchParams.get("asset2Venue") === "hyperliquid" ? "hyperliquid" : "binance";
+  const asset1Venue = url.searchParams.get("asset1Venue") === "hyperliquid" ? "hyperliquid" : url.searchParams.get("asset1Venue") === "bitget" ? "bitget" : "binance";
+  const asset2Venue = url.searchParams.get("asset2Venue") === "hyperliquid" ? "hyperliquid" : url.searchParams.get("asset2Venue") === "bitget" ? "bitget" : "binance";
   const asset1Symbol = url.searchParams.get("asset1Symbol") || "";
   const asset2Symbol = url.searchParams.get("asset2Symbol") || "";
-  const validAsset1 = (asset1Venue === "binance" ? BINANCE_SYMBOL : HYPERLIQUID_SYMBOL).test(asset1Symbol);
-  const validAsset2 = (asset2Venue === "binance" ? BINANCE_SYMBOL : HYPERLIQUID_SYMBOL).test(asset2Symbol);
+  const validAsset1 = (asset1Venue === "hyperliquid" ? HYPERLIQUID_SYMBOL : BINANCE_SYMBOL).test(asset1Symbol);
+  const validAsset2 = (asset2Venue === "hyperliquid" ? HYPERLIQUID_SYMBOL : BINANCE_SYMBOL).test(asset2Symbol);
   if (!validAsset1 || !validAsset2) return null;
   const betaValue = url.searchParams.get("referenceBeta");
   const parsedBeta = betaValue === null || betaValue === "" ? null : Number(betaValue);
@@ -147,8 +133,8 @@ function customRelationship(url: URL): Relationship | null {
     title: `${asset1Symbol} → ${asset2Symbol}`,
     short: "Custom relative-value relationship",
     kind: "custom",
-    asset1: { venue: asset1Venue, symbol: asset1Symbol, label: `${asset1Venue === "binance" ? "Binance" : "Hyperliquid"} ${asset1Symbol}` },
-    asset2: { venue: asset2Venue, symbol: asset2Symbol, label: `${asset2Venue === "binance" ? "Binance" : "Hyperliquid"} ${asset2Symbol}` },
+    asset1: { venue: asset1Venue, symbol: asset1Symbol, label: `${asset1Venue === "binance" ? "Binance" : asset1Venue === "bitget" ? "Bitget" : "Hyperliquid"} ${asset1Symbol}` },
+    asset2: { venue: asset2Venue, symbol: asset2Symbol, label: `${asset2Venue === "binance" ? "Binance" : asset2Venue === "bitget" ? "Bitget" : "Hyperliquid"} ${asset2Symbol}` },
     referenceBeta: parsedBeta,
     leveraged: parsedBeta !== null && Math.abs(parsedBeta) > 1,
     thesis: parsedBeta === null ? "Estimate Asset 2 from Asset 1 with a historical regression coefficient." : `Apply the user-defined structural beta ${parsedBeta} directly to Asset 1's move.`,
@@ -159,7 +145,7 @@ function customRelationship(url: URL): Relationship | null {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const now = Date.now();
-  const selectedRelationship = [...RELATIONSHIPS, SKHYNIX_7709_FUTU, SAMSUNG_7747_FUTU].find((item) => item.id === (url.searchParams.get("relationship") || "qqq-ustech")) ?? customRelationship(url);
+  const selectedRelationship = [...RELATIONSHIPS, SKHYNIX_7709_PERP, SKHYNIX_7709_FUTU, SAMSUNG_7747_PERP, SAMSUNG_7747_FUTU].find((item) => item.id === (url.searchParams.get("relationship") || "kodex200-kr200")) ?? customRelationship(url);
   const leverageText = url.searchParams.get("targetLeverage");
   const leverage = leverageText === null ? null : Number(leverageText);
   if (leverage !== null && (!Number.isFinite(leverage) || leverage < 1.1 || leverage > 2)) {
