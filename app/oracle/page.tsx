@@ -10,7 +10,6 @@ import {
   ORACLE_THRESHOLD_CHANGED_EVENT,
   ORACLE_THRESHOLD_KEY,
 } from "../lib/oracleAlerts";
-import KoreanPerpMonitor from "../components/KoreanPerpMonitor";
 import styles from "./page.module.css";
 
 type OracleQuote = {
@@ -686,8 +685,6 @@ export default function OracleMonitor() {
           <div><strong>Inside spread</strong><small>No executable Oracle edge</small></div>
           <div>{neutral.map((quote) => <button key={quote.id} className={quote.id === selected?.id ? styles.activeNeutral : ""} onClick={() => setSelectedId(quote.id)}><b>{quote.symbol}</b><span>{formatPrice(quote.bid)} bid</span><i>ORACLE</i><span>{formatPrice(quote.ask)} ask</span></button>)}</div>
         </section>}
-
-        <KoreanPerpMonitor />
 
         <footer className={styles.footer}>Executable deviation uses best bid only when it can be sold above Oracle, and best ask only when it can be bought below Oracle. If Oracle sits inside the spread, the executable edge is zero. Funding is shown in each venue&apos;s native interval.</footer>
       </div>

@@ -130,9 +130,9 @@ test("scans Binance and Bitget TradFi stock and ETF contracts into an English di
   assert.match(switcher, /href="\/dividends"/);
 });
 
-test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Monitor", async () => {
+test("keeps exact Korean and Japanese stock comparisons on the standalone stock basis page", async () => {
   const [page, component, route, posley, officePusher, worker] = await Promise.all([
-    readFile(new URL("../app/oracle/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/stock-basis/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/KoreanPerpMonitor.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/oracle-monitor/korean-bitget/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/posleyAdr.ts", import.meta.url), "utf8"),
@@ -239,7 +239,7 @@ test("adds exact Korean and Japanese stock cross-venue basis rows to Oracle Moni
 
 test("Oracle Monitor omits the bottom deviation history chart", async () => {
   const page = await readFile(new URL("../app/oracle/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /<KoreanPerpMonitor \/>/);
+  assert.doesNotMatch(page, /KoreanPerpMonitor/);
   assert.doesNotMatch(page, /DeviationChart|DEVIATION HISTORY|chartPoints|loadHistory/);
 });
 
@@ -736,7 +736,36 @@ test("compares Polymarket, Binance and Hyperliquid funding and price spreads in 
   assert.doesNotMatch(renderedPage, /Lighter funding income/);
   assert.doesNotMatch(page, /LighterFundingPanel|api\/lighter|LIGHTER ACCOUNT FUNDING/);
   await assert.rejects(readFile(new URL("../app/api/lighter/user-funding/route.ts", import.meta.url), "utf8"), /ENOENT/);
-  assert.match(switcher, /Poly ↔ HL ↔ Binance funding and price spreads/);
+  assert.doesNotMatch(switcher, /href="\/polymarket"|Funding &amp; Basis/);
+});
+
+test("stock basis replaces Funding & Basis navigation without duplicating the Oracle monitor", async () => {
+  const [response, oracle, component, switcher] = await Promise.all([
+    render("/stock-basis"),
+    render("/oracle"),
+    readFile(new URL("../app/components/KoreanPerpMonitor.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/PageSwitcher.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /<title>Stock cross-venue basis · TradFi Monitor<\/title>/);
+  assert.match(html, /<h1>Stock cross-venue basis<\/h1>/);
+  assert.match(html, /href="\/stock-basis" aria-current="page"/);
+  assert.match(html, /LIVE QUOTE RADAR/);
+  assert.match(html, /Filter stock market/);
+  assert.match(html, /USD\/KRW/);
+  assert.match(html, /USD\/JPY/);
+  assert.equal((html.match(/aria-label="Korean and Japanese stock cross-venue basis"/g) ?? []).length, 1);
+  const oracleHtml = await oracle.text();
+  assert.match(oracleHtml, /Oracle Monitor/);
+  assert.match(oracleHtml, /href="\/stock-basis"/);
+  assert.doesNotMatch(oracleHtml, /LIVE QUOTE RADAR|aria-label="Korean and Japanese stock cross-venue basis"/);
+  assert.match(switcher, /href="\/stock-basis" aria-current=\{active === "stock-basis"/);
+  assert.doesNotMatch(switcher, /href="\/polymarket"|Funding &amp; Basis/);
+  assert.match(component, /equity_monitor_return_to", "\/stock-basis"/);
+  assert.match(component, /const POLL_MS = 2_000/);
+  assert.match(component, /fetch\("\/api\/oracle-monitor\/korean-bitget"/);
+  assert.match(component, /clearTimeout\(first\); clearInterval\(timer\)/);
 });
 
 test("accepts every Hyperliquid DEX namespace and keeps SHEIN in the normal Oracle ranking", async () => {
