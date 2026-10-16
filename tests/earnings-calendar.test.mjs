@@ -118,3 +118,15 @@ test('page keeps dividends independent and exposes earnings filtering, disclosur
   for(const text of ['/api/dividend-calendar','/api/earnings-calendar','Earnings events','Filter market','Filter exchange','Close earnings details','earningsRequestId','Earnings source','No date found this month'])assert.ok(page.includes(text),text);
   assert.match(page,/setInterval\(refresh, 5 \* 60_000\)/);assert.match(page,/no midnight time is assumed/);assert.match(page,/aria-expanded=\{expanded\}/);
 });
+
+test('calendar earnings cards use tickers without time rows while full details remain available', async()=>{
+  const page=await readFile(new URL('../app/dividends/page.tsx',import.meta.url),'utf8');
+  const chip=page.slice(page.indexOf('<button className={`${styles.earningsChip}'),page.indexOf(') : <button onClick={() => setSelected(item.value)}'));
+  assert.match(chip,/<strong>\{item\.value\.code\}/);
+  assert.doesNotMatch(chip,/<strong>\{item\.value\.company\}|earningsTime|timeHkt|timeLocal/);
+  assert.equal((chip.match(/item\.value\.code/g)||[]).length,1);
+  assert.match(chip,/title=\{item\.value\.company\}/);
+  assert.match(chip,/STALE/);assert.match(chip,/Confirmed/);assert.match(chip,/Estimated/);
+  assert.match(page,/<h2 id="earnings-title">\{selectedEarnings\.company\}/);
+  assert.match(page,/earningsTime\(selectedEarnings\)/);
+});
