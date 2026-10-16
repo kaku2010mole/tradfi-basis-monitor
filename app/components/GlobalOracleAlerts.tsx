@@ -19,6 +19,7 @@ import {
   RelativeValueAlertSnapshot,
 } from "../lib/relativeValueAlerts";
 import BroadcastAlert from "./BroadcastAlert";
+import { bitgetLivePrice } from "../lib/bitgetRelativeMarket";
 
 type AlertState = { title: string; message: string; tone: "positive" | "negative" };
 type AlertQuote = {
@@ -64,6 +65,7 @@ const loadRelativeSnapshot = () => {
 async function liveRelativeSignal(snapshot: RelativeValueAlertSnapshot): Promise<RelativeValueAlertSignal> {
   const dexMids = new Map<string, Promise<Record<string, string>>>();
   const midpoint = async (leg: RelativeValueAlertSnapshot["asset1"]) => {
+    if (leg.venue === "bitget") return bitgetLivePrice(leg.symbol);
     if (leg.venue === "binance") {
       const response = await fetch(`https://fapi.binance.com/fapi/v1/ticker/bookTicker?symbol=${encodeURIComponent(leg.symbol)}`, { cache: "no-store", credentials: "omit", signal: AbortSignal.timeout(4_000) });
       if (!response.ok) throw new Error("Binance relative-value quote unavailable.");

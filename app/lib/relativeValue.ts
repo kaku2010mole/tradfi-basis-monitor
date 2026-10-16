@@ -1,4 +1,4 @@
-export type Venue = "binance" | "hyperliquid" | "futu";
+export type Venue = "binance" | "hyperliquid" | "futu" | "bitget";
 export type MarketLeg = { venue: Venue; symbol: string; label: string; usdHkd?: number; sharesPerAdr?: number };
 export type FxAdjustment = { symbol: "KRW=X"; label: string; source: "posley-ibkr" };
 export type RelationshipKind = "same-benchmark" | "leveraged-inverse" | "leveraged-long" | "risk-regime" | "cross-index" | "same-company" | "sector-proxy" | "commodity-proxy" | "custom";
@@ -82,37 +82,25 @@ export function latestHktBusinessAnchor(hour: number, minute: number, timestamp:
   return candidate;
 }
 
-export const RELATIONSHIPS: Relationship[] = [
-  {
+export const SKHYNIX_7709_PERP: Relationship = {
     id: "skhynix-csop2l", title: "SKHYNIX → CSOP SKHYNIX 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
     asset1: { venue: "binance", symbol: "SKHYNIXUSDT", label: "Binance SKHYNIX" }, asset2: { venue: "binance", symbol: "CSOPSKHYNIX2LUSDT", label: "Binance CSOP SKHYNIX 2L" },
     referenceBeta: 2, leveraged: true,
     predictorFx: { symbol: "KRW=X", label: "USD/KRW", source: "posley-ibkr" },
     thesis: "Use the change in USD/KRW from the anchor to recover SK Hynix's KRW-local return, then apply the selected daily leverage assumption (maximum 2×).",
     caveat: "CSOP's leverage factor can change daily and be below 2×. The default 2× is a scenario, not a verified factor; check the issuer's daily notice. Daily reset, swap costs, oracle timing and liquidity can create deviations.",
-  },
-  {
+  };
+
+export const SAMSUNG_7747_PERP: Relationship = {
     id: "samsung-csop2l", title: "SAMSUNG → CSOP SAMSUNG 2L", short: "Single stock to +2× daily exposure", kind: "leveraged-long",
     asset1: { venue: "binance", symbol: "SAMSUNGUSDT", label: "Binance SAMSUNG" }, asset2: { venue: "binance", symbol: "CSOPSAMSUNG2LUSDT", label: "Binance CSOP SAMSUNG 2L" },
     referenceBeta: 2, leveraged: true,
     predictorFx: { symbol: "KRW=X", label: "USD/KRW", source: "posley-ibkr" },
     thesis: "Use the change in USD/KRW from the anchor to recover Samsung's KRW-local return, then apply the selected daily leverage assumption (maximum 2×).",
     caveat: "CSOP's leverage factor can change daily and be below 2×. The default 2× is a scenario, not a verified factor; check the issuer's daily notice. Daily reset, swap costs, oracle timing and liquidity can create deviations.",
-  },
-  {
-    id: "qqq-ustech", title: "QQQ → USTECH", short: "Cross-venue Nasdaq technology proxy", kind: "same-benchmark",
-    asset1: { venue: "binance", symbol: "QQQUSDT", label: "Binance QQQ" }, asset2: { venue: "hyperliquid", symbol: "mkts:USTECH", label: "Hyperliquid USTECH" },
-    referenceBeta: 1, leveraged: false,
-    thesis: "Use QQQ's move to estimate the USTECH perpetual's move across venues.",
-    caveat: "Oracle construction, funding and trading liquidity differ even when the underlying technology exposure is similar.",
-  },
-  {
-    id: "spy-us500", title: "SPY → US500", short: "Cross-venue US large-cap proxy", kind: "same-benchmark",
-    asset1: { venue: "binance", symbol: "SPYUSDT", label: "Binance SPY" }, asset2: { venue: "hyperliquid", symbol: "mkts:US500", label: "Hyperliquid US500" },
-    referenceBeta: 1, leveraged: false,
-    thesis: "Use SPY as the liquid US large-cap input and estimate the Hyperliquid US500 return.",
-    caveat: "The contracts can use different reference and funding mechanics, so the locked one-for-one formula is validated against history before use.",
-  },
+  };
+
+export const RELATIONSHIPS: Relationship[] = [
   {
     id: "kodex200-kr200", title: "KODEX200 → KR200", short: "Cross-venue Korea 200 parity", kind: "same-benchmark",
     asset1: { venue: "binance", symbol: "KODEX200USDT", label: "Binance KODEX200" }, asset2: { venue: "hyperliquid", symbol: "xyz:KR200", label: "Hyperliquid KR200" },
@@ -121,110 +109,36 @@ export const RELATIONSHIPS: Relationship[] = [
     caveat: "Trading hours, FX assumptions, oracle construction and funding can create temporary cross-venue prediction errors.",
   },
   {
-    id: "baba-hk09988", title: "BABAUSDT ↔ HK.09988", short: "Alibaba ADR to Hong Kong ordinary shares", kind: "same-company",
-    asset1: { venue: "binance", symbol: "BABAUSDT", label: "Binance BABA ADR perpetual" },
-    asset2: { venue: "futu", symbol: "HK.09988", label: "Futu Alibaba 09988 · USD/share", usdHkd: 7.84, sharesPerAdr: 8 },
-    referenceBeta: 1, leveraged: false,
-    thesis: "Use BABAUSDT's move to estimate Alibaba 09988.HK on a locked one-for-one return basis; the Futu share price is converted at 7.84 HKD per USD.",
-    caveat: "One BABA ADR represents eight Hong Kong shares. The return beta remains 1, while neutral share sizing uses the 1 ADR = 8 HK shares conversion and the fixed 7.84 FX assumption.",
+    id: "disk-soxl", title: "DISK ↔ SOXL", short: "Semiconductor exposure · fitted relative return", kind: "sector-proxy",
+    asset1: { venue: "bitget", symbol: "DISKUSDT", label: "Bitget DISK" },
+    asset2: { venue: "bitget", symbol: "SOXLUSDT", label: "Bitget SOXL" },
+    referenceBeta: null, leveraged: true,
+    thesis: "Fit SOXL's hourly return to DISK using historical Bitget prices, then compare actual and model-implied returns from the selected anchor.",
+    caveat: "Different holdings, weights, leverage and trading liquidity can cause persistent deviations. This statistical relationship is not a fixed hedge ratio or a guaranteed convergence trade.",
   },
   {
-    id: "spy-qqq", title: "SPY → QQQ", short: "US large caps to Nasdaq growth", kind: "cross-index",
-    asset1: { venue: "binance", symbol: "SPYUSDT", label: "Binance SPY" }, asset2: { venue: "binance", symbol: "QQQUSDT", label: "Binance QQQ" },
+    id: "disk-dram", title: "DISK ↔ DRAM", short: "Memory-sector exposure · fitted relative return", kind: "sector-proxy",
+    asset1: { venue: "bitget", symbol: "DISKUSDT", label: "Bitget DISK" },
+    asset2: { venue: "bitget", symbol: "DRAMUSDT", label: "Bitget DRAM" },
     referenceBeta: null, leveraged: false,
-    thesis: "Learn QQQ's growth-heavy response to broad US large-cap market moves.",
-    caveat: "Nasdaq sector concentration and factor rotation can change the coefficient even when both index contracts are functioning normally.",
+    thesis: "Fit DRAM's hourly return to DISK using historical Bitget prices, then compare actual and model-implied returns from the selected anchor.",
+    caveat: "Different holdings, weights, leverage and trading liquidity can cause persistent deviations. This statistical relationship is not a fixed hedge ratio or a guaranteed convergence trade.",
   },
   {
-    id: "tbt-tmf", title: "TBT → TMF", short: "−2× to +3× long-duration Treasury", kind: "leveraged-inverse",
-    asset1: { venue: "binance", symbol: "TBTUSDT", label: "Binance TBT" }, asset2: { venue: "binance", symbol: "TMFUSDT", label: "Binance TMF" },
-    referenceBeta: -1.5, leveraged: true,
-    thesis: "TBT targets −2× while TMF targets +3× daily long-duration Treasury performance; TMF should move about −1.5 times TBT before frictions.",
-    caveat: "Both reset daily. The structural −1.5 ratio can be inspected over seven days, but compounding means it should not be read as a seven-day return guarantee.",
+    id: "euv-lyte", title: "EUV ↔ LYTE", short: "Technology exposure · fitted relative return", kind: "sector-proxy",
+    asset1: { venue: "bitget", symbol: "EUVUSDT", label: "Bitget EUV" },
+    asset2: { venue: "bitget", symbol: "LYTEUSDT", label: "Bitget LYTE" },
+    referenceBeta: null, leveraged: false,
+    thesis: "Fit LYTE's hourly return to EUV using historical Bitget prices, then compare actual and model-implied returns from the selected anchor.",
+    caveat: "Different holdings, weights, leverage and trading liquidity can cause persistent deviations. This statistical relationship is not a fixed hedge ratio or a guaranteed convergence trade.",
   },
   {
-    id: "qqq-uvxy", title: "QQQ → UVXY", short: "Growth risk to short-volatility futures", kind: "risk-regime",
-    asset1: { venue: "binance", symbol: "QQQUSDT", label: "Binance QQQ" }, asset2: { venue: "binance", symbol: "UVXYUSDT", label: "Binance UVXY" },
-    referenceBeta: null, leveraged: true,
-    thesis: "Estimate UVXY from QQQ using an empirically learned inverse coefficient.",
-    caveat: "UVXY follows VIX futures rather than QQQ variance. A weak validation score means the regime relationship is not currently reliable.",
-  },
-  {
-    id: "soxl-tza", title: "SOXL → TZA", short: "Leveraged semiconductor risk to small-cap hedge", kind: "cross-index",
-    asset1: { venue: "binance", symbol: "SOXLUSDT", label: "Binance SOXL" }, asset2: { venue: "binance", symbol: "TZAUSDT", label: "Binance TZA" },
-    referenceBeta: null, leveraged: true,
-    thesis: "Learn the current risk-on/risk-off mapping from leveraged semiconductors to inverse small caps.",
-    caveat: "The underlying indexes differ; sector rotation can make this model weak even when both products are functioning correctly.",
-  },
-  {
-    id: "qqq-tza", title: "QQQ → TZA", short: "Nasdaq growth to inverse small caps", kind: "cross-index",
-    asset1: { venue: "binance", symbol: "QQQUSDT", label: "Binance QQQ" }, asset2: { venue: "binance", symbol: "TZAUSDT", label: "Binance TZA" },
-    referenceBeta: null, leveraged: true,
-    thesis: "Estimate the current inverse small-cap response to large-cap growth moves.",
-    caveat: "Russell 2000 and Nasdaq-100 factor exposure is different; validation quality determines whether the coefficient should be trusted.",
-  },
-  {
-    id: "iwm-tza", title: "IWM → TZA", short: "Russell 2000 +1× to −3×", kind: "leveraged-inverse",
-    asset1: { venue: "binance", symbol: "IWMUSDT", label: "Binance IWM" }, asset2: { venue: "binance", symbol: "TZAUSDT", label: "Binance TZA" },
-    referenceBeta: -3, leveraged: true,
-    thesis: "IWM supplies the Russell 2000 input; TZA targets three times its inverse daily move.",
-    caveat: "The −3 reference is a daily objective and can drift with compounding, fees and perpetual funding.",
-  },
-  {
-    id: "qqq-tqqq", title: "QQQ → TQQQ", short: "Nasdaq-100 +1× to +3×", kind: "leveraged-long",
-    asset1: { venue: "binance", symbol: "QQQUSDT", label: "Binance QQQ" }, asset2: { venue: "binance", symbol: "TQQQUSDT", label: "Binance TQQQ" },
-    referenceBeta: 3, leveraged: true,
-    thesis: "Apply TQQQ's explicit +3 daily objective directly to QQQ's move.",
-    caveat: "The +3 objective resets daily; the seven-day view is for monitoring compounding drift, not a guarantee of cumulative +3 performance.",
-  },
-  {
-    id: "qqq-sqqq", title: "QQQ → SQQQ", short: "Nasdaq-100 +1× to −3×", kind: "leveraged-inverse",
-    asset1: { venue: "binance", symbol: "QQQUSDT", label: "Binance QQQ" }, asset2: { venue: "binance", symbol: "SQQQUSDT", label: "Binance SQQQ" },
-    referenceBeta: -3, leveraged: true,
-    thesis: "Predict SQQQ from QQQ against its −3 daily reference.",
-    caveat: "The theoretical leverage is daily, not a multi-day guarantee.",
-  },
-  {
-    id: "soxl-soxs", title: "SOXL → SOXS", short: "+3× to −3× semiconductor", kind: "leveraged-inverse",
-    asset1: { venue: "binance", symbol: "SOXLUSDT", label: "Binance SOXL" }, asset2: { venue: "binance", symbol: "SOXSUSDT", label: "Binance SOXS" },
-    referenceBeta: -1, leveraged: true,
-    thesis: "Equal and opposite daily leverage on the same semiconductor benchmark should produce a coefficient near −1.",
-    caveat: "Separate daily resets and market microstructure can still create prediction errors.",
-  },
-  {
-    id: "ewy-koru", title: "EWY → KORU", short: "Korea +1× to +3×", kind: "leveraged-long",
-    asset1: { venue: "binance", symbol: "EWYUSDT", label: "Binance EWY" }, asset2: { venue: "binance", symbol: "KORUUSDT", label: "Binance KORU" },
-    referenceBeta: 3, leveraged: true,
-    thesis: "Use EWY's Korea equity move to estimate KORU's +3× daily response.",
-    caveat: "Index implementation, FX and daily reset timing can widen the result outside the common cash session.",
-  },
-  {
-    id: "sndk-snxx", title: "SNDK → SNXX", short: "Single stock to +2× daily ETF", kind: "leveraged-long",
-    asset1: { venue: "binance", symbol: "SNDKUSDT", label: "Binance SNDK" }, asset2: { venue: "binance", symbol: "SNXXUSDT", label: "Binance SNXX" },
-    referenceBeta: 2, leveraged: true,
-    thesis: "SNXX is designed as a +2× daily SNDK vehicle, making SNDK the natural predictor.",
-    caveat: "Single-stock leveraged products can be thin and reset daily; validation and liquidity remain essential.",
-  },
-  {
-    id: "mrvl-mvll", title: "MRVL → MVLL", short: "Single stock to +2× daily ETF", kind: "leveraged-long",
-    asset1: { venue: "binance", symbol: "MRVLUSDT", label: "Binance MRVL" }, asset2: { venue: "binance", symbol: "MVLLUSDT", label: "Binance MVLL" },
-    referenceBeta: 2, leveraged: true,
-    thesis: "MVLL targets twice the daily percentage move of Marvell, so MRVL is the direct input asset.",
-    caveat: "Daily compounding and separate perpetual liquidity make +2 a reference rather than a guaranteed fillable relationship.",
-  },
-  {
-    id: "hk0700-tencent", title: "HK0700 → TENCENT", short: "Same company, two Binance references", kind: "same-company",
-    asset1: { venue: "binance", symbol: "HK0700USDT", label: "Binance HK0700" }, asset2: { venue: "binance", symbol: "TENCENTUSDT", label: "Binance TENCENT" },
-    referenceBeta: 1, leveraged: false,
-    thesis: "Both contracts reference Tencent exposure, making return parity the starting point.",
-    caveat: "Contract denomination, oracle methodology and market availability can differ even for the same company.",
-  },
-  {
-    id: "smh-soxl", title: "SMH → SOXL", short: "Semiconductor basket to +3× sector ETF", kind: "sector-proxy",
-    asset1: { venue: "binance", symbol: "SMHUSDT", label: "Binance SMH" }, asset2: { venue: "binance", symbol: "SOXLUSDT", label: "Binance SOXL" },
-    referenceBeta: null, leveraged: true,
-    thesis: "Both represent US-listed semiconductor companies; the model learns the mapping despite different indexes.",
-    caveat: "SMH and SOXL do not track the same semiconductor index, so the coefficient is empirical rather than a formal +3 ratio.",
+    id: "ibb-xbi", title: "IBB ↔ XBI", short: "Biotechnology baskets · fitted relative return", kind: "sector-proxy",
+    asset1: { venue: "bitget", symbol: "IBBUSDT", label: "Bitget IBB" },
+    asset2: { venue: "bitget", symbol: "XBIUSDT", label: "Bitget XBI" },
+    referenceBeta: null, leveraged: false,
+    thesis: "Fit XBI's hourly return to IBB using historical Bitget prices, then compare actual and model-implied returns from the selected anchor.",
+    caveat: "Different holdings, weights, leverage and trading liquidity can cause persistent deviations. This statistical relationship is not a fixed hedge ratio or a guaranteed convergence trade.",
   },
 ];
 
@@ -240,9 +154,9 @@ export const SKHYNIX_7709_FUTU: Relationship = {
   caveat: "Futu 7709 trades in HKD and is converted at the displayed fixed 7.84 HKD/USD assumption; percentage returns do not depend on that constant. CSOP may lower its daily leverage factor below 2×. Cash trading hours, daily reset and a closed or stale quote can differ from the 24/7 perpetual.",
 };
 
-export const SKHYNIX_7709_CHOICES = [RELATIONSHIPS[0], SKHYNIX_7709_FUTU];
+export const SKHYNIX_7709_CHOICES = [SKHYNIX_7709_PERP, SKHYNIX_7709_FUTU];
 
-// Dedicated Samsung cash comparison; the general ranking still has only one Samsung model.
+// Dedicated Samsung comparison is independent of the general monitor's pair list.
 export const SAMSUNG_7747_FUTU: Relationship = {
   id: "samsung-csop2l-futu", title: "SAMSUNG → 7747 · Futu cash", short: "HK.07747 cash price instead of the Binance perp", kind: "leveraged-long",
   asset1: { venue: "binance", symbol: "SAMSUNGUSDT", label: "Binance SAMSUNG" },
@@ -253,7 +167,7 @@ export const SAMSUNG_7747_FUTU: Relationship = {
   caveat: "Futu 7747 trades in HKD and is converted at the displayed fixed 7.84 HKD/USD assumption. CSOP may lower its daily leverage factor below 2×; set the factor from the issuer notice before treating this as a hedge. Cash trading hours, reset, costs and stale quotes can differ from the perpetual.",
 };
 
-export const SAMSUNG_7747_CHOICES = [RELATIONSHIPS[1], SAMSUNG_7747_FUTU];
+export const SAMSUNG_7747_CHOICES = [SAMSUNG_7747_PERP, SAMSUNG_7747_FUTU];
 
 export function leveragedKoreanFairPrice(anchorProduct: number, anchorStockUsd: number, currentStockUsd: number, anchorUsdKrw: number, currentUsdKrw: number, beta = 2) {
   if (![anchorProduct, anchorStockUsd, currentStockUsd, anchorUsdKrw, currentUsdKrw, beta].every((value) => Number.isFinite(value) && value > 0)) return null;

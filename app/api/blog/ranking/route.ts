@@ -9,6 +9,7 @@ import {
 } from "../../../lib/relativeValue";
 import { futuLivePrice, futuPriceSeries } from "../../../lib/futuMarket";
 import { usdKrwAt, usdKrwSeries } from "../../../lib/fxMarket";
+import { bitgetBooks, bitgetMidpoint, bitgetSeries, type BitgetBook } from "../../../lib/bitgetRelativeMarket";
 
 const BINANCE_HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"];
 const HYPERLIQUID_INFO = "https://api.hyperliquid.xyz/info";
@@ -38,7 +39,7 @@ async function fetchBinance<T>(path: string) {
 function validRelationship(value: unknown): value is Relationship {
   if (!value || typeof value !== "object") return false;
   const item = value as Partial<Relationship>;
-  const validLeg = (leg: Relationship["asset1"] | undefined) => Boolean(leg && (leg.venue === "binance" ? BINANCE_SYMBOL : leg.venue === "hyperliquid" ? HYPERLIQUID_SYMBOL : leg.venue === "futu" ? /^HK\.\d{5}$/ : /$a/).test(leg.symbol));
+  const validLeg = (leg: Relationship["asset1"] | undefined) => Boolean(leg && ((leg.venue === "binance" || leg.venue === "bitget") ? BINANCE_SYMBOL : leg.venue === "hyperliquid" ? HYPERLIQUID_SYMBOL : leg.venue === "futu" ? /^HK\.\d{5}$/ : /$a/).test(leg.symbol));
   return typeof item.id === "string" && item.id.length <= 48 && validLeg(item.asset1) && validLeg(item.asset2)
     && (item.referenceBeta === null || (Number.isFinite(item.referenceBeta) && Math.abs(item.referenceBeta!) <= 20));
 }
@@ -49,6 +50,7 @@ async function trainingSeries(leg: Relationship["asset1"], start: number, end: n
     const rows = await fetchBinance<BinanceKline[]>(`/fapi/v1/klines?${params}`);
     return rows.flatMap((row) => Number(row[4]) > 0 ? [{ t: row[0], value: Number(row[4]) }] : []);
   }
+  if (leg.venue === "bitget") return bitgetSeries(leg.symbol, start, end, TRAINING_INTERVAL);
   if (leg.venue === "futu") return futuPriceSeries(leg, start, end, TRAINING_INTERVAL);
   const response = await fetch(HYPERLIQUID_INFO, {
     method: "POST",
@@ -91,6 +93,11 @@ function baseline(leg: Relationship["asset1"], start: number) {
     const params = new URLSearchParams({ symbol: leg.symbol, interval: "1m", startTime: String(roundedStart), limit: "1" });
     const rows = await fetchBinance<BinanceKline[]>(`/fapi/v1/klines?${params}`);
     const value = Number(rows[0]?.[4]);
+    if (!Number.isFinite(value) || value <= 0) throw new Error(`${leg.symbol} baseline unavailable.`);
+    return value;
+  })() : leg.venue === "bitget" ? (async () => {
+    const points = await bitgetSeries(leg.symbol, roundedStart, roundedStart, "1m");
+    const value = points[0]?.value;
     if (!Number.isFinite(value) || value <= 0) throw new Error(`${leg.symbol} baseline unavailable.`);
     return value;
   })() : leg.venue === "futu" ? (async () => {
@@ -139,15 +146,23 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid ranking window or relationships." }, { status: 400 });
   }
   try {
-    const books = await fetchBinance<BinanceBook[]>("/fapi/v1/ticker/bookTicker");
+    const legs = relationships.flatMap((item) => [item.asset1, item.asset2]);
+    const [books, bitget] = await Promise.all([
+      legs.some((leg) => leg.venue === "binance") ? fetchBinance<BinanceBook[]>("/fapi/v1/ticker/bookTicker").catch(() => []) : [],
+      legs.some((leg) => leg.venue === "bitget") ? bitgetBooks().catch(() => [] as BitgetBook[]) : [],
+    ]);
+    const bitgetBySymbol = new Map(bitget.map((book) => [book.symbol, book]));
     const bookBySymbol = new Map(books.flatMap((book) => book.symbol ? [[book.symbol, book] as const] : []));
     const dexNames = [...new Set(relationships.flatMap((item) => [item.asset1, item.asset2]).filter((leg) => leg.venue === "hyperliquid").map((leg) => leg.symbol.includes(":") ? leg.symbol.split(":", 1)[0] : ""))];
     const dexMids = new Map(await Promise.all(dexNames.map(async (dex) => {
-      const response = await fetch(HYPERLIQUID_INFO, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(dex ? { type: "allMids", dex } : { type: "allMids" }), cache: "no-store", signal: AbortSignal.timeout(8_000) });
-      if (!response.ok) throw new Error(`Hyperliquid HTTP ${response.status}`);
-      return [dex, await response.json() as Record<string, string>] as const;
+      try {
+        const response = await fetch(HYPERLIQUID_INFO, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(dex ? { type: "allMids", dex } : { type: "allMids" }), cache: "no-store", signal: AbortSignal.timeout(8_000) });
+        if (!response.ok) throw new Error(`Hyperliquid HTTP ${response.status}`);
+        return [dex, await response.json() as Record<string, string>] as const;
+      } catch { return [dex, {} as Record<string, string>] as const; }
     })));
     const live = (leg: Relationship["asset1"]) => {
+      if (leg.venue === "bitget") return bitgetMidpoint(bitgetBySymbol.get(leg.symbol));
       if (leg.venue === "binance") {
         const book = bookBySymbol.get(leg.symbol);
         const bid = Number(book?.bidPrice); const ask = Number(book?.askPrice);
