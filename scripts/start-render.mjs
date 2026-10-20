@@ -18,6 +18,16 @@ const jlpService = fileURLToPath(new URL("../services/jlp-research/server.py", i
 let stopping = false;
 let jlp;
 let restartTimer;
+let cloud, cloudRestartTimer;
+const cloudEnabled = process.env.RENDER === "true" && existsSync("/var/data/jlp") && Boolean(process.env.SITE_PASSWORD);
+function startCloud() {
+  cloud = spawn(process.execPath, [fileURLToPath(new URL("../services/posley-cloud/server.mjs", import.meta.url))], { stdio: "inherit", env: process.env });
+  cloud.on("error", () => console.error("Posley cloud service failed to start."));
+  cloud.on("exit", () => {
+    if (!stopping) cloudRestartTimer = setTimeout(startCloud, 5_000);
+  });
+}
+if (cloudEnabled) startCloud();
 
 function startJlp() {
   jlp = spawn(process.env.JLP_PYTHON || "python3", [jlpService], {
@@ -40,12 +50,15 @@ startJlp();
 
 const web = spawn(executable, ["start"], {
   stdio: "inherit",
-  env: { ...process.env, WRANGLER_LOG_PATH: ".wrangler/wrangler.log" },
+  env: { ...process.env, WRANGLER_LOG_PATH: ".wrangler/wrangler.log",
+    ...(cloudEnabled ? { POSLEY_CLOUD_INTERNAL_URL: "http://127.0.0.1:8791" } : {}) },
 });
 
 const shutdown = (signal) => {
   stopping = true;
   clearTimeout(restartTimer);
+  clearTimeout(cloudRestartTimer);
+  if (cloud && !cloud.killed) cloud.kill(signal);
   if (jlp && !jlp.killed) jlp.kill(signal);
   if (!web.killed) web.kill(signal);
 };
@@ -54,6 +67,8 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 web.on("exit", (code, signal) => {
   stopping = true;
   clearTimeout(restartTimer);
+  clearTimeout(cloudRestartTimer);
+  if (cloud && !cloud.killed) cloud.kill("SIGTERM");
   if (jlp && !jlp.killed) jlp.kill("SIGTERM");
   process.exitCode = code ?? (signal ? 1 : 0);
 });

@@ -16,6 +16,7 @@ export type PosleyAdrBook = {
   bidSize: number | null;
   askSize: number | null;
   timestamp: number;
+  source?: string;
 };
 
 type FeedState = "idle" | "connecting" | "live" | "partial" | "reconnecting" | "unconfigured";
@@ -255,6 +256,15 @@ async function ensureConnection(state: SharedState, symbols: string[], suppliedI
 
 export async function posleyAdrSnapshot(requestedSymbols: string[], suppliedIdToken?: string) {
   const symbols = normalizeSymbols(requestedSymbols);
+  if (process.env.POSLEY_CLOUD_INTERNAL_URL === "http://127.0.0.1:8791") {
+    try {
+      const response = await fetch(`http://127.0.0.1:8791/snapshot?symbols=${encodeURIComponent(symbols.join(","))}`, { cache: "no-store", signal: AbortSignal.timeout(2_000) });
+      if (!response.ok) throw new Error("Cloud service unavailable");
+      return await response.json() as { configured: boolean; state: string; error: string; books: PosleyAdrBook[]; missing: string[]; timestamp: number; source: string };
+    } catch {
+      return { configured: false, state: "reconnecting", error: "Render Posley cloud service is restarting.", books: [] as PosleyAdrBook[], missing: symbols, timestamp: Date.now(), source: "Posley cloud gateway" };
+    }
+  }
   const refreshToken = process.env.POSLEY_REFRESH_TOKEN?.trim();
   const state = shared();
   if (!refreshToken && !suppliedIdToken) {

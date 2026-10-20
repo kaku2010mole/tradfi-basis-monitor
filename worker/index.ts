@@ -65,6 +65,32 @@ const worker = {
       }
     }
 
+    const cloudCallback = url.pathname === "/" && url.searchParams.get("state")?.startsWith("posley_cloud_");
+    if (url.pathname.startsWith("/api/posley-cloud/") || cloudCallback) {
+      const cloudUrl = (globalThis as typeof globalThis & { process?: { env?: Record<string, string | undefined> } }).process?.env?.POSLEY_CLOUD_INTERNAL_URL;
+      if (!sitePassword || cloudUrl !== "http://127.0.0.1:8791" || url.origin !== "https://tradfi-basis-monitor.onrender.com") {
+        return json({ error: "Server-side Posley login is available only on the authenticated Render service." }, 503);
+      }
+      let path: string;
+      if (cloudCallback && request.method === "GET") path = `/callback?${url.searchParams}`;
+      else if (url.pathname === "/api/posley-cloud/status" && request.method === "GET") path = "/status";
+      else if (url.pathname === "/api/posley-cloud/connect" && request.method === "POST") {
+        if (request.headers.get("origin") !== url.origin) return json({ error: "Invalid request origin." }, 403);
+        path = "/connect";
+      } else return json({ error: "Not found." }, 404);
+      try {
+        const upstream = await fetch(`${cloudUrl}${path}`, { method: request.method,
+          headers: cloudCallback ? { cookie: request.headers.get("cookie") ?? "" } : {},
+          redirect: "manual", signal: AbortSignal.timeout(25_000) });
+        const headers = new Headers({ "cache-control": "no-store", "referrer-policy": "no-referrer" });
+        for (const name of ["content-type", "set-cookie", "location"]) {
+          const value = upstream.headers.get(name);
+          if (value) headers.set(name, value);
+        }
+        return new Response(upstream.body, { status: upstream.status, headers });
+      } catch { return json({ error: "Render cloud connection service is restarting. Please retry." }, 503); }
+    }
+
     if (url.pathname === "/api/markets") {
       return getMarkets();
     }
