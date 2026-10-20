@@ -7,6 +7,9 @@ import TaiwanStockPanel from "./TaiwanStockPanel";
 import { equityBasis, equitySpreads, impliedAdrBook, perpetualPairBasis, preferCashLast } from "../lib/equityBasis";
 import styles from "./KoreanPerpMonitor.module.css";
 
+const COGNITO_CLIENT_ID = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID ?? "5qup0una5tdma3l33pnn1gm87i";
+const COGNITO_DOMAIN = process.env.NEXT_PUBLIC_COGNITO_DOMAIN ?? "posley.auth.us-east-1.amazoncognito.com";
+
 type VenueQuote = { venue: string; symbol: string; sharesPerPerp?: number; bid: number | null; ask: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null; buyKoreaSellPerp: number | null; buyPerpSellKorea: number | null };
 type Session = "PRE-MARKET" | "OPENING AUCTION" | "REGULAR" | "AFTER-HOURS OPENING" | "AFTER-HOURS" | "LUNCH" | "CLOSED";
 type AdrQuote = { symbol: string; sharesPerAdr: number; source: string; marketState: string | null; bid: number | null; ask: number | null; last: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null };
@@ -78,8 +81,34 @@ function mergeRows(previous: Row[] = [], incoming: Row[] = []) {
     };
   });
 }
+const base64Url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
 async function beginPosleyLogin() {
-  location.assign("/posley-connect");
+  const check = await fetch(`/api/posley-auth-check?origin=${encodeURIComponent(location.origin)}`, { cache: "no-store" });
+  const status = await check.json() as { registered?: boolean; callbackUrl?: string; error?: string };
+  if (!check.ok) throw new Error(status.error || "Could not verify Posley login configuration.");
+  if (!status.registered) throw new Error(`Posley Cognito has not registered ${status.callbackUrl}. Ask the Posley administrator to add this exact callback URL to client ${COGNITO_CLIENT_ID}.`);
+  const verifier = base64Url(crypto.getRandomValues(new Uint8Array(48)));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  sessionStorage.setItem("equity_monitor_pkce", verifier);
+  sessionStorage.setItem("equity_monitor_return_to", "/stock-basis");
+  const params = new URLSearchParams({ client_id: COGNITO_CLIENT_ID, response_type: "code", scope: "openid email profile", redirect_uri: `${location.origin}/`, identity_provider: "Google", code_challenge_method: "S256", code_challenge: base64Url(new Uint8Array(digest)) });
+  location.assign(`https://${COGNITO_DOMAIN}/oauth2/authorize?${params}`);
+}
+
+async function browserIdToken() {
+  const stored = localStorage.getItem("equity_monitor_id_token");
+  const expiresAt = Number(localStorage.getItem("equity_monitor_expires_at"));
+  if (stored && expiresAt > Date.now() + 60_000) return stored;
+  const refreshToken = localStorage.getItem("equity_monitor_refresh_token");
+  if (!refreshToken) return null;
+  const response = await fetch(`https://${COGNITO_DOMAIN}/oauth2/token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "refresh_token", client_id: COGNITO_CLIENT_ID, refresh_token: refreshToken }) });
+  if (!response.ok) return null;
+  const tokens = await response.json() as { id_token?: string; expires_in?: number };
+  if (!tokens.id_token) return null;
+  localStorage.setItem("equity_monitor_id_token", tokens.id_token);
+  localStorage.setItem("equity_monitor_expires_at", String(Date.now() + (tokens.expires_in ?? 3600) * 1_000));
+  return tokens.id_token;
 }
 
 export default function KoreanPerpMonitor() {
@@ -99,8 +128,9 @@ export default function KoreanPerpMonitor() {
       controller = request;
       const timeout = window.setTimeout(() => request.abort(), 20_000);
       try {
+        const token = await browserIdToken();
         if (stopped || request.signal.aborted) return;
-        const response = await fetch("/api/oracle-monitor/korean-bitget", { cache: "no-store", signal: request.signal });
+        const response = await fetch("/api/oracle-monitor/korean-bitget", { cache: "no-store", signal: request.signal, headers: token ? { Authorization: `Bearer ${token}` } : undefined });
         const next = await response.json() as Payload;
         if (!response.ok) throw new Error(next.error || "Korean stock feed unavailable.");
         if (stopped) return;
@@ -262,7 +292,6 @@ export default function KoreanPerpMonitor() {
     <header className={styles.monitorHeader}><div><p>KRX · TSE · TWSE · U.S. ADR / PERPETUALS</p><h1>Stock cross-venue basis</h1><span>Live quote edges first. Closed-market and Taiwan anchor comparisons are explicitly indicative.</span></div><div className={styles.monitorActions}><div className={styles.status}><i />{payload.sessions ? `KRX ${payload.sessions.KRX} · TSE ${payload.sessions.TSE} · US ${payload.sessions.US}` : "CONNECTING"}</div><PageSwitcher active="stock-basis" /></div></header>
     {effectiveMarket !== "TWSE" && <div className={styles.signalDeck}><div className={styles.signalIntro}><span>LIVE QUOTE RADAR</span><strong>{liveEdges.length ? `${liveEdges.length} positive edges` : "No live positive edge"}</strong><small>Card colors: positive spreads ≥1% amber, ≥0.3% teal, including closed-market comparisons. Radar ranks live edges only; INDICATIVE is not executable.</small></div><div className={styles.signalList}>{liveEdges.slice(0, 3).map((edge, index) => <div key={`${edge.code}:${edge.direction}`} className={`${styles.signalItem} ${toneClass(spreadTone(edge.value))}`}><small>0{index + 1} · {edge.source}</small><strong>{edge.name}<b>{pct(edge.value)}</b></strong><span>{edge.direction}</span></div>)}{!liveEdges.length && <p>{radarMessage}</p>}</div></div>}
     <div className={styles.toolRow}><div className={styles.filters} role="group" aria-label="Filter stock market">{(["ALL", "KRX", "TSE", "TWSE"] as const).map((market) => <button key={market} className={effectiveMarket === market ? styles.activeFilter : ""} onClick={() => setMarketFilter(market)}>{market === "ALL" ? "All stocks" : market === "KRX" ? "Korea" : market === "TWSE" ? "Taiwan" : "Japan + ADR"}</button>)}</div><div className={styles.fxGroup}><span>USD/KRW <b>{payload.fx?.bid != null && payload.fx?.ask != null ? `${fmt(payload.fx.bid)} / ${fmt(payload.fx.ask)}` : fmt(payload.fx?.last ?? null)}</b><small>{isFresh(payload.fx?.updatedAt, clock) && payload.fx?.bid && payload.fx.ask ? "LIVE BBO" : "LAST / INDICATIVE"}</small></span><span>USD/JPY <b>{payload.yenFx?.bid != null && payload.yenFx?.ask != null ? `${fmt(payload.yenFx.bid)} / ${fmt(payload.yenFx.ask)}` : fmt(payload.yenFx?.last ?? null)}</b><small>{isFresh(payload.yenFx?.updatedAt, clock) && payload.yenFx?.bid && payload.yenFx.ask ? "LIVE BBO" : payload.yenFx?.source.includes("index") ? "INDEX / INDICATIVE" : "LAST / INDICATIVE"}</small></span></div></div>
-    {effectiveMarket !== "TWSE" && <div style={{ padding: "8px 20px", fontSize: 12 }}><a href="/posley-connect">Posley cloud connection</a> · {payload.posley?.source ?? "Waiting for feed"}</div>}
     {effectiveMarket !== "TWSE" && (loginError || error || payload.posley?.error) && <div className={styles.notice}><span>{loginError || error || payload.posley?.error}</span><button disabled={loginBusy} onClick={() => void connect()}>{loginBusy ? "Checking…" : "Connect Posley"}</button></div>}
     {(koreaRows.length > 0 || bitgetOnlyKorean.length > 0) && <div className={styles.marketGroup}><div className={styles.groupHead}><div><span>01 / KOREA</span><h3>KRX cash vs perpetuals</h3></div><small>{payload.sessions?.KRX ?? "—"} · {koreaRows.length} cash comparisons</small></div><div className={styles.rows}>{koreaRows.map(renderRow)}</div>
       {bitgetOnlyKorean.length > 0 && <div className={styles.perpOnlyBlock}><div className={styles.perpOnlyHead}><div><span>BITGET ONLY · CURRENCY CONVERSION</span><h4>New Korean stock perpetuals</h4><p>No live KRX cash quote for these names. The KRW amount is a converted Bitget contract-unit price, not a cash-stock quote or basis signal.</p></div><small>USD/KRW {fmt(krwConversion?.rate ?? null)} · {krwConversion?.live ? "LIVE FX" : krwConversion?.date ? `DAILY REFERENCE ${krwConversion.date}` : "FX UNAVAILABLE"}</small></div>

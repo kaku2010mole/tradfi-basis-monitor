@@ -65,34 +65,6 @@ const worker = {
       }
     }
 
-    const cloudCallback = url.pathname === "/" && url.searchParams.get("state")?.startsWith("posley_cloud_");
-    if (url.pathname.startsWith("/api/posley-cloud/") || cloudCallback) {
-      const cloudUrl = (globalThis as typeof globalThis & { process?: { env?: Record<string, string | undefined> } }).process?.env?.POSLEY_CLOUD_INTERNAL_URL;
-      // Render terminates TLS before forwarding to Node; keep a fixed public
-      // OAuth origin without trusting arbitrary forwarded protocol headers.
-      if (!sitePassword || cloudUrl !== "http://127.0.0.1:8791" || url.host !== "tradfi-basis-monitor.onrender.com") {
-        return json({ error: "Server-side Posley login is available only on the authenticated Render service." }, 503);
-      }
-      let path: string;
-      if (cloudCallback && request.method === "GET") path = `/callback?${url.searchParams}`;
-      else if (url.pathname === "/api/posley-cloud/status" && request.method === "GET") path = "/status";
-      else if (url.pathname === "/api/posley-cloud/connect" && request.method === "POST") {
-        if (request.headers.get("origin") !== "https://tradfi-basis-monitor.onrender.com") return json({ error: "Invalid request origin." }, 403);
-        path = "/connect";
-      } else return json({ error: "Not found." }, 404);
-      try {
-        const upstream = await fetch(`${cloudUrl}${path}`, { method: request.method,
-          headers: cloudCallback ? { cookie: request.headers.get("cookie") ?? "" } : {},
-          redirect: "manual", signal: AbortSignal.timeout(25_000) });
-        const headers = new Headers({ "cache-control": "no-store", "referrer-policy": "no-referrer" });
-        for (const name of ["content-type", "set-cookie", "location"]) {
-          const value = upstream.headers.get(name);
-          if (value) headers.set(name, value);
-        }
-        return new Response(upstream.body, { status: upstream.status, headers });
-      } catch { return json({ error: "Render cloud connection service is restarting. Please retry." }, 503); }
-    }
-
     if (url.pathname === "/api/markets") {
       return getMarkets();
     }
@@ -223,9 +195,6 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
     if (!symbol) continue;
     const prior = mergedQuotes.get(symbol);
     const priorTimestamp = Number(prior?.marketTimestamp);
-    const incomingTimestamp = Number(record.marketTimestamp);
-    if (prior && Number.isFinite(priorTimestamp) && Number.isFinite(incomingTimestamp) &&
-        priorTimestamp > incomingTimestamp && incomingTimestamp > 0) continue;
     if (prior && hasCompleteBook(prior) && !hasCompleteBook(record) &&
         Number.isFinite(priorTimestamp) && priorTimestamp > 0 && now - priorTimestamp <= 60_000) {
       // Keep the original book timestamp: a last-only update or relay heartbeat
@@ -239,18 +208,11 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
       mergedQuotes.set(symbol, record);
     }
   }
-  const mergedHistory = { ...(previous?.history ?? {}) };
-  for (const [symbol, incoming] of Object.entries(payload.history ?? {})) {
-    // A newly started cloud recorder must not replace the relay's older history
-    // with only a few minutes of data. Keep the same bounded 2,500-point window.
-    mergedHistory[symbol] = [...new Map([...(mergedHistory[symbol] ?? []), ...incoming]).entries()]
-      .sort((left, right) => left[0] - right[0]).slice(-2500);
-  }
   const mergedPayload: FutuPushPayload = {
     generatedAt: Math.max(previous?.generatedAt ?? 0, payload.generatedAt),
     quotes: [...mergedQuotes.values()],
     orderbooks: mergeBySymbol(previous?.orderbooks, payload.orderbooks),
-    history: mergedHistory,
+    history: { ...(previous?.history ?? {}), ...(payload.history ?? {}) },
     umcAdrAnchors: mergeFutuAdrAnchors(previous?.umcAdrAnchors, payload.umcAdrAnchors, now),
   };
   store.__FUTU_PUSH_SNAPSHOT__ = { payload: mergedPayload, receivedAt: now };

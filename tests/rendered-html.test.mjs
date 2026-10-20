@@ -99,8 +99,8 @@ test("removes the Leveraged Pair Monitor page, navigation and dedicated API", as
   assert.equal(page.status, 404);
   assert.equal(quote.status, 404);
   assert.doesNotMatch(switcher, /Leveraged pairs|href="\/ewy-koru"/);
-  assert.doesNotMatch(callback, /location\.replace|oauth2\/token/);
-  assert.match(callback, /sessionStorage\.removeItem/);
+  assert.match(callback, /!returnTo\.startsWith\("\/ewy-koru"\)/);
+  assert.match(callback, /: "\/oracle"/);
 });
 
 test("scans Binance and Bitget TradFi stock and ETF contracts into an English dividend calendar", async () => {
@@ -156,8 +156,7 @@ test("keeps exact Korean and Japanese stock comparisons on the standalone stock 
   assert.match(component, /<details className=\{`\$\{styles\.assetRow\}/);
   assert.match(component, /<details className=\{styles\.perpOnlyCard\}/);
   assert.match(component, /KRW EQUIVALENT/);
-  assert.match(component, /\/posley-connect/);
-  assert.doesNotMatch(component, /equity_monitor_id_token|oauth2\/token/);
+  assert.match(component, /equity_monitor_id_token/);
   assert.doesNotMatch(component, /005935/);
   for (const code of ["034020", "035420", "042700", "066570", "454910"]) assert.match(route, new RegExp(code));
   for (const code of ["285A", "5802", "6758", "6857", "6920", "6976", "6981", "7203", "8035", "8306", "9983", "9984"]) assert.match(route, new RegExp(`code: "${code}"`));
@@ -337,9 +336,6 @@ test("last-only relay heartbeats cannot erase or refresh a recent executable boo
     assert.equal((await send({ ...book, bid: 192300, ask: 192400, marketTimestamp: Date.now() })).status, 202);
     const refreshed = globalThis.__FUTU_PUSH_SNAPSHOT__?.payload.quotes.find((quote) => quote.symbol === book.symbol);
     assert.equal(refreshed?.bid, 192300);
-    // Seed an independently expired book. Delayed older pushes can no longer
-    // roll a fresh book backward during cloud/office overlap.
-    delete globalThis.__FUTU_PUSH_SNAPSHOT__;
     const expiredBook = { ...book, marketTimestamp: Date.now() - 70_000 };
     assert.equal((await send(expiredBook)).status, 202);
     assert.equal((await send({ ...expiredBook, bid: null, ask: null, marketTimestamp: Date.now() })).status, 202);
@@ -764,7 +760,7 @@ test("stock basis replaces Funding & Basis navigation without duplicating the Or
   assert.doesNotMatch(oracleHtml, /LIVE QUOTE RADAR|aria-label="Korean, Japanese and Taiwanese stock cross-venue basis"/);
   assert.match(switcher, /href="\/stock-basis" aria-current=\{active === "stock-basis"/);
   assert.doesNotMatch(switcher, /href="\/polymarket"|Funding &amp; Basis/);
-  assert.match(component, /location\.assign\("\/posley-connect"\)/);
+  assert.match(component, /equity_monitor_return_to", "\/stock-basis"/);
   assert.match(component, /const POLL_MS = 2_000/);
   assert.match(component, /fetch\("\/api\/oracle-monitor\/korean-bitget"/);
   assert.match(component, /visiblePolling\(/);
