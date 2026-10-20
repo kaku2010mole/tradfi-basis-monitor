@@ -11,7 +11,7 @@ const now = at("2026-10-20T10:00:00");
 const target = at("2026-10-19T14:00:00");
 const baseRow = { ...model.TAIWAN_STOCKS[1], adrSymbol: null, anchor: ref(100, target), anchorError: null,
   book: { bid: 109, ask: 111, last: 999, index: 108, timestamp: now } };
-const tsm = { anchor: ref(200, target - 3_600_000), current: ref(220, now - 60_000), error: null };
+const tsm = { anchor: ref(200, target), current: ref(220, now - 60_000), error: null };
 
 test("all eight Taiwan contracts map to distinct correct TWSE companies", () => {
   assert.deepEqual(model.TAIWAN_STOCKS.map((s) => [s.symbol, s.code]), [
@@ -66,6 +66,28 @@ test("TSM history cannot look ahead; unsorted data selects the last valid observ
   assert.equal(model.lastReferenceAtOrBefore(points, target).price, 200);
   assert.equal(model.lastReferenceAtOrBefore([points[0], points[3]], target), null);
   assert.equal(model.lastReferenceAtOrBefore([ref(200,target),ref(210,target)],target).price,200,"preserve first-source precedence on equal timestamps");
+});
+
+test("ADR model requires fresh 14:00, otherwise same-date 16:00, never the morning close or a future fallback", () => {
+  const fallback = target + 2 * 3_600_000;
+  const morning = ref(20.06, target - 6 * 3_600_000);
+  const primary = ref(20, target);
+  const secondary = ref(19.33, fallback);
+  assert.deepEqual(model.adrModelAnchor([morning, secondary], target, fallback - 1), {
+    anchor: null, anchorTargetTimestamp: null, anchorMode: "waiting",
+  });
+  assert.equal(model.adrModelAnchor([morning], target, now).anchor, null);
+  assert.equal(model.adrModelAnchor([secondary, primary], target, now).anchor, primary);
+  assert.equal(model.adrModelAnchor([secondary], target, now).anchorMode, "16:00 fallback");
+  assert.equal(model.adrModelAnchor([secondary], target, now).anchorTargetTimestamp, fallback);
+  assert.equal(model.adrModelAnchor([ref(20, target - 60_000)], target, now).anchorMode, "14:00");
+  assert.equal(model.adrModelAnchor([ref(20, target - 60_001)], target, now).anchor, null);
+  assert.equal(model.adrModelAnchor([ref(20, fallback + 1)], target, now).anchor, null);
+  assert.equal(model.adrModelAnchor([ref(20, fallback - model.DAY_MS)], target, now).anchor, null);
+  const row = { ...baseRow, adrSymbol: "UMC" };
+  assert.equal(model.taiwanComparison(row, { symbol: "UMC", anchor: morning, current: secondary }, now).reference, null);
+  assert.ok(Math.abs(model.taiwanComparison(row, { symbol: "UMC", anchor: secondary, current: ref(secondary.price * 1.1, now) }, now).reference - 110) < 1e-10);
+  assert.equal(model.taiwanComparison(row, { symbol: "UMC", anchor: secondary, current: secondary }, fallback - 1).reference, null);
 });
 
 test("regular Taiwan rows use frozen oracle, not current index or last trade", () => {

@@ -20,7 +20,7 @@ export type Calendar = { year: number; holidays: string[]; source: string };
 export type ReferencePrice = { price: number; timestamp: number; source: string };
 export type TaiwanBook = { bid: number | null; ask: number | null; last: number | null; index: number | null; timestamp: number | null };
 // Missing symbol is supported only for legacy TSM payloads during rolling deploys.
-export type AdrReference = { symbol?: string; anchor: ReferencePrice | null; current: ReferencePrice | null; error: string | null; preOpen?: ReferencePrice | null; cutoffTimestamp?: number | null; openingAnchor?: ReferencePrice | null; openingAnchorTimestamp?: number | null };
+export type AdrReference = { symbol?: string; anchor: ReferencePrice | null; current: ReferencePrice | null; error: string | null; anchorTargetTimestamp?: number | null; anchorMode?: "14:00" | "16:00 fallback" | "waiting"; preOpen?: ReferencePrice | null; cutoffTimestamp?: number | null; openingAnchor?: ReferencePrice | null; openingAnchorTimestamp?: number | null };
 export type TsmReference = AdrReference;
 export type TaiwanRow = {
   code: string; name: string; chineseName: string; symbol: string; adrSymbol: string | null;
@@ -113,6 +113,18 @@ export function lastReferenceAtOrBefore(points: ReferencePrice[], target: number
   return latest;
 }
 
+// Use a contemporaneous observation, never an 08:00 close carried to 14:00.
+// The fallback is the SAME anchor date's 16:00, and cannot be used before then.
+export function adrModelAnchor(points: ReferencePrice[], target: number, now: number) {
+  for (const [offset, mode] of [[0, "14:00"], [2 * 3_600_000, "16:00 fallback"]] as const) {
+    const at = target + offset;
+    if (!Number.isFinite(at) || at > now) continue;
+    const anchor = lastReferenceAtOrBefore(points, at, QUOTE_MAX_AGE_MS);
+    if (anchor) return { anchor, anchorTargetTimestamp: at, anchorMode: mode };
+  }
+  return { anchor: null, anchorTargetTimestamp: null, anchorMode: "waiting" as const };
+}
+
 export function taiwanAdrReference(symbol: string | null, payload: TaiwanPayload | null): AdrReference {
   return (symbol ? payload?.adrs?.[symbol] : null) ?? (symbol === "TSM" ? payload?.tsm : null)
     ?? { symbol: symbol ?? undefined, anchor: null, current: null, error: symbol ? `${symbol} ADR reference unavailable; no other ADR or perpetual substitution.` : null };
@@ -124,7 +136,8 @@ export function taiwanComparison(row: TaiwanRow, adr: AdrReference, now: number)
   const mid = validBook ? (bid + ask) / 2 : positive(row.book.last);
   const anchor = positive(row.anchor?.price);
   const adrAnchor = positive(adr.anchor?.price), adrNow = positive(adr.current?.price);
-  const adrUsable = (adr.symbol ?? "TSM") === row.adrSymbol && adr.anchor && adr.current && row.anchor && adr.anchor.timestamp <= row.anchor.timestamp
+  const selected = row.anchor ? adrModelAnchor(adr.anchor ? [adr.anchor] : [], row.anchor.timestamp, now) : null;
+  const adrUsable = (adr.symbol ?? "TSM") === row.adrSymbol && adr.anchor && adr.current && selected?.anchor
     && adr.current.timestamp >= adr.anchor.timestamp && adr.current.timestamp <= now + 5_000
     && now - adr.current.timestamp <= 4 * DAY_MS;
   const adrRatio = adrUsable && adrAnchor !== null && adrNow !== null ? adrNow / adrAnchor : null;

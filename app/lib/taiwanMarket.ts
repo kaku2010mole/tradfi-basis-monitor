@@ -1,7 +1,7 @@
 import { bitgetBooks } from "./bitgetRelativeMarket";
 import { taiwanCashSnapshot } from "./fugleTaiwanMarket";
 import { taiwanFxSnapshot } from "./taiwanFxMarket";
-import { DAY_MS, TAIPEI_OFFSET_MS, TAIWAN_STOCKS, TWSE_2026, fresh, indexAnchorFromCandles, lastReferenceAtOrBefore, latestTaiwanAnchor, parseTaiwanCalendar, positive, previousTaiwanAnchor, taiwanOpeningCutoff } from "./taiwanStockBasis";
+import { DAY_MS, TAIPEI_OFFSET_MS, TAIWAN_STOCKS, TWSE_2026, adrModelAnchor, fresh, indexAnchorFromCandles, lastReferenceAtOrBefore, latestTaiwanAnchor, parseTaiwanCalendar, positive, previousTaiwanAnchor, taiwanOpeningCutoff } from "./taiwanStockBasis";
 import type { AdrReference, Calendar, ReferencePrice, TaiwanPayload, TaiwanRow } from "./taiwanStockBasis";
 
 const memo = new Map<string, { expires: number; pending: Promise<unknown> }>();
@@ -67,28 +67,39 @@ async function yahooAdr(symbol: string, target: number, openingTarget: number): 
       headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" }, cache: "no-store", signal: AbortSignal.timeout(6_000),
     });
     if (!response.ok) throw new Error(`${symbol} ADR history HTTP ${response.status}`);
-    const payload = await response.json() as { chart?: { result?: Array<{ meta?: { symbol?: string; currency?: string }; timestamp?: number[]; indicators?: { quote?: Array<{ close?: Array<number | null> }> } }> } };
+    const payload = await response.json() as { chart?: { result?: Array<{ meta?: { symbol?: string; currency?: string }; timestamp?: number[]; indicators?: { quote?: Array<{ open?: Array<number | null>; close?: Array<number | null> }> } }> } };
     const series = payload.chart?.result?.[0];
     if (series?.meta?.symbol !== symbol || series.meta.currency !== "USD") throw new Error(`${symbol} ADR history identity invalid`);
-    const closes = series.indicators?.quote?.[0]?.close ?? [];
-    const points = (series.timestamp ?? []).flatMap((seconds, i) => {
+    const quote = series.indicators?.quote?.[0];
+    const closes = quote?.close ?? [];
+    // A 16:00 candle CLOSE belongs to 16:05, not 16:00. Its OPEN is the
+    // available boundary observation. Never read a future/incomplete close.
+    const boundaryOpens: ReferencePrice[] = (series.timestamp ?? []).flatMap((seconds, i) => {
+      const timestamp = seconds * 1000, price = positive(quote?.open?.[i]);
+      return price !== null && timestamp <= Date.now() && (timestamp === target || timestamp === target + 2 * 3_600_000)
+        ? [{ price, timestamp, source: `Yahoo ${symbol} extended-hours 5m open · indicative` }] : [];
+    });
+    const points = [...boundaryOpens, ...(series.timestamp ?? []).flatMap((seconds, i) => {
       const price = positive(closes[i]), timestamp = seconds * 1000 + 300_000;
       // Only completed 5m bars, timestamped at their end. Never look past the anchor.
       return price !== null && seconds % 300 === 0 && timestamp <= Date.now()
         ? [{ price, timestamp, source: `Yahoo ${symbol} extended-hours 5m close · indicative` }] : [];
-    });
+    })];
     if (!points.length) throw new Error(`${symbol} ADR history is empty`);
     return points;
   });
 }
 
 const lastAdrPoints = new Map<string, ReferencePrice[]>();
+const savedModelAnchors = new Map<string, ReferencePrice>();
 
 async function adrReference(symbol: string, target: number, now: number, cutoffTimestamp: number | null = null, openingTarget: number | null = null): Promise<AdrReference> {
-  const office = officeAdr(symbol, now);
+  const key = `${symbol}:${target}`;
+  const saved = savedModelAnchors.get(key);
+  const office = [...officeAdr(symbol, now), ...(saved ? [saved] : [])];
   let points = office, error: string | null = null;
   const currentOffice = lastReferenceAtOrBefore(office, now);
-  if (!lastReferenceAtOrBefore(office, target) || !fresh(currentOffice?.timestamp, now)
+  if (!adrModelAnchor(office, target, now).anchor || !fresh(currentOffice?.timestamp, now)
     || openingTarget !== null && !lastReferenceAtOrBefore(office, openingTarget)
     || cutoffTimestamp !== null && !lastReferenceAtOrBefore(office, Math.min(now, cutoffTimestamp))) {
     try {
@@ -101,12 +112,20 @@ async function adrReference(symbol: string, target: number, now: number, cutoffT
       error = reason instanceof Error ? reason.message : `${symbol} ADR unavailable`;
     }
   }
-  const anchor = lastReferenceAtOrBefore(points, target);
+  const selected = adrModelAnchor(points, target, now);
+  const { anchor } = selected;
+  if (anchor) {
+    if (savedModelAnchors.size >= 32 && !savedModelAnchors.has(key)) savedModelAnchors.delete(savedModelAnchors.keys().next().value!);
+    savedModelAnchors.set(key, anchor);
+  }
   const current = lastReferenceAtOrBefore(points, now);
-  if (!anchor || !current) error = error || `${symbol} ADR anchor/current quote unavailable; no other ADR or perpetual substitution.`;
+  if (!anchor) error = [error, now < target + 2 * 3_600_000
+    ? `${symbol}: 14:00 ADR unavailable; waiting for same-date 16:00 fallback. No old close is used.`
+    : `${symbol}: neither 14:00 nor same-date 16:00 ADR is available. No old close is used.`].filter(Boolean).join(" ");
+  else if (!current) error = error || `${symbol} ADR current quote unavailable; no other ADR or perpetual substitution.`;
   const preOpen = cutoffTimestamp === null ? null : lastReferenceAtOrBefore(points, Math.min(now, cutoffTimestamp));
   const openingAnchor = openingTarget === null ? null : lastReferenceAtOrBefore(points, openingTarget);
-  return { symbol, anchor, current, preOpen, cutoffTimestamp, openingAnchor, openingAnchorTimestamp: openingTarget, error };
+  return { symbol, ...selected, current, preOpen, cutoffTimestamp, openingAnchor, openingAnchorTimestamp: openingTarget, error };
 }
 
 let lastBooks: { data: Awaited<ReturnType<typeof bitgetBooks>>; receivedAt: number } | null = null;
