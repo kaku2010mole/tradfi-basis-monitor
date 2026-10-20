@@ -18,7 +18,7 @@ export const TAIPEI_OFFSET_MS = 8 * 3_600_000;
 export const QUOTE_MAX_AGE_MS = 60_000;
 export const ADR_FALLBACK_OFFSET_MS = 3 * 3_600_000; // 14:00 -> 17:00 HKT, fixed across U.S. DST.
 export type Calendar = { year: number; holidays: string[]; source: string };
-export type ReferencePrice = { price: number; timestamp: number; source: string };
+export type ReferencePrice = { price: number; timestamp: number; source: string; volume?: number };
 export type TaiwanBook = { bid: number | null; ask: number | null; last: number | null; index: number | null; timestamp: number | null };
 // Missing symbol is supported only for legacy TSM payloads during rolling deploys.
 export type AdrReference = { symbol?: string; anchor: ReferencePrice | null; current: ReferencePrice | null; error: string | null; anchorTargetTimestamp?: number | null; anchorMode?: "14:00" | "17:00 fallback" | "waiting"; preOpen?: ReferencePrice | null; cutoffTimestamp?: number | null; openingAnchor?: ReferencePrice | null; openingAnchorTimestamp?: number | null };

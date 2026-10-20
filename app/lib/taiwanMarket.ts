@@ -43,7 +43,14 @@ async function indexAnchor(symbol: string, target: number) {
 }
 
 type PushedQuote = { symbol?: string; bid?: number | null; ask?: number | null; last?: number | null; marketTimestamp?: number; source?: string };
-type PushStore = typeof globalThis & { __FUTU_PUSH_SNAPSHOT__?: { receivedAt: number; payload: { quotes?: PushedQuote[]; history?: Record<string, Array<[number, number]>> } } };
+type PushStore = typeof globalThis & { __FUTU_PUSH_SNAPSHOT__?: { receivedAt: number; payload: { quotes?: PushedQuote[]; history?: Record<string, Array<[number, number]>>; umcAdrAnchors?: Array<{ price: number; timestamp: number; volume: number }> } } };
+
+function officeUmcAnchors(symbol: string, now: number): ReferencePrice[] {
+  if (symbol !== "UMC") return [];
+  return ((globalThis as PushStore).__FUTU_PUSH_SNAPSHOT__?.payload.umcAdrAnchors ?? [])
+    .filter((point) => point.timestamp + 60_000 <= now && point.timestamp % DAY_MS === 9 * 3_600_000 && positive(point.price) !== null)
+    .map((point) => ({ ...point, source: "Futu UMC 1m open · indicative reference" }));
+}
 
 function officeAdr(symbol: string, now: number) {
   const payload = (globalThis as PushStore).__FUTU_PUSH_SNAPSHOT__?.payload;
@@ -96,10 +103,13 @@ const savedModelAnchors = new Map<string, ReferencePrice>();
 async function adrReference(symbol: string, target: number, now: number, cutoffTimestamp: number | null = null, openingTarget: number | null = null): Promise<AdrReference> {
   const key = `${symbol}:${target}`;
   const saved = savedModelAnchors.get(key);
-  const office = [...officeAdr(symbol, now), ...(saved ? [saved] : [])];
+  const office = officeAdr(symbol, now);
+  // Anchor-only observations must never be reused as the latest ADR quote or
+  // leak into the separate opening study. Prefer Futu over cached ties.
+  const anchorOnly = [...officeUmcAnchors(symbol, now), ...(saved ? [saved] : [])];
   let points = office, error: string | null = null;
   const currentOffice = lastReferenceAtOrBefore(office, now);
-  if (!adrModelAnchor(office, target, now).anchor || !fresh(currentOffice?.timestamp, now)
+  if (!adrModelAnchor([...anchorOnly, ...office], target, now).anchor || !fresh(currentOffice?.timestamp, now)
     || openingTarget !== null && !lastReferenceAtOrBefore(office, openingTarget)
     || cutoffTimestamp !== null && !lastReferenceAtOrBefore(office, Math.min(now, cutoffTimestamp))) {
     try {
@@ -112,7 +122,7 @@ async function adrReference(symbol: string, target: number, now: number, cutoffT
       error = reason instanceof Error ? reason.message : `${symbol} ADR unavailable`;
     }
   }
-  const selected = adrModelAnchor(points, target, now);
+  const selected = adrModelAnchor([...anchorOnly, ...points], target, now);
   const { anchor } = selected;
   if (anchor) {
     if (savedModelAnchors.size >= 32 && !savedModelAnchors.has(key)) savedModelAnchors.delete(savedModelAnchors.keys().next().value!);

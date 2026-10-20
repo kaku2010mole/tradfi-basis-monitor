@@ -1,6 +1,8 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { mergeFutuAdrAnchors, validFutuAdrAnchors } from "../app/lib/futuAdrAnchors";
+import type { FutuAdrAnchor } from "../app/lib/futuAdrAnchors";
 
 interface Env {
   ASSETS: Fetcher;
@@ -101,6 +103,7 @@ type FutuPushPayload = {
   quotes: Array<Record<string, unknown>>;
   orderbooks?: Array<Record<string, unknown>>;
   history?: Record<string, Array<[number, number]>>;
+  umcAdrAnchors?: FutuAdrAnchor[];
 };
 
 type FutuPushStore = typeof globalThis & {
@@ -154,7 +157,9 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
   const now = Date.now();
   if (
     !payload || !Number.isFinite(payload.generatedAt) || Math.abs(now - payload.generatedAt) > 30_000 ||
-    !Array.isArray(payload.quotes) || payload.quotes.length < 1 || payload.quotes.length > 64 ||
+    !Array.isArray(payload.quotes) || payload.quotes.length > 64 ||
+    (payload.umcAdrAnchors !== undefined && !validFutuAdrAnchors(payload.umcAdrAnchors, now)) ||
+    (payload.quotes.length === 0 && !validFutuAdrAnchors(payload.umcAdrAnchors, now)) ||
     payload.quotes.some((quote) => typeof quote?.symbol !== "string" || !/^(?:FX\.(?:USDKRW|USDJPY)|HK\.(?:\d{5}|800000|HSImain)|KRX\.(?:034020|035420|042700|066570|454910|207940|000270|373220|035720|105560)|TSE\.(?:285A|5802|6758|6857|6920|6976|6981|7203|8035|8306|9983|9984)|US\.(?:TCEHY|XIACY|KSHTY|MPNGY|PMRTY|MMXGY|LNVGY|BYDDY|LITE|NVDA|SONY|TM|MUFG|Z[TFNB]main))$/.test(quote.symbol)) ||
     (payload.orderbooks !== undefined && (!Array.isArray(payload.orderbooks) || payload.orderbooks.length > 64)) ||
     (payload.history !== undefined && (
@@ -208,6 +213,7 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
     quotes: [...mergedQuotes.values()],
     orderbooks: mergeBySymbol(previous?.orderbooks, payload.orderbooks),
     history: { ...(previous?.history ?? {}), ...(payload.history ?? {}) },
+    umcAdrAnchors: mergeFutuAdrAnchors(previous?.umcAdrAnchors, payload.umcAdrAnchors, now),
   };
   store.__FUTU_PUSH_SNAPSHOT__ = { payload: mergedPayload, receivedAt: now };
   return json({ accepted: true, receivedAt: now }, 202);

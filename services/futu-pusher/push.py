@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from futu import AuType, KLType, OpenQuoteContext, RET_OK, SubType
+from umc_adr_anchors import start as start_umc_anchors
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -273,6 +274,7 @@ def main() -> int:
     if len(token) < 32:
         print("Push token is invalid.", file=sys.stderr)
         return 2
+    start_umc_anchors(token, PUSH_URL, OPEND_HOST, OPEND_PORT, lambda: RUNNING)
     while RUNNING:
         try:
             relay_session(token)
