@@ -38,14 +38,22 @@ and last observations through failures, with additional backoff for HTTP 401/403
 This in-memory quota coordination is per Node process; use a shared cache/collector
 before scaling to multiple replicas. No paid subscription is enabled by this code.
 
-Cash/auction prices are TWD. During 08:30–09:00 HKT (or an explicitly delayed
-opening), an additional indicative reference is `prior 14:00 Bitget oracle ×
-trial / cash previous close`. This never replaces the original oracle/TSM model
-and never compounds the TSM ADR return again. It is not an executable cash/perp
-spread: the cash close and oracle anchors have different times. Missing/stale
-trial observations, stale perp books and adjusted exchange reference prices
-disable this comparison. API timestamps in microseconds are converted to ms;
-historical trial records are labeled separately from current trials.
+The Taiwan section has two independent tabs, defaulting to **Live / Pre-open**.
+It compares the current cash BBO midpoint (last trade only if no valid book), or
+the current trial price when the provider flags a trial, with Bitget's midpoint.
+`deviation = perp midpoint × USD/TWD / cash price − 1`. USD/TWD comes from an
+independent Yahoo currency quote, cached once per minute for all viewers. This
+display explicitly assumes USDT = USD and one Taiwan share per perp price unit;
+the contract multiplier is not independently verified. FX is indicative, not BBO.
+Cash older than 120s, perp BBO older than 60s, or FX older than 15 minutes suppresses
+the comparison (FX fetching must also be within 120s). Failures preserve original
+timestamps and never substitute the oracle. Trial books are simulated: directional
+buy/sell spreads are only shown with regular-session cash BBO, still indicative.
+API timestamps in microseconds are converted to ms.
+
+**Model** retains the prior-trading-day 14:00 oracle and TSM ADR return models
+without current-cash adjustments. Its historical ADR opening study is folded below
+the model cards. Summary colors and expanded details depend only on the active tab.
 One-minute snapshots are not tick-complete and are not an auction history archive.
 Confirm your provider's display/data-sharing permissions for the intended audience.
 

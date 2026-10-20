@@ -1,5 +1,6 @@
 import { bitgetBooks } from "./bitgetRelativeMarket";
 import { taiwanCashSnapshot } from "./fugleTaiwanMarket";
+import { taiwanFxSnapshot } from "./taiwanFxMarket";
 import { DAY_MS, TAIPEI_OFFSET_MS, TAIWAN_STOCKS, TWSE_2026, fresh, indexAnchorFromCandles, lastReferenceAtOrBefore, parseTaiwanCalendar, positive, previousTaiwanAnchor, taiwanOpeningCutoff } from "./taiwanStockBasis";
 import type { Calendar, ReferencePrice, TaiwanPayload, TaiwanRow, TsmReference } from "./taiwanStockBasis";
 
@@ -110,11 +111,12 @@ const taiwanSymbols = new Set<string>(TAIWAN_STOCKS.map((stock) => stock.symbol)
 export async function taiwanSnapshot(now = Date.now()): Promise<TaiwanPayload> {
   const priorDay = new Date(now + TAIPEI_OFFSET_MS - DAY_MS);
   const years = [...new Set([priorDay.getUTCFullYear(), new Date(priorDay.getTime() - 40 * DAY_MS).getUTCFullYear(), new Date(now + TAIPEI_OFFSET_MS + 40 * DAY_MS).getUTCFullYear()])];
-  const [calendarResults, tickerResult, cash] = await Promise.all([
+  const [calendarResults, tickerResult, cash, fx] = await Promise.all([
     Promise.all(years.map(calendar)),
     bitgetBooks().then((all) => { const data = all.filter((book) => book.symbol && taiwanSymbols.has(book.symbol)); lastBooks = { data, receivedAt: Date.now() }; return { data, error: null }; })
       .catch((reason) => ({ data: lastBooks && now - lastBooks.receivedAt <= 7 * DAY_MS ? lastBooks.data : [], error: reason instanceof Error ? reason.message : "Bitget feed unavailable" })),
     taiwanCashSnapshot(),
+    taiwanFxSnapshot(),
   ]);
   const calendars = calendarResults.filter((item): item is Calendar => item !== null);
   const anchorTimestamp = previousTaiwanAnchor(now, calendars);
@@ -133,5 +135,5 @@ export async function taiwanSnapshot(now = Date.now()): Promise<TaiwanPayload> {
     return { ...stock, adrSymbol: "adrSymbol" in stock ? stock.adrSymbol : null, ...anchors[index],
       book: { bid: positive(quote?.bidPr), ask: positive(quote?.askPr), last: positive(quote?.lastPr), index: positive(quote?.indexPrice), timestamp: positive(quote?.ts) } };
   });
-  return { rows, anchorTimestamp, calendarSource: [...new Set(calendars.map((item) => item.source))].join(" + "), tsm, cash, error: tickerResult.error, timestamp: Date.now() };
+  return { rows, anchorTimestamp, calendarSource: [...new Set(calendars.map((item) => item.source))].join(" + "), tsm, cash, fx, error: tickerResult.error, timestamp: Date.now() };
 }

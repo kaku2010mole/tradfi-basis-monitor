@@ -1,4 +1,5 @@
 import type { TaiwanCashFeed } from "./taiwanCash";
+import type { TaiwanFxFeed } from "./taiwanLiveBasis";
 // Bitget listing: https://www.bitget.com/support/articles/12560603897858
 // TWSE codes identify the underlying, not a verified contract/share conversion.
 export const TAIWAN_STOCKS = [
@@ -23,7 +24,7 @@ export type TaiwanRow = {
   code: string; name: string; chineseName: string; symbol: string; adrSymbol: string | null;
   book: TaiwanBook; anchor: ReferencePrice | null; anchorError: string | null;
 };
-export type TaiwanPayload = { rows: TaiwanRow[]; anchorTimestamp: number | null; calendarSource: string; tsm: TsmReference; cash?: TaiwanCashFeed; error: string | null; timestamp: number };
+export type TaiwanPayload = { rows: TaiwanRow[]; anchorTimestamp: number | null; calendarSource: string; tsm: TsmReference; cash?: TaiwanCashFeed; fx?: TaiwanFxFeed; error: string | null; timestamp: number };
 
 // Verified against the TWSE 115-year holiday schedule. Used only if that year's
 // official endpoint is unavailable; never silently use weekdays for an unknown year.

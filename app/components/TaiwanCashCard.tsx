@@ -1,5 +1,7 @@
 import { taiwanCashView } from "../lib/taiwanCash";
 import type { TaiwanCashQuote } from "../lib/taiwanCash";
+import type { TaiwanBook } from "../lib/taiwanStockBasis";
+import type { TaiwanFx, taiwanLiveComparison } from "../lib/taiwanLiveBasis";
 import styles from "./TaiwanCashCard.module.css";
 
 const format = new Intl.NumberFormat("en-US", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
@@ -8,23 +10,27 @@ const n = (value: number | null | undefined) => value == null ? "—" : format.f
 const stamp = (value: number | null | undefined) => value == null ? "—" : time.format(value);
 const percent = (value: number | null | undefined) => value == null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(3)}%`;
 
-export default function TaiwanCashCard({ quote, now, error, configured, auction }: {
+export default function TaiwanCashCard({ quote, now, error, configured, comparison, book, fx }: {
   quote?: TaiwanCashQuote; now: number; error?: string; configured?: boolean;
-  auction: { reference: number | null; deviation: number | null; trialReturn: number | null; reason: string | null };
+  comparison: ReturnType<typeof taiwanLiveComparison>; book: TaiwanBook; fx?: TaiwanFx | null;
 }) {
   const view = taiwanCashView(quote, now);
-  const trialChange = quote?.trial && quote.previousClose ? (quote.trial.price / quote.previousClose - 1) * 100 : null;
   return <section className={styles.card} aria-label="Taiwan cash and trial auction">
-    <header><div><small>FUGLE · TWSE CASH · TWD</small><strong>Cash &amp; trial auction</strong></div><span>{view.phase}{quote && !view.fresh ? " · STALE" : ""}</span></header>
+    <header><div><small>LIVE / PRE-OPEN · DIRECT PRICE COMPARISON</small><strong>Cash / trial vs Bitget</strong></div><span>{comparison.status}</span></header>
     <div className={styles.prices}>
-      <div><small>{quote?.isTrial ? "LATEST TRIAL · NOT EXECUTED" : "LAST CASH TRADE"}</small><b>NT$ {n(view.price)}</b><span>{percent(view.changePct)} vs previous close</span><small>{stamp(view.priceTimestamp)} HKT</small></div>
-      <div><small>{quote?.isTrial ? "TRIAL SIZE / REFERENCE" : "LAST TRIAL · HISTORICAL"}</small><b>{quote?.isTrial ? n(quote.trial?.size) : `NT$ ${n(quote?.trial?.price)}`}</b><span>{quote?.isTrial ? "Quantity in source units" : `${percent(trialChange)} vs previous close`}</span><small>{stamp(quote?.trial?.timestamp)} HKT</small></div>
+      <div><small>{comparison.kind}{comparison.isTrial ? " · NOT EXECUTED" : ""}</small><b>NT$ {n(comparison.cashPrice)}</b><span>{n(comparison.reference)} USDT equivalent</span><small>{stamp(comparison.cashTimestamp)} HKT · {view.phase}</small></div>
+      <div><small>BITGET PERP MID</small><b>{n(comparison.perpMid)} USDT</b><span>NT$ {n(comparison.perpTwd)} equivalent</span><small>Bid / ask {n(book.bid)} / {n(book.ask)} · {stamp(book.timestamp)} HKT</small></div>
     </div>
     <div className={styles.auction}>
-      <span>PRE-OPEN TRIAL-IMPLIED REFERENCE <b>{n(auction.reference)} USDT</b></span>
-      <span>PERP MID VS TRIAL <b>{percent(auction.deviation)}</b></span>
-      <small>{auction.reason ?? "Prior 14:00 oracle × trial price / cash previous close. TSM ADR is not compounded again. Indicative, not executable."}</small>
+      <span>PERP VS {comparison.isTrial ? "TRIAL" : "CASH"}<b>{percent(comparison.deviation)}</b></span>
+      <span>RELATIVE PRICING<b>{comparison.direction}</b></span>
+      <small>{comparison.reason ?? "Perp midpoint × USD/TWD ÷ cash reference − 1. Indicative only; excludes fees, funding and FX spread."}</small>
     </div>
+    {!comparison.isTrial && <div className={styles.prices}>
+      <div><small>BUY CASH · SELL PERP</small><b>{percent(comparison.buyCashSellPerp)}</b><small>Perp bid × FX / cash ask − 1</small></div>
+      <div><small>BUY PERP · SELL CASH</small><b>{percent(comparison.buyPerpSellCash)}</b><small>Cash bid / (perp ask × FX) − 1</small></div>
+    </div>}
+    <p className={styles.note}>{comparison.isTrial ? "Trial price is not a firm fill. Directional executable edges are not shown during auction." : `Cash BBO NT$ ${n(comparison.cashBid)} / ${n(comparison.cashAsk)} · Last trade NT$ ${n(quote?.last?.price)} (${stamp(quote?.last?.timestamp)} HKT).`}</p>
     <details className={styles.book}>
       <summary>Five-level book · {quote?.bids.length ?? 0} bids / {quote?.asks.length ?? 0} asks</summary>
       <table><caption>{quote?.isTrial ? "Simulated post-match book — not firm executable quotes" : "Latest observed cash order book"}</caption><thead><tr><th>Bid qty</th><th>Bid TWD</th><th>Ask TWD</th><th>Ask qty</th></tr></thead><tbody>
@@ -32,6 +38,6 @@ export default function TaiwanCashCard({ quote, now, error, configured, auction 
       </tbody></table>
       <small>Quantities use provider units. Book timestamp: {stamp(quote?.timestamp)} HKT.</small>
     </details>
-    <footer>{error ? `${error}. Last observed data retained. ` : configured === false ? "Cash API not configured on this server. " : ""}Cash refresh: 60s · fetched {stamp(quote?.fetchedAt)} HKT.<br />Previous close NT$ {n(quote?.previousClose)} · exchange reference NT$ {n(quote?.referencePrice)}. Cash previous close and the 14:00 oracle have different anchor times; this is a return comparison, not a verified share/FX conversion.</footer>
+    <footer>{error ? `${error}. Last observed data retained. ` : configured === false ? "Cash API not configured on this server. " : ""}Cash refresh: 60s · fetched {stamp(quote?.fetchedAt)} HKT.<br />USD/TWD {n(fx?.price)} · {stamp(fx?.timestamp)} HKT · indicative FX, not executable BBO. Display assumes USDT = USD and one Taiwan share per perp price unit (contract multiplier not independently verified). No oracle / ADR adjustment is used in this tab.</footer>
   </section>;
 }

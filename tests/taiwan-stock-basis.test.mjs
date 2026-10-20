@@ -104,7 +104,7 @@ test("Taiwan is independently refreshed, foldable, filterable and outside the ex
   const panel = await readFile(new URL("../app/components/TaiwanStockPanel.tsx", import.meta.url), "utf8");
   const parent = await readFile(new URL("../app/components/KoreanPerpMonitor.tsx", import.meta.url), "utf8");
   assert.match(panel, /2_000/);
-  assert.match(panel, /<details key=\{row.symbol\}/);
+  assert.match(panel, /<details key=\{`\$\{mode\}:\$\{row.symbol\}`\}/);
   assert.match(panel, /\/api\/stock-basis\/taiwan/);
   assert.doesNotMatch(panel, /browserIdToken|beginPosleyLogin/);
   assert.match(parent, /"ALL", "KRX", "TSE", "TWSE"/);
@@ -131,6 +131,7 @@ test("rendered Taiwan API returns eight rows, isolates missing anchors and uses 
       if (url.searchParams.get("symbol") === "NANYAUSDT") return new Response("unavailable", { status: 503 });
       return Response.json({ code: "00000", data: [[target, "100", "105", "99", "104"]] });
     }
+    if (url.pathname.includes("TWD")) return Response.json({ chart: { result: [{ meta: { symbol: "TWD=X", currency: "TWD", instrumentType: "CURRENCY", regularMarketPrice: 32.5, regularMarketTime: now / 1000 } }] } });
     if (url.host === "query1.finance.yahoo.com") return failTsm ? new Response("offline", { status: 503 }) : Response.json({ chart: { result: [{ meta: { symbol: "TSM", currency: "USD" }, timestamp: [(target - 300_000) / 1000, (now - 3_600_000 - 300_000) / 1000, (now - 300_000) / 1000], indicators: { quote: [{ close: [200, 210, 220] }] } }] } });
     throw new Error(`Unexpected external request: ${url}`);
   };
@@ -139,6 +140,7 @@ test("rendered Taiwan API returns eight rows, isolates missing anchors and uses 
     assert.equal(response.status, 200);
     const data = await response.json();
     assert.equal(data.rows.length, 8);
+    assert.equal(data.fx.quote.price, 32.5);
     assert.equal(data.anchorTimestamp, target);
     assert.ok(data.rows[0].anchor, data.rows[0].anchorError);
     assert.equal(data.rows[0].anchor.price, 100);
@@ -160,10 +162,10 @@ test("rendered Taiwan API returns eight rows, isolates missing anchors and uses 
     assert.match(outage.tsm.error, /503/);
     const rendered = await worker.fetch(new Request("http://localhost/stock-basis"), env, ctx);
     const html = await rendered.text();
-    assert.match(html, /Previous-day oracle/);
-    assert.match(html, /TSM ADR → Taiwan opening outlook/);
-    assert.match(html.replace(/<!--.*?-->/g, ""), /57 common days/);
-    assert.match(html, /DIRECTION HIT/);
+    assert.match(html, /Live \/ Pre-open/);
+    assert.match(html, /id="taiwan-live-tab"[^>]+aria-selected="true"/);
+    assert.match(html, /role="tabpanel" id="taiwan-live-panel"/);
+    assert.doesNotMatch(html, /DIRECTION HIT|TSM ADR → Taiwan opening outlook|PREVIOUS 14:00 ORACLE/);
     for (const stock of model.TAIWAN_STOCKS) assert.ok(html.includes(stock.symbol));
   } finally { globalThis.fetch = original; Date.now = originalNow; }
 });
