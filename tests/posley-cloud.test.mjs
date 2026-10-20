@@ -147,3 +147,21 @@ test("Render OAuth proxy requires site authentication and same-origin POST; call
     if (originalUrl === undefined) delete process.env.POSLEY_CLOUD_INTERNAL_URL; else process.env.POSLEY_CLOUD_INTERNAL_URL = originalUrl;
   }
 });
+
+test("cloud and office overlap cannot roll quotes backward or erase the earlier FX history", async () => {
+  const { default: worker } = await import("../dist/server/index.js");
+  const previous = globalThis.__FUTU_PUSH_SNAPSHOT__, now = Date.now();
+  const ctx = { waitUntil() {}, passThroughOnException() {} };
+  const quote = (marketTimestamp, bid) => ({ symbol: "FX.USDKRW", bid, ask: bid + 1, bidSize: 1, askSize: 1, marketTimestamp });
+  const send = payload => worker.fetch(new Request("http://localhost/api/hk-auction/ingest", {
+    method: "POST", headers: { Authorization: "Bearer test-ingest-credential", "Content-Type": "application/json" },
+    body: JSON.stringify({ generatedAt: Date.now(), ...payload }),
+  }), { FUTU_PUSH_TOKEN: "test-ingest-credential" }, ctx);
+  try {
+    delete globalThis.__FUTU_PUSH_SNAPSHOT__;
+    assert.equal((await send({ quotes: [quote(now, 1350)], history: { "FX.USDKRW": [[now - 120000, 1348], [now - 60000, 1349]] } })).status, 202);
+    assert.equal((await send({ quotes: [quote(now - 10000, 1300)], history: { "FX.USDKRW": [[now, 1350]] } })).status, 202);
+    assert.equal(globalThis.__FUTU_PUSH_SNAPSHOT__.payload.quotes[0].bid, 1350);
+    assert.equal(globalThis.__FUTU_PUSH_SNAPSHOT__.payload.history["FX.USDKRW"].length, 3);
+  } finally { globalThis.__FUTU_PUSH_SNAPSHOT__ = previous; }
+});
