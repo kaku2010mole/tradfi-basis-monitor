@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
+import { visiblePolling } from "../lib/visiblePolling";
 import {
   DEFAULT_ORACLE_BINANCE,
   DEFAULT_ORACLE_PARA,
@@ -82,10 +83,11 @@ const formatPct = (value: number, digits = 3) => `${value >= 0 ? "+" : ""}${valu
 const formatPrice = (value: number | null) => value == null || !Number.isFinite(value)
   ? "—"
   : value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: value >= 100 ? 3 : 6 });
+const usdFormats = [0, 2].map((maximumFractionDigits) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits }));
 const formatUsd = (value: number | null) => value == null || !Number.isFinite(value)
   ? "—"
-  : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: value >= 1000 ? 0 : 2 }).format(value);
-const formatTime = (value: number, date = false) => new Intl.DateTimeFormat("en-GB", {
+  : usdFormats[value >= 1000 ? 0 : 1].format(value);
+const timeFormats = [false, true].map((date) => new Intl.DateTimeFormat("en-GB", {
   timeZone: "Asia/Hong_Kong",
   month: date ? "short" : undefined,
   day: date ? "2-digit" : undefined,
@@ -93,7 +95,8 @@ const formatTime = (value: number, date = false) => new Intl.DateTimeFormat("en-
   minute: "2-digit",
   second: date ? undefined : "2-digit",
   hour12: false,
-}).format(value);
+}));
+const formatTime = (value: number, date = false) => timeFormats[Number(date)].format(value);
 
 const positiveNumber = (value: unknown) => {
   const parsed = Number(value);
@@ -360,8 +363,7 @@ export default function OracleMonitor() {
   }, [commitQuotes]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
+    return visiblePolling(() => setClock(Date.now()), 1_000);
   }, []);
 
   useEffect(() => {
@@ -554,9 +556,7 @@ export default function OracleMonitor() {
   }, [binanceStreams.book, binanceStreams.oracle, binanceSymbols, commitQuotes, desiredIds, hyperliquidStream, pairsReady, quoteUrl]);
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => void loadQuotes());
-    const timer = window.setInterval(loadQuotes, REFRESH_MS);
-    return () => { window.cancelAnimationFrame(frame); window.clearInterval(timer); };
+    return visiblePolling(() => void loadQuotes(), REFRESH_MS);
   }, [loadQuotes]);
 
   const visibleQuotes = useMemo(() => quotes.filter((quote) => clock - quote.updatedAt <= HIDE_AFTER_MS), [clock, quotes]);

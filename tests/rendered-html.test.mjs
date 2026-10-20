@@ -763,7 +763,8 @@ test("stock basis replaces Funding & Basis navigation without duplicating the Or
   assert.match(component, /equity_monitor_return_to", "\/stock-basis"/);
   assert.match(component, /const POLL_MS = 2_000/);
   assert.match(component, /fetch\("\/api\/oracle-monitor\/korean-bitget"/);
-  assert.match(component, /clearTimeout\(first\); clearInterval\(timer\)/);
+  assert.match(component, /visiblePolling\(/);
+  assert.match(component, /stopPolling\(\); controller\?\.abort\(\)/);
 });
 
 test("accepts every Hyperliquid DEX namespace and keeps SHEIN in the normal Oracle ranking", async () => {

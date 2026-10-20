@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
+import { visiblePolling } from "../lib/visiblePolling";
 import AdrPerpNightPanel, { type NightBasisPair } from "./AdrPerpNightPanel";
 import styles from "./page.module.css";
 
@@ -124,7 +125,10 @@ const pairKey = (pair: PairConfig) => `${pair.stockSymbol}:${pair.perpVenue ?? "
 const venueMetricClass = (venue: string) => venue === "BINANCE" ? styles.binanceMetric : venue === "BITGET" ? styles.bitgetMetric : venue === "MEXC" ? styles.mexcMetric : venue === "HYPERLIQUID" ? styles.hyperliquidMetric : styles.bybitMetric;
 const number = (value: number | null | undefined, digits = 3) => value === null || value === undefined || !Number.isFinite(value) ? "—" : value.toLocaleString("en-US", { maximumFractionDigits: digits });
 const pct = (value: number | null | undefined, digits = 3) => value === null || value === undefined || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
-const time = (value: number | null | undefined) => value ? new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(value) : "—";
+const timeFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+const sessionFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+const hourFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", hour12: false });
+const time = (value: number | null | undefined) => value ? timeFormat.format(value) : "—";
 
 function VenueDirection({ shortVenue, longVenue }: { shortVenue: "FUTU" | "BINANCE" | "BYBIT" | "BITGET" | "MEXC" | "HYPERLIQUID"; longVenue: "FUTU" | "BINANCE" | "BYBIT" | "BITGET" | "MEXC" | "HYPERLIQUID" }) {
   const venueClass = (venue: "FUTU" | "BINANCE" | "BYBIT" | "BITGET" | "MEXC" | "HYPERLIQUID") => venue === "FUTU" ? styles.futuVenue : venue === "BINANCE" ? styles.binanceVenue : venue === "BITGET" ? styles.bitgetVenue : venue === "MEXC" ? styles.mexcVenue : venue === "HYPERLIQUID" ? styles.hyperliquidVenue : styles.bybitVenue;
@@ -146,7 +150,7 @@ const normalizeSavedPair = (pair: PairConfig): PairConfig => {
 const withoutRemovedPairs = (pairs: PairConfig[]) => pairs.filter((pair) => !REMOVED_PERPS.has(pair.perpSymbol.toUpperCase()));
 
 function sessionState(now: number, futuState?: string | null) {
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(now);
+  const parts = sessionFormat.formatToParts(now);
   const weekday = parts.find((part) => part.type === "weekday")?.value ?? "";
   const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0);
   const minute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
@@ -246,10 +250,7 @@ export default function HkAuctionPage() {
   }, [pairs, usdHkd]);
 
   useEffect(() => {
-    void load();
-    const quoteTimer = window.setInterval(() => void load(), 1_000);
-    const clockTimer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => { window.clearInterval(quoteTimer); window.clearInterval(clockTimer); };
+    return visiblePolling(() => { setNow(Date.now()); void load(); }, 1_000);
   }, [load]);
 
   const savePairs = (next: PairConfig[]) => {
@@ -300,7 +301,7 @@ export default function HkAuctionPage() {
   });
 
   const quoteById = useMemo(() => new Map(payload?.quotes.map((quote) => [quote.id, quote]) ?? []), [payload]);
-  const hktHour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", hour12: false }).format(now));
+  const hktHour = Number(hourFormat.format(now));
   const adrSortActive = hktHour >= 21 || hktHour < 6;
   const orderedPairs = useMemo(() => [...pairs].sort((left, right) => {
     const score = (pair: PairConfig) => {

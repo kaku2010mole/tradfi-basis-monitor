@@ -1,5 +1,5 @@
 import { bitgetBooks } from "./bitgetRelativeMarket";
-import { DAY_MS, TAIPEI_OFFSET_MS, TAIWAN_STOCKS, TWSE_2026, fresh, indexAnchorFromCandles, lastReferenceAtOrBefore, parseTaiwanCalendar, positive, previousTaiwanAnchor } from "./taiwanStockBasis";
+import { DAY_MS, TAIPEI_OFFSET_MS, TAIWAN_STOCKS, TWSE_2026, fresh, indexAnchorFromCandles, lastReferenceAtOrBefore, parseTaiwanCalendar, positive, previousTaiwanAnchor, taiwanOpeningCutoff } from "./taiwanStockBasis";
 import type { Calendar, ReferencePrice, TaiwanPayload, TaiwanRow, TsmReference } from "./taiwanStockBasis";
 
 const memo = new Map<string, { expires: number; pending: Promise<unknown> }>();
@@ -81,11 +81,12 @@ async function yahooTsm(target: number): Promise<ReferencePrice[]> {
 
 let lastTsmPoints: ReferencePrice[] = [];
 
-async function tsmReference(target: number, now: number): Promise<TsmReference> {
+async function tsmReference(target: number, now: number, cutoffTimestamp: number | null): Promise<TsmReference> {
   const office = officeTsm(now);
   let points = office, error: string | null = null;
   const currentOffice = lastReferenceAtOrBefore(office, now);
-  if (!lastReferenceAtOrBefore(office, target) || !fresh(currentOffice?.timestamp, now)) {
+  if (!lastReferenceAtOrBefore(office, target) || !fresh(currentOffice?.timestamp, now)
+    || cutoffTimestamp !== null && !lastReferenceAtOrBefore(office, Math.min(now, cutoffTimestamp))) {
     try {
       lastTsmPoints = await yahooTsm(target);
       points = [...office, ...lastTsmPoints];
@@ -98,17 +99,19 @@ async function tsmReference(target: number, now: number): Promise<TsmReference> 
   const anchor = lastReferenceAtOrBefore(points, target);
   const current = lastReferenceAtOrBefore(points, now);
   if (!anchor || !current) error = error || "TSM ADR anchor/current quote unavailable; no TSMUSDT substitution.";
-  return { anchor, current, error };
+  const preOpen = cutoffTimestamp === null ? null : lastReferenceAtOrBefore(points, Math.min(now, cutoffTimestamp));
+  return { anchor, current, preOpen, cutoffTimestamp, error };
 }
 
 let lastBooks: { data: Awaited<ReturnType<typeof bitgetBooks>>; receivedAt: number } | null = null;
+const taiwanSymbols = new Set<string>(TAIWAN_STOCKS.map((stock) => stock.symbol));
 
 export async function taiwanSnapshot(now = Date.now()): Promise<TaiwanPayload> {
   const priorDay = new Date(now + TAIPEI_OFFSET_MS - DAY_MS);
-  const years = [...new Set([priorDay.getUTCFullYear(), new Date(priorDay.getTime() - 40 * DAY_MS).getUTCFullYear()])];
+  const years = [...new Set([priorDay.getUTCFullYear(), new Date(priorDay.getTime() - 40 * DAY_MS).getUTCFullYear(), new Date(now + TAIPEI_OFFSET_MS + 40 * DAY_MS).getUTCFullYear()])];
   const [calendarResults, tickerResult] = await Promise.all([
     Promise.all(years.map(calendar)),
-    bitgetBooks().then((data) => { lastBooks = { data, receivedAt: Date.now() }; return { data, error: null }; })
+    bitgetBooks().then((all) => { const data = all.filter((book) => book.symbol && taiwanSymbols.has(book.symbol)); lastBooks = { data, receivedAt: Date.now() }; return { data, error: null }; })
       .catch((reason) => ({ data: lastBooks && now - lastBooks.receivedAt <= 7 * DAY_MS ? lastBooks.data : [], error: reason instanceof Error ? reason.message : "Bitget feed unavailable" })),
   ]);
   const calendars = calendarResults.filter((item): item is Calendar => item !== null);
@@ -120,7 +123,7 @@ export async function taiwanSnapshot(now = Date.now()): Promise<TaiwanPayload> {
         return { anchor: await indexAnchor(stock.symbol, anchorTimestamp), anchorError: null };
       } catch (reason) { return { anchor: null, anchorError: reason instanceof Error ? reason.message : "Anchor unavailable" }; }
     })),
-    anchorTimestamp === null ? Promise.resolve({ anchor: null, current: null, error: "Taiwan anchor date unavailable" }) : tsmReference(anchorTimestamp, now),
+    anchorTimestamp === null ? Promise.resolve({ anchor: null, current: null, error: "Taiwan anchor date unavailable" }) : tsmReference(anchorTimestamp, now, taiwanOpeningCutoff(now, calendars)),
   ]);
   const books = new Map(tickerResult.data.map((book) => [book.symbol, book]));
   const rows: TaiwanRow[] = TAIWAN_STOCKS.map((stock, index) => {

@@ -97,7 +97,8 @@ test('new authenticated cash pushes promote all five Korean names out of convers
   // Initialize vinext's fetch wrapper before installing the endpoint mocks.
   await worker.fetch(new Request('http://localhost/basis'), {ASSETS:{fetch:async()=>new Response('',{status:404})}}, {waitUntil(){},passThroughOnException(){}});
   const originalFetch = globalThis.fetch, previous = globalThis.__FUTU_PUSH_SNAPSHOT__, clock = Date.now;
-  const stamp = Date.parse('2026-10-14T07:00:00Z');
+  // Advance beyond the preceding ticker fixture's 2s public cache window.
+  const stamp = Date.parse('2026-10-16T07:00:00Z');
   Date.now = () => stamp;
   delete globalThis.__FUTU_PUSH_SNAPSHOT__;
   const mockFetch = async (url) => {
