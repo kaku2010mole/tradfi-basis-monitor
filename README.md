@@ -51,8 +51,12 @@ timestamps and never substitute the oracle. Trial books are simulated: direction
 buy/sell spreads are only shown with regular-session cash BBO, still indicative.
 API timestamps in microseconds are converted to ms.
 
-**Model** retains the prior-trading-day 14:00 oracle and TSM ADR return models
-without current-cash adjustments. Its historical ADR opening study is folded below
+**Model** resets to that day's 14:00 oracle at 14:00 HKT/Taipei on every verified
+TWSE trading day. Before 14:00 and on holidays/weekends, it uses the most recent
+trading-day 14:00 anchor. TWTSM resets its ADR return denominator with the oracle;
+there are no current-cash adjustments. Missing new index candles are retried and
+never replaced with an older anchor. The separate historical ADR opening study
+keeps its prior-date anchor and 09:00 cutoff after the model resets. It is folded below
 the model cards. Summary colors and expanded details depend only on the active tab.
 One-minute snapshots are not tick-complete and are not an auction history archive.
 Confirm your provider's display/data-sharing permissions for the intended audience.

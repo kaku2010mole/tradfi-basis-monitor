@@ -45,8 +45,11 @@ const HistoryTable = memo(function HistoryTable({ direction }: { direction: AdrD
 export default function TaiwanAdrOutlook({ tsm, anchorTimestamp, now }: { tsm: TsmReference; anchorTimestamp: number | null; now: number }) {
   const [mode, setMode] = useState<"auto" | AdrDirection>("auto");
   const cutoff = tsm.cutoffTimestamp ?? null;
-  const latestReturn = adrReturn(tsm.anchor, tsm.current, anchorTimestamp, now);
-  const signalReturn = cutoff === null ? null : adrReturn(tsm.anchor, tsm.preOpen, anchorTimestamp, Math.min(now, cutoff));
+  // Do not rewrite the morning's locked signal when the price model resets at 14:00.
+  const openingAnchor = tsm.openingAnchor === undefined ? tsm.anchor : tsm.openingAnchor;
+  const openingTarget = tsm.openingAnchorTimestamp === undefined ? anchorTimestamp : tsm.openingAnchorTimestamp;
+  const latestReturn = adrReturn(openingAnchor, tsm.current, openingTarget, now);
+  const signalReturn = cutoff === null ? null : adrReturn(openingAnchor, tsm.preOpen, openingTarget, Math.min(now, cutoff));
   const signalDirection = matchingAdrDirection(signalReturn);
   const direction = mode === "auto" ? signalDirection ?? "up" : mode;
   const locked = cutoff !== null && now >= cutoff;
@@ -57,8 +60,8 @@ export default function TaiwanAdrOutlook({ tsm, anchorTimestamp, now }: { tsm: T
       <div className={styles.liveCard}>
         <div className={styles.liveLabel}><span>CURRENT TSM ADR CHANGE</span><small>{quoteLabel}</small></div>
         <strong className={`${styles.liveMove} ${tone(latestReturn)}`}>{signed(latestReturn)}</strong>
-        <p>{price(tsm.current?.price)} now / {price(tsm.anchor?.price)} anchor</p>
-        <small>Quote: {stamp(tsm.current?.timestamp)} · HKT<br />Anchor observation: {stamp(tsm.anchor?.timestamp)} · HKT</small>
+        <p>{price(tsm.current?.price)} now / {price(openingAnchor?.price)} opening-study anchor</p>
+        <small>Quote: {stamp(tsm.current?.timestamp)} · HKT<br />Opening-study anchor observation: {stamp(openingAnchor?.timestamp)} · HKT</small>
         <div className={styles.signal}><span>{locked ? "09:00 INPUT · LOCKED" : "PRE-OPEN INPUT · UPDATING"}<small>Session cutoff: {stamp(cutoff)} HKT</small></span><b className={tone(signalReturn)}>{signed(signalReturn)}</b></div>
         {tsm.error && <small className={styles.warning}>Feed warning: retained observations are indicative. {tsm.error}</small>}
       </div>

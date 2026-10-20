@@ -22,7 +22,7 @@ test("all eight Taiwan contracts map to distinct correct TWSE companies", () => 
   assert.equal(model.TAIWAN_STOCKS[7].name, "Walsin Technology");
 });
 
-test("previous trading DATE at 14:00, skipping Taiwan weekends and holidays, never today's anchor", () => {
+test("opening-study prior trading DATE stays fixed, independently of the afternoon model reset", () => {
   const anchor = (date) => model.previousTaiwanAnchor(at(date), [model.TWSE_2026]);
   assert.equal(anchor("2026-10-20T10:00:00"), target);
   assert.equal(anchor("2026-10-20T18:00:00"), target);
@@ -165,7 +165,7 @@ test("rendered Taiwan API returns eight rows, isolates missing anchors and uses 
     assert.match(html, /Live \/ Pre-open/);
     assert.match(html, /id="taiwan-live-tab"[^>]+aria-selected="true"/);
     assert.match(html, /role="tabpanel" id="taiwan-live-panel"/);
-    assert.doesNotMatch(html, /DIRECTION HIT|TSM ADR → Taiwan opening outlook|PREVIOUS 14:00 ORACLE/);
+    assert.doesNotMatch(html, /DIRECTION HIT|TSM ADR → Taiwan opening outlook|LATEST 14:00 ORACLE/);
     for (const stock of model.TAIWAN_STOCKS) assert.ok(html.includes(stock.symbol));
   } finally { globalThis.fetch = original; Date.now = originalNow; }
 });

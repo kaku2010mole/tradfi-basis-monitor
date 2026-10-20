@@ -66,7 +66,7 @@ const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: 
       <div><b>Cash / trial price vs Bitget</b><span>Cash BBO midpoint during trading; trial price during auction. Stale inputs suppress the spread. All comparisons are indicative.</span></div>
       <div><b>USD/TWD {fmt(payload?.fx?.quote?.price)}</b><span>{stamp(payload?.fx?.quote?.timestamp)} HKT · {payload?.fx?.quote?.source ?? "Waiting for independent FX"}</span></div>
       <small>Assumes USDT = USD and 1 Taiwan share per perp price unit; multiplier unverified. Minute-sampled cash and indicative FX are not firm executable quotes.{payload?.fx?.error ? ` ${payload.fx.error}.` : ""}</small>
-    </div> : <p className={styles.taiwanIntro}>Model only · Previous TWSE trading date at 14:00: {stamp(payload?.anchorTimestamp)} HKT. TWTSM additionally follows the U.S. TSM ADR return. No current Taiwan cash price is used in this model.</p>}
+    </div> : <p className={styles.taiwanIntro}>Model only · Latest TWSE 14:00 anchor: {stamp(payload?.anchorTimestamp)} HKT. Automatically resets at 14:00 HKT on each TWSE trading day; before 14:00 or on holidays, uses the latest completed anchor. TWTSM resets its U.S. TSM ADR reference at the same time. No current Taiwan cash price is used in this model.</p>}
     <div className={styles.rows}>{(payload?.rows ?? emptyRows).map((row) => {
       const tsm = payload?.tsm ?? { anchor: null, current: null, error: null };
       const comparison = taiwanComparison(row, tsm, clock);
@@ -75,7 +75,7 @@ const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: 
       const selected = mode === "live" ? live : comparison;
       const magnitude = Math.abs(selected.deviation ?? 0);
       const tone = magnitude >= 1 ? styles.spreadHigh : magnitude >= 0.3 ? styles.spreadMedium : styles.spreadQuiet;
-      const modelLabel = row.adrSymbol ? "TSM RETURN-ADJUSTED" : "PREVIOUS 14:00 ORACLE";
+      const modelLabel = row.adrSymbol ? "TSM RETURN-ADJUSTED" : "LATEST 14:00 ORACLE";
       const refLabel = mode === "live" ? `PERP VS ${live.kind}` : modelLabel;
       return <details key={`${mode}:${row.symbol}`} className={`${styles.assetRow} ${styles.taiwanRow} ${magnitude >= 1 ? styles.highSpreadRow : magnitude >= 0.3 ? styles.mediumSpreadRow : ""}`}>
         <summary className={styles.assetSummary}>
