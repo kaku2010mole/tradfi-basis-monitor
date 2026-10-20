@@ -223,9 +223,6 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
     if (!symbol) continue;
     const prior = mergedQuotes.get(symbol);
     const priorTimestamp = Number(prior?.marketTimestamp);
-    const incomingTimestamp = Number(record.marketTimestamp);
-    if (prior && Number.isFinite(priorTimestamp) && Number.isFinite(incomingTimestamp) &&
-        priorTimestamp > incomingTimestamp && incomingTimestamp > 0) continue;
     if (prior && hasCompleteBook(prior) && !hasCompleteBook(record) &&
         Number.isFinite(priorTimestamp) && priorTimestamp > 0 && now - priorTimestamp <= 60_000) {
       // Keep the original book timestamp: a last-only update or relay heartbeat
@@ -239,18 +236,11 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
       mergedQuotes.set(symbol, record);
     }
   }
-  const mergedHistory = { ...(previous?.history ?? {}) };
-  for (const [symbol, incoming] of Object.entries(payload.history ?? {})) {
-    // A newly started cloud recorder must not replace the relay's older history
-    // with only a few minutes of data. Keep the same bounded 2,500-point window.
-    mergedHistory[symbol] = [...new Map([...(mergedHistory[symbol] ?? []), ...incoming]).entries()]
-      .sort((left, right) => left[0] - right[0]).slice(-2500);
-  }
   const mergedPayload: FutuPushPayload = {
     generatedAt: Math.max(previous?.generatedAt ?? 0, payload.generatedAt),
     quotes: [...mergedQuotes.values()],
     orderbooks: mergeBySymbol(previous?.orderbooks, payload.orderbooks),
-    history: mergedHistory,
+    history: { ...(previous?.history ?? {}), ...(payload.history ?? {}) },
     umcAdrAnchors: mergeFutuAdrAnchors(previous?.umcAdrAnchors, payload.umcAdrAnchors, now),
   };
   store.__FUTU_PUSH_SNAPSHOT__ = { payload: mergedPayload, receivedAt: now };

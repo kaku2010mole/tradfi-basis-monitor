@@ -337,9 +337,6 @@ test("last-only relay heartbeats cannot erase or refresh a recent executable boo
     assert.equal((await send({ ...book, bid: 192300, ask: 192400, marketTimestamp: Date.now() })).status, 202);
     const refreshed = globalThis.__FUTU_PUSH_SNAPSHOT__?.payload.quotes.find((quote) => quote.symbol === book.symbol);
     assert.equal(refreshed?.bid, 192300);
-    // Seed an independently expired book. Delayed older pushes can no longer
-    // roll a fresh book backward during cloud/office overlap.
-    delete globalThis.__FUTU_PUSH_SNAPSHOT__;
     const expiredBook = { ...book, marketTimestamp: Date.now() - 70_000 };
     assert.equal((await send(expiredBook)).status, 202);
     assert.equal((await send({ ...expiredBook, bid: null, ask: null, marketTimestamp: Date.now() })).status, 202);

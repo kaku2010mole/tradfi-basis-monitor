@@ -78,7 +78,6 @@ export function createFeed({ auth, createTransport, clock = Date.now, publish = 
       });
       await publish({ generatedAt: clock(), quotes, history: history.size ? { "FX.USDKRW": [...history].sort((a, b) => a[0] - b[0]) } : undefined });
       lastPublishedAt = clock();
-      if (error === "Cloud quotes received; dashboard delivery is retrying.") error = "";
     } catch { error = "Cloud quotes received; dashboard delivery is retrying."; }
     finally { publishing = false; }
   }
