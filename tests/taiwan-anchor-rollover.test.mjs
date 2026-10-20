@@ -33,7 +33,7 @@ test("Taiwan model reanchors exactly at 14:00, not midnight, and respects holida
   assert.equal(model.latestTaiwanAnchor(NaN, calendars), null);
 });
 
-test("a running server reanchors all eight names and TSM without a restart or stale-date fallback", async () => {
+test("a running server reanchors all eight names, TSM and UMC without a restart or stale-date fallback", async () => {
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
@@ -58,11 +58,12 @@ test("a running server reanchors all eight names and TSM without a restart or st
       return Response.json({ code: "00000", data: [[target, target === firstTarget ? "100" : "120"]] });
     }
     if (url.host === "query1.finance.yahoo.com") {
-      adrRequests.push({ from: Number(url.searchParams.get("period1")) * 1000, to: Number(url.searchParams.get("period2")) * 1000 });
+      const symbol = url.pathname.split("/").at(-1);
+      adrRequests.push({ symbol, from: Number(url.searchParams.get("period1")) * 1000, to: Number(url.searchParams.get("period2")) * 1000 });
       return Response.json({ chart: { result: [{
-        meta: { symbol: "TSM", currency: "USD" },
+        meta: { symbol, currency: "USD" },
         timestamp: [(firstTarget - 300_000) / 1000, (secondTarget - 300_000) / 1000],
-        indicators: { quote: [{ close: [200, 220] }] },
+        indicators: { quote: [{ close: symbol === "UMC" ? [10, 9] : [200, 220] }] },
       }] } });
     }
     throw new Error(`Unexpected request: ${url}`);
@@ -73,8 +74,10 @@ test("a running server reanchors all eight names and TSM without a restart or st
     assert.equal(indexCalls.length, 8);
     assert.ok(first.rows.every((row) => row.anchor?.price === 100 && row.anchor.timestamp === firstTarget));
     assert.equal(first.tsm.anchor.price, 200);
+    assert.equal(first.adrs.UMC.anchor.price, 10);
     await taiwanSnapshot(now);
     assert.equal(indexCalls.length, 8, "unchanged anchors are shared, not re-fetched every 2 seconds");
+    assert.equal(adrRequests.length, 2, "one cached history request per ADR, not per browser refresh");
 
     now = at("2026-10-20T14:00:00");
     failWinbond = true;
@@ -86,10 +89,13 @@ test("a running server reanchors all eight names and TSM without a restart or st
     assert.equal(winbond.anchor, null, "a missing new anchor must not fall back to yesterday's cached anchor");
     assert.match(winbond.anchorError, /503/);
     assert.ok(next.rows.filter((row) => row !== winbond).every((row) => row.anchor?.price === 120 && row.anchor.timestamp === secondTarget));
-    assert.equal(adrRequests.length, 2, "the model reset invalidates the 30-second ADR cache too");
-    assert.ok(adrRequests.every((request) => request.from === firstTarget - 4 * model.DAY_MS), "one history fetch covers the model and opening-study anchors");
+    assert.equal(adrRequests.length, 4, "the model reset invalidates both 30-second ADR caches too");
+    assert.ok(adrRequests.filter((request) => request.symbol === "TSM").every((request) => request.from === firstTarget - 4 * model.DAY_MS), "one TSM history fetch covers the model and opening-study anchors");
     assert.equal(next.tsm.anchor.price, 220, "TWTSM's ADR denominator rolls with the oracle anchor");
     assert.equal(next.tsm.anchor.timestamp, secondTarget);
+    assert.equal(next.adrs.UMC.anchor.price, 9, "TWUMC's own ADR denominator rolls independently of TSM");
+    assert.equal(next.adrs.UMC.anchor.timestamp, secondTarget);
+    assert.equal(next.adrs.UMC.openingAnchor, null, "UMC must not be mixed into the TSM opening study");
     assert.equal(next.tsm.openingAnchor.price, 200, "afternoon model reset must not rewrite the morning study");
     assert.equal(next.tsm.openingAnchorTimestamp, firstTarget);
     assert.equal(next.tsm.preOpen.price, first.tsm.preOpen.price);
@@ -105,6 +111,7 @@ test("a running server reanchors all eight names and TSM without a restart or st
     assert.equal(midnight.anchorTimestamp, secondTarget);
     assert.equal(indexCalls.length, 17, "midnight must not reset or re-fetch the price model");
     assert.equal(midnight.tsm.openingAnchorTimestamp, secondTarget, "the next opening study advances independently");
+    assert.equal(midnight.adrs.UMC.anchor.price, 9);
   } finally {
     globalThis.fetch = originalFetch;
     Date.now = originalNow;
@@ -118,4 +125,77 @@ test("UI describes the 14:00 reset and gives the opening study its separate deno
   assert.match(panel, /LATEST 14:00 ORACLE/);
   assert.doesNotMatch(panel, /Previous TWSE trading date|PREVIOUS 14:00 ORACLE/);
   assert.match(study, /adrReturn\(openingAnchor, tsm.preOpen, openingTarget,/);
+});
+
+test("UMC validates ticker identity, isolates outages and prefers its own fresh office data", async () => {
+  const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
+    .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
+    .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
+    .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => undefined;")
+    .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;");
+  const { taiwanSnapshot } = await import(moduleUrl(source + "\n// separate UMC feed isolation instance"));
+  const originalFetch = globalThis.fetch, originalNow = Date.now, originalPush = globalThis.__FUTU_PUSH_SNAPSHOT__;
+  const target = at("2026-10-20T14:00:00");
+  let now = at("2026-10-20T18:00:00"), scenario = "wrong ticker", umcCalls = 0;
+  Date.now = () => now;
+  globalThis.__FUTU_PUSH_SNAPSHOT__ = undefined;
+  globalThis.fetch = async (input) => {
+    const url = new URL(input);
+    if (url.host === "www.twse.com.tw") return Response.json({
+      stat: "ok", queryYear: 2026, data: model.TWSE_2026.holidays.map((date) => [date, "休市"]),
+    });
+    if (url.pathname.endsWith("/history-index-candles")) return Response.json({ code: "00000", data: [[target, "100"]] });
+    if (url.host === "query1.finance.yahoo.com") {
+      const symbol = url.pathname.split("/").at(-1);
+      if (symbol === "UMC") {
+        umcCalls++;
+        if (scenario === "outage") return new Response("offline", { status: 503 });
+      }
+      return Response.json({ chart: { result: [{
+        meta: { symbol: symbol === "UMC" && scenario === "wrong ticker" ? "TSM" : symbol, currency: "USD" },
+        timestamp: [(target - 300_000) / 1000, (at("2026-10-20T17:55:00") - 300_000) / 1000],
+        indicators: { quote: [{ close: symbol === "UMC" ? [10, 11] : [200, 220] }] },
+      }] } });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    const wrong = await taiwanSnapshot(now);
+    assert.equal(wrong.adrs.UMC.anchor, null);
+    assert.equal(wrong.adrs.UMC.current, null);
+    assert.match(wrong.adrs.UMC.error, /UMC ADR history identity invalid/);
+    assert.equal(wrong.tsm.current.price, 220, "bad UMC response must not affect TSM");
+    assert.equal(model.taiwanComparison(wrong.rows[3], wrong.adrs.UMC, now).reference, null);
+    await taiwanSnapshot(now);
+    assert.equal(umcCalls, 1, "bad UMC identity retries only after backoff");
+
+    scenario = "valid";
+    now += 31_000;
+    const recovered = await taiwanSnapshot(now);
+    assert.equal(recovered.adrs.UMC.anchor.price, 10);
+    assert.equal(recovered.adrs.UMC.current.price, 11);
+    scenario = "outage";
+    now += 31_000;
+    const retained = await taiwanSnapshot(now);
+    assert.deepEqual(retained.adrs.UMC.current, recovered.adrs.UMC.current, "outages retain only UMC observations, including timestamp");
+    assert.match(retained.adrs.UMC.error, /UMC.*503/);
+    const beforeOffice = umcCalls;
+    globalThis.__FUTU_PUSH_SNAPSHOT__ = { receivedAt: now, payload: {
+      history: { "US.UMC": [[target - 60_000, 10]] },
+      quotes: [
+        { symbol: "US.TSM", bid: 500, ask: 502, marketTimestamp: now },
+        { symbol: "US.UMC", bid: 12, ask: 12.2, marketTimestamp: now },
+      ],
+    } };
+    const office = await taiwanSnapshot(now);
+    assert.equal(office.adrs.UMC.current.price, 12.1);
+    assert.equal(office.adrs.UMC.anchor.price, 10);
+    assert.equal(office.adrs.UMC.error, null);
+    assert.equal(umcCalls, beforeOffice, "complete fresh UMC office history avoids an external request");
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+    if (originalPush === undefined) delete globalThis.__FUTU_PUSH_SNAPSHOT__;
+    else globalThis.__FUTU_PUSH_SNAPSHOT__ = originalPush;
+  }
 });

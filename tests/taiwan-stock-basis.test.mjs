@@ -18,7 +18,9 @@ test("all eight Taiwan contracts map to distinct correct TWSE companies", () => 
     ["TWTSMUSDT", "2330"], ["TWDELTAUSDT", "2308"], ["TWASXUSDT", "3711"], ["TWUMCUSDT", "2303"],
     ["NANYAUSDT", "2408"], ["WINBONDUSDT", "2344"], ["YAGEOUSDT", "2327"], ["WALSINUSDT", "2492"],
   ]);
-  assert.equal(model.TAIWAN_STOCKS.filter((s) => s.adrSymbol).length, 1);
+  assert.deepEqual(model.TAIWAN_STOCKS.filter((s) => s.adrSymbol).map((s) => [s.symbol, s.adrSymbol]), [
+    ["TWTSMUSDT", "TSM"], ["TWUMCUSDT", "UMC"],
+  ]);
   assert.equal(model.TAIWAN_STOCKS[7].name, "Walsin Technology");
 });
 
@@ -81,10 +83,28 @@ test("TWTSM compares normalized relative changes, not the 5:1 ADR/share absolute
   const actual = model.taiwanComparison(row, tsm, now);
   assert.ok(Math.abs(actual.reference - 110) < 1e-10);
   assert.ok(Math.abs(actual.deviation) < 1e-10);
-  assert.ok(Math.abs(actual.tsmReturn - 10) < 1e-10);
+  assert.ok(Math.abs(actual.adrReturn - 10) < 1e-10);
   for (const bad of [{ ...tsm, anchor: null }, { ...tsm, current: null }, { ...tsm, anchor: ref(200, target + 60_000) }, { ...tsm, current: ref(220, now + 60_000) }]) {
     assert.equal(model.taiwanComparison(row, bad, now).reference, null);
   }
+});
+
+test("TWUMC follows only UMC's return; a missing UMC feed cannot use TSM or the bare oracle", () => {
+  const row = { ...baseRow, ...model.TAIWAN_STOCKS[3] };
+  const umc = { symbol: "UMC", anchor: ref(10, target), current: ref(9, now), error: null };
+  const payload = { tsm, adrs: { TSM: { ...tsm, symbol: "TSM" }, UMC: umc } };
+  const selected = model.taiwanAdrReference(row.adrSymbol, payload);
+  assert.equal(selected, umc);
+  const actual = model.taiwanComparison(row, selected, now);
+  assert.equal(actual.reference, 90);
+  assert.ok(Math.abs(actual.adrReturn + 10) < 1e-10);
+  assert.ok(Math.abs(actual.deviation - (110 / 90 - 1) * 100) < 1e-10);
+  assert.equal(model.taiwanComparison(row, tsm, now).reference, null);
+  assert.equal(model.taiwanComparison(row, { ...tsm, symbol: "TSM" }, now).reference, null);
+  for (const old of [null, { tsm }, { tsm, adrs: { TSM: payload.adrs.TSM } }]) {
+    assert.equal(model.taiwanComparison(row, model.taiwanAdrReference("UMC", old), now).reference, null);
+  }
+  assert.equal(model.taiwanAdrReference("TSM", { tsm }), tsm, "legacy TSM payload still works");
 });
 
 test("stale/crossed/zero quotes are not live; reference remains visible without false executable edge", () => {
@@ -132,7 +152,10 @@ test("rendered Taiwan API returns eight rows, isolates missing anchors and uses 
       return Response.json({ code: "00000", data: [[target, "100", "105", "99", "104"]] });
     }
     if (url.pathname.includes("TWD")) return Response.json({ chart: { result: [{ meta: { symbol: "TWD=X", currency: "TWD", instrumentType: "CURRENCY", regularMarketPrice: 32.5, regularMarketTime: now / 1000 } }] } });
-    if (url.host === "query1.finance.yahoo.com") return failTsm ? new Response("offline", { status: 503 }) : Response.json({ chart: { result: [{ meta: { symbol: "TSM", currency: "USD" }, timestamp: [(target - 300_000) / 1000, (now - 3_600_000 - 300_000) / 1000, (now - 300_000) / 1000], indicators: { quote: [{ close: [200, 210, 220] }] } }] } });
+    if (url.host === "query1.finance.yahoo.com") {
+      const symbol = url.pathname.split("/").at(-1);
+      return failTsm ? new Response("offline", { status: 503 }) : Response.json({ chart: { result: [{ meta: { symbol, currency: "USD" }, timestamp: [(target - 300_000) / 1000, (now - 3_600_000 - 300_000) / 1000, (now - 300_000) / 1000], indicators: { quote: [{ close: symbol === "UMC" ? [10, 9.5, 9] : [200, 210, 220] }] } }] } });
+    }
     throw new Error(`Unexpected external request: ${url}`);
   };
   try {
@@ -150,6 +173,11 @@ test("rendered Taiwan API returns eight rows, isolates missing anchors and uses 
     assert.equal(data.tsm.current.price, 220);
     assert.equal(data.tsm.preOpen.price, 210, "10:00 quotes cannot rewrite the 09:00 opening input");
     assert.equal(data.tsm.cutoffTimestamp, now - 3_600_000);
+    assert.deepEqual(data.adrs.TSM, data.tsm);
+    assert.equal(data.adrs.UMC.symbol, "UMC");
+    assert.equal(data.adrs.UMC.anchor.price, 10);
+    assert.equal(data.adrs.UMC.current.price, 9);
+    assert.equal(model.taiwanComparison(data.rows[3], data.adrs.UMC, now).reference, 90);
     assert.ok(Math.abs(model.taiwanComparison(data.rows[0], data.tsm, now).deviation) < 1e-10);
     const count = calls.length;
     await worker.fetch(new Request("http://localhost/api/stock-basis/taiwan"), env, ctx);
@@ -160,6 +188,9 @@ test("rendered Taiwan API returns eight rows, isolates missing anchors and uses 
     assert.equal(outage.tsm.current.price, 220, "a transient ADR outage must retain real observations");
     assert.equal(outage.tsm.current.timestamp, data.tsm.current.timestamp, "retained ADR must not be retimestamped");
     assert.match(outage.tsm.error, /503/);
+    assert.equal(outage.adrs.UMC.current.price, 9);
+    assert.equal(outage.adrs.UMC.current.timestamp, data.adrs.UMC.current.timestamp);
+    assert.match(outage.adrs.UMC.error, /UMC.*503/);
     const rendered = await worker.fetch(new Request("http://localhost/stock-basis"), env, ctx);
     const html = await rendered.text();
     assert.match(html, /Live \/ Pre-open/);

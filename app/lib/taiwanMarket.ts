@@ -2,7 +2,7 @@ import { bitgetBooks } from "./bitgetRelativeMarket";
 import { taiwanCashSnapshot } from "./fugleTaiwanMarket";
 import { taiwanFxSnapshot } from "./taiwanFxMarket";
 import { DAY_MS, TAIPEI_OFFSET_MS, TAIWAN_STOCKS, TWSE_2026, fresh, indexAnchorFromCandles, lastReferenceAtOrBefore, latestTaiwanAnchor, parseTaiwanCalendar, positive, previousTaiwanAnchor, taiwanOpeningCutoff } from "./taiwanStockBasis";
-import type { Calendar, ReferencePrice, TaiwanPayload, TaiwanRow, TsmReference } from "./taiwanStockBasis";
+import type { AdrReference, Calendar, ReferencePrice, TaiwanPayload, TaiwanRow } from "./taiwanStockBasis";
 
 const memo = new Map<string, { expires: number; pending: Promise<unknown> }>();
 function cached<T>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
@@ -45,67 +45,68 @@ async function indexAnchor(symbol: string, target: number) {
 type PushedQuote = { symbol?: string; bid?: number | null; ask?: number | null; last?: number | null; marketTimestamp?: number; source?: string };
 type PushStore = typeof globalThis & { __FUTU_PUSH_SNAPSHOT__?: { receivedAt: number; payload: { quotes?: PushedQuote[]; history?: Record<string, Array<[number, number]>> } } };
 
-function officeTsm(now: number) {
+function officeAdr(symbol: string, now: number) {
   const payload = (globalThis as PushStore).__FUTU_PUSH_SNAPSHOT__?.payload;
-  const points: ReferencePrice[] = (payload?.history?.["US.TSM"] ?? []).flatMap(([t, value]) => {
+  const points: ReferencePrice[] = (payload?.history?.[`US.${symbol}`] ?? []).flatMap(([t, value]) => {
     const price = positive(value), timestamp = Number(t) + 60_000;
-    return price !== null && Number.isFinite(timestamp) && timestamp <= now ? [{ price, timestamp, source: "Futu TSM 1m close" }] : [];
+    return price !== null && Number.isFinite(timestamp) && timestamp <= now ? [{ price, timestamp, source: `Futu ${symbol} 1m close` }] : [];
   });
-  const quote = payload?.quotes?.find((item) => item.symbol === "US.TSM");
+  const quote = payload?.quotes?.find((item) => item.symbol === `US.${symbol}`);
   const bid = positive(quote?.bid), ask = positive(quote?.ask), last = positive(quote?.last);
   const price = bid !== null && ask !== null && ask >= bid ? (bid + ask) / 2 : last;
   const timestamp = Number(quote?.marketTimestamp);
-  if (price !== null && timestamp > 0 && timestamp <= now) points.push({ price, timestamp, source: quote?.source || "Futu / office TSM ADR" });
+  if (price !== null && timestamp > 0 && timestamp <= now) points.push({ price, timestamp, source: quote?.source || `Futu / office ${symbol} ADR` });
   return points;
 }
 
-async function yahooTsm(target: number, openingTarget: number): Promise<ReferencePrice[]> {
-  return cached(`tsm:${target}:${openingTarget}`, 30_000, async () => {
+async function yahooAdr(symbol: string, target: number, openingTarget: number): Promise<ReferencePrice[]> {
+  return cached(`adr:${symbol}:${target}:${openingTarget}`, 30_000, async () => {
     // One history request supports both the rolling model and the frozen opening study.
     const params = new URLSearchParams({ interval: "5m", period1: String(Math.floor((Math.min(target, openingTarget) - 4 * DAY_MS) / 1000)), period2: String(Math.floor(Date.now() / 1000)), includePrePost: "true" });
-    const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/TSM?${params}`, {
+    const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?${params}`, {
       headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" }, cache: "no-store", signal: AbortSignal.timeout(6_000),
     });
-    if (!response.ok) throw new Error(`TSM ADR history HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`${symbol} ADR history HTTP ${response.status}`);
     const payload = await response.json() as { chart?: { result?: Array<{ meta?: { symbol?: string; currency?: string }; timestamp?: number[]; indicators?: { quote?: Array<{ close?: Array<number | null> }> } }> } };
     const series = payload.chart?.result?.[0];
-    if (series?.meta?.symbol !== "TSM" || series.meta.currency !== "USD") throw new Error("TSM ADR history identity invalid");
+    if (series?.meta?.symbol !== symbol || series.meta.currency !== "USD") throw new Error(`${symbol} ADR history identity invalid`);
     const closes = series.indicators?.quote?.[0]?.close ?? [];
     const points = (series.timestamp ?? []).flatMap((seconds, i) => {
       const price = positive(closes[i]), timestamp = seconds * 1000 + 300_000;
       // Only completed 5m bars, timestamped at their end. Never look past the anchor.
       return price !== null && seconds % 300 === 0 && timestamp <= Date.now()
-        ? [{ price, timestamp, source: "Yahoo TSM extended-hours 5m close · indicative" }] : [];
+        ? [{ price, timestamp, source: `Yahoo ${symbol} extended-hours 5m close · indicative` }] : [];
     });
-    if (!points.length) throw new Error("TSM ADR history is empty");
+    if (!points.length) throw new Error(`${symbol} ADR history is empty`);
     return points;
   });
 }
 
-let lastTsmPoints: ReferencePrice[] = [];
+const lastAdrPoints = new Map<string, ReferencePrice[]>();
 
-async function tsmReference(target: number, now: number, cutoffTimestamp: number | null, openingTarget: number | null): Promise<TsmReference> {
-  const office = officeTsm(now);
+async function adrReference(symbol: string, target: number, now: number, cutoffTimestamp: number | null = null, openingTarget: number | null = null): Promise<AdrReference> {
+  const office = officeAdr(symbol, now);
   let points = office, error: string | null = null;
   const currentOffice = lastReferenceAtOrBefore(office, now);
   if (!lastReferenceAtOrBefore(office, target) || !fresh(currentOffice?.timestamp, now)
     || openingTarget !== null && !lastReferenceAtOrBefore(office, openingTarget)
     || cutoffTimestamp !== null && !lastReferenceAtOrBefore(office, Math.min(now, cutoffTimestamp))) {
     try {
-      lastTsmPoints = await yahooTsm(target, openingTarget ?? target);
-      points = [...office, ...lastTsmPoints];
+      const history = await yahooAdr(symbol, target, openingTarget ?? target);
+      lastAdrPoints.set(symbol, history);
+      points = [...office, ...history];
     } catch (reason) {
       // Keep actual observations, never retimestamp them as a new/live quote.
-      points = [...office, ...lastTsmPoints];
-      error = reason instanceof Error ? reason.message : "TSM ADR unavailable";
+      points = [...office, ...(lastAdrPoints.get(symbol) ?? [])];
+      error = reason instanceof Error ? reason.message : `${symbol} ADR unavailable`;
     }
   }
   const anchor = lastReferenceAtOrBefore(points, target);
   const current = lastReferenceAtOrBefore(points, now);
-  if (!anchor || !current) error = error || "TSM ADR anchor/current quote unavailable; no TSMUSDT substitution.";
+  if (!anchor || !current) error = error || `${symbol} ADR anchor/current quote unavailable; no other ADR or perpetual substitution.`;
   const preOpen = cutoffTimestamp === null ? null : lastReferenceAtOrBefore(points, Math.min(now, cutoffTimestamp));
   const openingAnchor = openingTarget === null ? null : lastReferenceAtOrBefore(points, openingTarget);
-  return { anchor, current, preOpen, cutoffTimestamp, openingAnchor, openingAnchorTimestamp: openingTarget, error };
+  return { symbol, anchor, current, preOpen, cutoffTimestamp, openingAnchor, openingAnchorTimestamp: openingTarget, error };
 }
 
 let lastBooks: { data: Awaited<ReturnType<typeof bitgetBooks>>; receivedAt: number } | null = null;
@@ -123,14 +124,15 @@ export async function taiwanSnapshot(now = Date.now()): Promise<TaiwanPayload> {
   ]);
   const calendars = calendarResults.filter((item): item is Calendar => item !== null);
   const anchorTimestamp = latestTaiwanAnchor(now, calendars);
-  const [anchors, tsm] = await Promise.all([
+  const [anchors, tsm, umc] = await Promise.all([
     Promise.all(TAIWAN_STOCKS.map(async (stock) => {
       try {
         if (anchorTimestamp === null) throw new Error("Verified Taiwan trading calendar unavailable");
         return { anchor: await indexAnchor(stock.symbol, anchorTimestamp), anchorError: null };
       } catch (reason) { return { anchor: null, anchorError: reason instanceof Error ? reason.message : "Anchor unavailable" }; }
     })),
-    anchorTimestamp === null ? Promise.resolve({ anchor: null, current: null, error: "Taiwan anchor date unavailable" }) : tsmReference(anchorTimestamp, now, taiwanOpeningCutoff(now, calendars), previousTaiwanAnchor(now, calendars)),
+    anchorTimestamp === null ? Promise.resolve({ symbol: "TSM", anchor: null, current: null, error: "Taiwan anchor date unavailable" }) : adrReference("TSM", anchorTimestamp, now, taiwanOpeningCutoff(now, calendars), previousTaiwanAnchor(now, calendars)),
+    anchorTimestamp === null ? Promise.resolve({ symbol: "UMC", anchor: null, current: null, error: "Taiwan anchor date unavailable" }) : adrReference("UMC", anchorTimestamp, now),
   ]);
   const books = new Map(tickerResult.data.map((book) => [book.symbol, book]));
   const rows: TaiwanRow[] = TAIWAN_STOCKS.map((stock, index) => {
@@ -138,5 +140,5 @@ export async function taiwanSnapshot(now = Date.now()): Promise<TaiwanPayload> {
     return { ...stock, adrSymbol: "adrSymbol" in stock ? stock.adrSymbol : null, ...anchors[index],
       book: { bid: positive(quote?.bidPr), ask: positive(quote?.askPr), last: positive(quote?.lastPr), index: positive(quote?.indexPrice), timestamp: positive(quote?.ts) } };
   });
-  return { rows, anchorTimestamp, calendarSource: [...new Set(calendars.map((item) => item.source))].join(" + "), tsm, cash, fx, error: tickerResult.error, timestamp: Date.now() };
+  return { rows, anchorTimestamp, calendarSource: [...new Set(calendars.map((item) => item.source))].join(" + "), tsm, adrs: { TSM: tsm, UMC: umc }, cash, fx, error: tickerResult.error, timestamp: Date.now() };
 }

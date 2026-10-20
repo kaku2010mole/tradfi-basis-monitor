@@ -110,7 +110,7 @@ test("missing credentials make zero calls; auth and quota errors back off withou
 
 test("UI isolates live and model tabs and never imports the credential-bearing client", async () => {
   const panel = await readFile(new URL("../app/components/TaiwanStockPanel.tsx", import.meta.url), "utf8");
-  assert.match(panel, /taiwanComparison\(row, tsm, clock\)/);
+  assert.match(panel, /taiwanComparison\(row, adr, clock\)/);
   assert.match(panel, /taiwanLiveComparison\(cash, row.book, payload\?\.fx\?\.quote, clock\)/);
   assert.match(panel, /useState<"live" \| "model">\("live"\)/);
   assert.match(panel, /role="tablist"/);

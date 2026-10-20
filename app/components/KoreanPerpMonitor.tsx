@@ -300,6 +300,6 @@ export default function KoreanPerpMonitor() {
     </div>}
     {japanRows.length > 0 && <div className={styles.marketGroup}><div className={styles.groupHead}><div><span>02 / JAPAN + U.S. NIGHT</span><h3>TSE cash &amp; U.S. ADR vs Bitget</h3></div><small>TSE {payload.sessions?.TSE ?? "—"} · US {payload.sessions?.US ?? "—"} · {japanRows.length} names</small></div><div className={styles.rows}>{japanRows.map(renderRow)}</div></div>}
     <TaiwanStockPanel visible={effectiveMarket === "ALL" || effectiveMarket === "TWSE"} />
-    <footer>Positive percentages are gross quoted differences, not guaranteed arbitrage. Japanese U.S. ADR comparisons use verified share ratios and do not need USD/JPY; TSE comparisons do. Taiwan cash/FX and oracle/TSM model comparisons are separate indicative views; Taiwan is excluded from the live quote radar. Pre-market, closed and stale books are INDICATIVE. The KRX stream is not verified as NXT-routable. Confirm venue, fees, funding, borrow, tax and latency before trading.</footer>
+    <footer>Positive percentages are gross quoted differences, not guaranteed arbitrage. Japanese U.S. ADR comparisons use verified share ratios and do not need USD/JPY; TSE comparisons do. Taiwan cash/FX and oracle/ADR-return model comparisons are separate indicative views; Taiwan is excluded from the live quote radar. Pre-market, closed and stale books are INDICATIVE. The KRX stream is not verified as NXT-routable. Confirm venue, fees, funding, borrow, tax and latency before trading.</footer>
   </section>;
 }
