@@ -17,7 +17,7 @@ export const QUOTE_MAX_AGE_MS = 60_000;
 export type Calendar = { year: number; holidays: string[]; source: string };
 export type ReferencePrice = { price: number; timestamp: number; source: string };
 export type TaiwanBook = { bid: number | null; ask: number | null; last: number | null; index: number | null; timestamp: number | null };
-export type TsmReference = { anchor: ReferencePrice | null; current: ReferencePrice | null; error: string | null };
+export type TsmReference = { anchor: ReferencePrice | null; current: ReferencePrice | null; error: string | null; preOpen?: ReferencePrice | null; cutoffTimestamp?: number | null };
 export type TaiwanRow = {
   code: string; name: string; chineseName: string; symbol: string; adrSymbol: string | null;
   book: TaiwanBook; anchor: ReferencePrice | null; anchorError: string | null;
@@ -76,9 +76,28 @@ export function indexAnchorFromCandles(rows: unknown[][], target: number): Refer
   return price === null ? null : { price, timestamp: target, source: "Bitget index · 14:00 1m open" };
 }
 
+// Today's 09:00 on trading days, otherwise the next verified trading day.
+// The overnight-study observation is frozen here even if later ADR quotes arrive.
+export function taiwanOpeningCutoff(now: number, calendars: Calendar[]): number | null {
+  if (!Number.isFinite(now)) return null;
+  const midnight = Math.floor((now + TAIPEI_OFFSET_MS) / DAY_MS) * DAY_MS;
+  for (let days = 0; days <= 40; days++) {
+    const date = new Date(midnight + days * DAY_MS);
+    if ([0, 6].includes(date.getUTCDay())) continue;
+    const calendar = calendars.find((item) => item.year === date.getUTCFullYear());
+    if (!calendar) return null;
+    if (!calendar.holidays.includes(date.toISOString().slice(0, 10))) return date.getTime() - TAIPEI_OFFSET_MS + 9 * 3_600_000;
+  }
+  return null;
+}
+
 export function lastReferenceAtOrBefore(points: ReferencePrice[], target: number, maxAgeMs = 4 * DAY_MS) {
-  return points.filter((point) => positive(point.price) !== null && Number.isFinite(point.timestamp) && point.timestamp <= target && target - point.timestamp <= maxAgeMs)
-    .sort((a, b) => b.timestamp - a.timestamp)[0] ?? null;
+  let latest: ReferencePrice | null = null;
+  for (const point of points) {
+    if (positive(point.price) !== null && Number.isFinite(point.timestamp) && point.timestamp <= target
+      && target - point.timestamp <= maxAgeMs && (!latest || point.timestamp > latest.timestamp)) latest = point;
+  }
+  return latest;
 }
 
 export function taiwanComparison(row: TaiwanRow, tsm: TsmReference, now: number) {

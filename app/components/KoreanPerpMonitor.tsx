@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { visiblePolling } from "../lib/visiblePolling";
 import PageSwitcher from "./PageSwitcher";
 import TaiwanStockPanel from "./TaiwanStockPanel";
 import { equityBasis, equitySpreads, impliedAdrBook, perpetualPairBasis, preferCashLast } from "../lib/equityBasis";
@@ -20,8 +21,10 @@ type Payload = { rows?: Row[]; bitgetOnlyKorean?: BitgetOnlyKorean[]; krwConvers
 
 const fmt = (value: number | null, digits = 2) => value === null ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const pct = (value: number | null) => value === null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(3)}%`;
-const time = (value: number | null) => value === null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(value);
-const dateTime = (value: number | null) => value === null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(value);
+const timeFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+const dateTimeFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+const time = (value: number | null) => value === null ? "—" : timeFormat.format(value);
+const dateTime = (value: number | null) => value === null ? "—" : dateTimeFormat.format(value);
 const POLL_MS = 2_000;
 const EDGE_MAX_AGE_MS = 60_000;
 const isFresh = (timestamp: number | null | undefined, now: number) => Boolean(timestamp && now - timestamp <= EDGE_MAX_AGE_MS && timestamp - now < 5_000);
@@ -115,26 +118,40 @@ export default function KoreanPerpMonitor() {
   const [loginError, setLoginError] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
   const [marketFilter, setMarketFilter] = useState<"ALL" | "KRX" | "TSE" | "TWSE">("ALL");
-  const inFlight = useRef(false);
-  const load = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    try {
-      const token = await browserIdToken();
-      const response = await fetch("/api/oracle-monitor/korean-bitget", { cache: "no-store", headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-      const next = await response.json() as Payload;
-      if (!response.ok) throw new Error(next.error || "Korean stock feed unavailable.");
-      setPayload((previous) => ({
-        ...next,
-        fx: next.fx && (next.fx.bid !== null || next.fx.ask !== null || next.fx.last !== null) ? next.fx : previous.fx,
-        yenFx: next.yenFx && (next.yenFx.bid !== null || next.yenFx.ask !== null || next.yenFx.last !== null) ? next.yenFx : previous.yenFx,
-        rows: mergeRows(previous.rows, next.rows),
-      }));
-      setError("");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Feeds reconnecting."); }
-    finally { setClock(Date.now()); inFlight.current = false; }
+  useEffect(() => {
+    let stopped = false, inFlight = false;
+    let controller: AbortController | null = null;
+    const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      const request = new AbortController();
+      controller = request;
+      const timeout = window.setTimeout(() => request.abort(), 20_000);
+      try {
+        const token = await browserIdToken();
+        if (stopped || request.signal.aborted) return;
+        const response = await fetch("/api/oracle-monitor/korean-bitget", { cache: "no-store", signal: request.signal, headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+        const next = await response.json() as Payload;
+        if (!response.ok) throw new Error(next.error || "Korean stock feed unavailable.");
+        if (stopped) return;
+        setPayload((previous) => ({
+          ...next,
+          fx: next.fx && (next.fx.bid !== null || next.fx.ask !== null || next.fx.last !== null) ? next.fx : previous.fx,
+          yenFx: next.yenFx && (next.yenFx.bid !== null || next.yenFx.ask !== null || next.yenFx.last !== null) ? next.yenFx : previous.yenFx,
+          rows: mergeRows(previous.rows, next.rows),
+        }));
+        setError("");
+      } catch (reason) { if (!stopped) setError(reason instanceof Error ? reason.message : "Feeds reconnecting."); }
+      finally { clearTimeout(timeout); if (!stopped) setClock(Date.now()); inFlight = false; }
+    };
+    const stopPolling = visiblePolling((resumed) => {
+      // Normal completed requests batch clock + quote state into one render.
+      // Resume/slow requests still age stale books immediately.
+      if (resumed || inFlight) setClock(Date.now());
+      void load();
+    }, POLL_MS);
+    return () => { stopped = true; stopPolling(); controller?.abort(); };
   }, []);
-  useEffect(() => { const first = window.setTimeout(() => void load(), 0); const timer = window.setInterval(load, POLL_MS); return () => { clearTimeout(first); clearInterval(timer); }; }, [load]);
 
   const connect = async () => {
     setLoginBusy(true); setLoginError("");

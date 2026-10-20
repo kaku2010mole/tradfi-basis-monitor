@@ -29,6 +29,31 @@ test("Bitget midpoint rejects stale, crossed, missing and non-finite books", () 
   assert.equal(market.bitgetMidpoint(undefined, now), null);
 });
 
+test("slow Bitget ticker requests are coalesced even after the 2s cache TTL", async () => {
+  const isolatedSource = stripTypeScriptTypes(await readFile(new URL("../app/lib/bitgetRelativeMarket.ts", import.meta.url), "utf8")) + "\n// isolated ticker test";
+  const market = await import("data:text/javascript;base64," + Buffer.from(isolatedSource).toString("base64"));
+  const original = globalThis.fetch, originalNow = Date.now;
+  let clock = Date.now() + 60_000, calls = 0, finish;
+  Date.now = () => clock;
+  globalThis.fetch = () => { calls++; return new Promise(resolve => { finish = resolve; }); };
+  try {
+    const first = market.bitgetBooks();
+    clock += 3_000;
+    const second = market.bitgetBooks();
+    assert.equal(first, second);
+    assert.equal(calls, 1);
+    await assert.rejects(market.bitgetBooksWithin(10), /timed out/);
+    assert.equal(calls, 1, "a timed-out consumer does not cancel or duplicate the shared request");
+    finish(Response.json({ code:"00000", data:[{symbol:"TESTUSDT",ts:"123"}] }));
+    assert.equal((await second)[0].ts,"123", "source timestamps are never refreshed by caching");
+    globalThis.fetch = async () => { calls++; return new Response("offline", {status:500}); };
+    await assert.rejects(market.bitgetBooks(), /500/);
+    assert.equal(calls,2,"completed expired snapshots must not suppress a new fetch");
+    await assert.rejects(market.bitgetBooks(), /500/);
+    assert.equal(calls,3,"failed pending requests must not get stuck in the cache");
+  } finally { globalThis.fetch=original; Date.now=originalNow; }
+});
+
 test("Bitget history paginates on exact boundaries, sorts and preserves real gaps", async () => {
   const original = globalThis.fetch;
   const step = 60_000, start = 1_780_000_020_000, end = start + step * 249;

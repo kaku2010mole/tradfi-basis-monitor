@@ -44,6 +44,14 @@ test("official calendar parser distinguishes trading-day notices and rejects wro
   assert.equal(model.parseTaiwanCalendar({ ...data, data: [] }, 2026), null);
 });
 
+test("opening input keeps today's 09:00 cutoff after open and advances over holidays/weekends", () => {
+  const cutoff = (date) => model.taiwanOpeningCutoff(at(date), [model.TWSE_2026]);
+  assert.equal(cutoff("2026-10-20T08:00:00"), at("2026-10-20T09:00:00"));
+  assert.equal(cutoff("2026-10-20T18:00:00"), at("2026-10-20T09:00:00"));
+  assert.equal(cutoff("2026-10-24T18:00:00"), at("2026-10-27T09:00:00"));
+  assert.equal(cutoff("2027-01-04T08:00:00"), null);
+});
+
 test("14:00 oracle uses the exact index candle OPEN, never later close, mark, or another date", () => {
   const rows = [[target - 60_000, "99", "99", "99", "100"], [target, "100", "104", "99", "102"], [target + 60_000, "102"]];
   assert.equal(model.indexAnchorFromCandles(rows, target).price, 100);
@@ -55,6 +63,7 @@ test("TSM history cannot look ahead; unsorted data selects the last valid observ
   const points = [ref(999, target + 1), ref(200, target - 1000), ref(150, target - 60_000), ref(100, target - 5 * model.DAY_MS)];
   assert.equal(model.lastReferenceAtOrBefore(points, target).price, 200);
   assert.equal(model.lastReferenceAtOrBefore([points[0], points[3]], target), null);
+  assert.equal(model.lastReferenceAtOrBefore([ref(200,target),ref(210,target)],target).price,200,"preserve first-source precedence on equal timestamps");
 });
 
 test("regular Taiwan rows use frozen oracle, not current index or last trade", () => {
@@ -122,7 +131,7 @@ test("rendered Taiwan API returns eight rows, isolates missing anchors and uses 
       if (url.searchParams.get("symbol") === "NANYAUSDT") return new Response("unavailable", { status: 503 });
       return Response.json({ code: "00000", data: [[target, "100", "105", "99", "104"]] });
     }
-    if (url.host === "query1.finance.yahoo.com") return failTsm ? new Response("offline", { status: 503 }) : Response.json({ chart: { result: [{ meta: { symbol: "TSM", currency: "USD" }, timestamp: [(target - 300_000) / 1000, (now - 300_000) / 1000], indicators: { quote: [{ close: [200, 220] }] } }] } });
+    if (url.host === "query1.finance.yahoo.com") return failTsm ? new Response("offline", { status: 503 }) : Response.json({ chart: { result: [{ meta: { symbol: "TSM", currency: "USD" }, timestamp: [(target - 300_000) / 1000, (now - 3_600_000 - 300_000) / 1000, (now - 300_000) / 1000], indicators: { quote: [{ close: [200, 210, 220] }] } }] } });
     throw new Error(`Unexpected external request: ${url}`);
   };
   try {
@@ -137,6 +146,8 @@ test("rendered Taiwan API returns eight rows, isolates missing anchors and uses 
     assert.match(data.rows.find((r) => r.symbol === "NANYAUSDT").anchorError, /503/);
     assert.equal(data.tsm.anchor.price, 200);
     assert.equal(data.tsm.current.price, 220);
+    assert.equal(data.tsm.preOpen.price, 210, "10:00 quotes cannot rewrite the 09:00 opening input");
+    assert.equal(data.tsm.cutoffTimestamp, now - 3_600_000);
     assert.ok(Math.abs(model.taiwanComparison(data.rows[0], data.tsm, now).deviation) < 1e-10);
     const count = calls.length;
     await worker.fetch(new Request("http://localhost/api/stock-basis/taiwan"), env, ctx);
@@ -150,6 +161,9 @@ test("rendered Taiwan API returns eight rows, isolates missing anchors and uses 
     const rendered = await worker.fetch(new Request("http://localhost/stock-basis"), env, ctx);
     const html = await rendered.text();
     assert.match(html, /Previous-day oracle/);
+    assert.match(html, /TSM ADR → Taiwan opening outlook/);
+    assert.match(html.replace(/<!--.*?-->/g, ""), /57 common days/);
+    assert.match(html, /DIRECTION HIT/);
     for (const stock of model.TAIWAN_STOCKS) assert.ok(html.includes(stock.symbol));
   } finally { globalThis.fetch = original; Date.now = originalNow; }
 });

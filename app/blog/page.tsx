@@ -104,25 +104,28 @@ const EMPTY_DRAFT: CustomDraft = { asset1Venue: "binance", asset1Symbol: "", ass
 const toHktInput = (timestamp: number) => new Date(timestamp + HKT_OFFSET_MS).toISOString().slice(0, 16);
 const fromHktInput = (value: string) => Date.parse(`${value}:00+08:00`);
 const latestHktAnchor = (hour: number, timestamp: number, minute = 0) => latestHktBusinessAnchor(hour, minute, timestamp);
-const anchorDayLabel = (anchor: number) => new Intl.DateTimeFormat("en-GB", {
+const anchorDayFormat = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Asia/Hong_Kong",
   month: "short",
   day: "2-digit",
-}).format(anchor).toUpperCase();
+});
+const anchorDayLabel = (anchor: number) => anchorDayFormat.format(anchor).toUpperCase();
 const INITIAL_TEN = latestHktAnchor(10, INITIAL_NOW);
 const INITIAL_START = INITIAL_TEN;
 const INITIAL_SELECTION = "10:00";
 const formatPct = (value: number, digits = 2) => `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 const formatNumber = (value: number, digits = 2) => `${value >= 0 ? "+" : ""}${value.toFixed(digits)}`;
-const formatTime = (value: number, includeDate = false) => new Intl.DateTimeFormat("en-GB", {
+const timeFormats = [false, true].map((includeDate) => new Intl.DateTimeFormat("en-GB", {
   timeZone: "Asia/Hong_Kong",
   month: includeDate ? "short" : undefined,
   day: includeDate ? "2-digit" : undefined,
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,
-}).format(value);
-const formatDate = (value: number) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: "short", day: "2-digit", year: "numeric" }).format(value);
+}));
+const formatTime = (value: number, includeDate = false) => timeFormats[Number(includeDate)].format(value);
+const dateFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: "short", day: "2-digit", year: "numeric" });
+const formatDate = (value: number) => dateFormat.format(value);
 const observationInterval = (start: number, end: number) => end - start > MAX_OBSERVATION_MS ? "5m" : "1m";
 const INTERVAL_MS: Record<string, number> = { "1m": 60_000, "5m": 5 * 60_000, "15m": 15 * 60_000, "1h": 60 * 60_000 };
 

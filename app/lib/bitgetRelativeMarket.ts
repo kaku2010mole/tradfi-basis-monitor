@@ -25,13 +25,23 @@ async function requestRows<T>(path: string): Promise<T[]> {
   throw new Error("Bitget request retry limit reached.");
 }
 
-let tickerCache: { expires: number; pending: Promise<BitgetBook[]> } | null = null;
+let tickerCache: { expires: number; pending: Promise<BitgetBook[]>; settled: boolean } | null = null;
 export function bitgetBooks() {
-  if (tickerCache && tickerCache.expires > Date.now()) return tickerCache.pending;
+  if (tickerCache && (!tickerCache.settled || tickerCache.expires > Date.now())) return tickerCache.pending;
   const pending = requestRows<BitgetBook>("tickers?productType=usdt-futures");
-  tickerCache = { expires: Date.now() + 2_000, pending };
-  pending.catch(() => { if (tickerCache?.pending === pending) tickerCache = null; });
+  tickerCache = { expires: Date.now() + 2_000, pending, settled: false };
+  pending.then(() => { if (tickerCache?.pending === pending) tickerCache.settled = true; },
+    () => { if (tickerCache?.pending === pending) tickerCache = null; });
   return pending;
+}
+
+// A dashboard may stop waiting without cancelling the shared request used by
+// another page. Preserve its previous 7s response deadline during venue outages.
+export function bitgetBooksWithin(timeoutMs: number): Promise<BitgetBook[]> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Bitget tickers timed out")), timeoutMs);
+    bitgetBooks().then((rows) => { clearTimeout(timer); resolve(rows); }, (error) => { clearTimeout(timer); reject(error); });
+  });
 }
 
 export function bitgetMidpoint(book: BitgetBook | undefined, now = Date.now()) {

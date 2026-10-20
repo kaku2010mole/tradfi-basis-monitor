@@ -1,9 +1,9 @@
 import { equityBasis, equitySpreads, preferCashLast } from "../../../lib/equityBasis";
 import { posleyAdrSnapshot } from "../../../lib/posleyAdr";
+import { bitgetBooksWithin } from "../../../lib/bitgetRelativeMarket";
 
 export const dynamic = "force-dynamic";
 
-const BITGET_TICKERS = "https://api.bitget.com/api/v2/mix/market/tickers?productType=usdt-futures";
 const BINANCE_BOOKS = "https://fapi.binance.com/fapi/v1/ticker/bookTicker";
 const EXISTING_KOREAN_STOCKS = [
   { code: "034020", name: "Doosan Enerbility", bitgetSymbol: "DOOSENERUSDT", binanceSymbol: null },
@@ -49,9 +49,6 @@ const expectedJapaneseCodes = (observed: ReadonlySet<string>) => JAPANESE_STOCKS
   .filter((stock) => !("cashFeedPending" in stock) || !stock.cashFeedPending || observed.has(stock.code))
   .map((stock) => stock.code);
 
-type BitgetTicker = {
-  symbol?: string; bidPr?: string; askPr?: string; bidSz?: string; askSz?: string; lastPr?: string; indexPrice?: string; ts?: string;
-};
 type BinanceBook = { symbol?: string; bidPrice?: string; askPrice?: string; bidQty?: string; askQty?: string; time?: number };
 
 const positive = (value: unknown) => {
@@ -86,8 +83,10 @@ async function dailyUsdKrw() {
   return dailyFxRequest;
 }
 
+const marketSessionFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+const usSessionFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 function marketSession(market: "KRX" | "TSE", now: number) {
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(now);
+  const parts = marketSessionFormat.formatToParts(now);
   const weekday = parts.find((part) => part.type === "weekday")?.value;
   const hour = Number(parts.find((part) => part.type === "hour")?.value);
   const minute = Number(parts.find((part) => part.type === "minute")?.value);
@@ -107,7 +106,7 @@ function marketSession(market: "KRX" | "TSE", now: number) {
 }
 
 function usSession(now: number) {
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(now);
+  const parts = usSessionFormat.formatToParts(now);
   const weekday = parts.find((part) => part.type === "weekday")?.value;
   const clock = Number(parts.find((part) => part.type === "hour")?.value) * 60 + Number(parts.find((part) => part.type === "minute")?.value);
   if (weekday === "Sat" || weekday === "Sun") return "CLOSED";
@@ -150,15 +149,12 @@ export async function GET(request: Request) {
     const remoteRequest = office && !suppliedIdToken && officeCoversActiveMarkets
       ? Promise.resolve({ configured: false, state: "idle", error: "", books: [], missing: [], timestamp: Date.now() })
       : posleyAdrSnapshot([...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), ...ADR_SYMBOLS, "USDKRW", "USDJPY"], suppliedIdToken);
-    const [remote, bitgetResponse, binanceResponse] = await Promise.all([
+    const [remote, bitgetTickers, binanceResponse] = await Promise.all([
       remoteRequest,
-      fetch(BITGET_TICKERS, { cache: "no-store", signal: AbortSignal.timeout(7_000) }),
+      bitgetBooksWithin(7_000),
       fetch(BINANCE_BOOKS, { cache: "no-store", signal: AbortSignal.timeout(7_000) }),
     ]);
-    if (!bitgetResponse.ok) throw new Error(`Bitget tickers HTTP ${bitgetResponse.status}`);
     if (!binanceResponse.ok) throw new Error(`Binance books HTTP ${binanceResponse.status}`);
-    const bitgetPayload = await bitgetResponse.json() as { code?: string; data?: BitgetTicker[] };
-    if (bitgetPayload.code !== "00000" || !Array.isArray(bitgetPayload.data)) throw new Error("Bitget returned an invalid ticker payload.");
     const binancePayload = await binanceResponse.json() as BinanceBook[];
 
     const mergedBooks = new Map(remote.books.map((book) => [book.symbol, book]));
@@ -177,7 +173,7 @@ export async function GET(request: Request) {
       source: office && !remote.books.length ? "office relay" : remote.configured && office ? "Posley + office relay" : remote.configured ? "remote gateway" : office ? "office relay" : "unavailable" };
 
     const books = new Map(posley.books.map((book) => [book.symbol, book]));
-    const tickers = new Map(bitgetPayload.data.flatMap((ticker) => ticker.symbol ? [[ticker.symbol, ticker] as const] : []));
+    const tickers = new Map(bitgetTickers.flatMap((ticker) => ticker.symbol ? [[ticker.symbol, ticker] as const] : []));
     const binanceBooks = new Map(binancePayload.flatMap((book) => book.symbol ? [[book.symbol, book] as const] : []));
     const fx = books.get("USDKRW");
     const fxBid = positive(fx?.bid);

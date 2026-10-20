@@ -1,20 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
+import { visiblePolling } from "../lib/visiblePolling";
 import { TAIWAN_STOCKS, taiwanComparison } from "../lib/taiwanStockBasis";
 import type { TaiwanPayload, TaiwanRow } from "../lib/taiwanStockBasis";
+import TaiwanAdrOutlook from "./TaiwanAdrOutlook";
 import styles from "./KoreanPerpMonitor.module.css";
 
 const fmt = (n: number | null | undefined, digits = 3) => n == null || !Number.isFinite(n) ? "—" : n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const pct = (n: number | null | undefined) => n == null || !Number.isFinite(n) ? "—" : `${n >= 0 ? "+" : ""}${n.toFixed(3)}%`;
-const stamp = (n: number | null | undefined) => n == null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Taipei", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(n);
+const stampFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Taipei", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+const stamp = (n: number | null | undefined) => n == null ? "—" : stampFormat.format(n);
 const emptyRows: TaiwanRow[] = TAIWAN_STOCKS.map((stock) => ({ ...stock, adrSymbol: "adrSymbol" in stock ? stock.adrSymbol : null, anchor: null, anchorError: null, book: { bid: null, ask: null, last: null, index: null, timestamp: null } }));
 
-export default function TaiwanStockPanel({ visible }: { visible: boolean }) {
+const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: boolean }) {
   const [payload, setPayload] = useState<TaiwanPayload | null>(null);
   const [error, setError] = useState("");
   const [clock, setClock] = useState(0);
   useEffect(() => {
+    if (!visible) return;
     let stopped = false, inFlight = false;
     let controller: AbortController | null = null;
     const load = async () => {
@@ -38,15 +42,15 @@ export default function TaiwanStockPanel({ visible }: { visible: boolean }) {
       } catch (reason) { if (!stopped) setError(reason instanceof Error ? reason.message : "Taiwan feed reconnecting"); }
       finally { clearTimeout(timeout); inFlight = false; }
     };
-    const first = window.setTimeout(() => { setClock(Date.now()); void load(); }, 0);
-    const timer = window.setInterval(() => { setClock(Date.now()); void load(); }, 2_000);
-    return () => { stopped = true; clearTimeout(first); clearInterval(timer); controller?.abort(); };
-  }, []);
+    const stopPolling = visiblePolling(() => { setClock(Date.now()); void load(); }, 2_000);
+    return () => { stopped = true; stopPolling(); controller?.abort(); };
+  }, [visible]);
 
   return <section hidden={!visible} className={`${styles.marketGroup} ${styles.taiwanGroup}`} aria-label="Taiwan stock reference basis">
     <div className={styles.groupHead}><div><span>03 / TAIWAN · BITGET</span><h3>Previous-day oracle &amp; TSM relative value</h3></div><small>{TAIWAN_STOCKS.length} names · 2s refresh<br />Anchor: {stamp(payload?.anchorTimestamp)} HKT / Taipei</small></div>
     <p className={styles.taiwanIntro}>Previous TWSE trading date at 14:00, skipping weekends and exchange holidays. TWTSM is adjusted by the U.S. TSM ADR return from that anchor. These are reference deviations, not executable cash/ADR spreads.</p>
     {error && <p role="status" className={styles.taiwanWarning}>{error} · Last observed quotes remain visible with their original timestamps.</p>}
+    <TaiwanAdrOutlook tsm={payload?.tsm ?? { anchor: null, current: null, error: null }} anchorTimestamp={payload?.anchorTimestamp ?? null} now={clock} />
     <div className={styles.rows}>{(payload?.rows ?? emptyRows).map((row) => {
       const tsm = payload?.tsm ?? { anchor: null, current: null, error: null };
       const comparison = taiwanComparison(row, tsm, clock);
@@ -81,4 +85,6 @@ export default function TaiwanStockPanel({ visible }: { visible: boolean }) {
     })}</div>
     <p className={styles.taiwanIntro}>Source: Bitget index history + perpetual bid/ask; TSM ADR via existing Futu/office data or Yahoo extended-hours bars. {payload?.calendarSource || "Loading Taiwan trading calendar"}. Calendar reflects published exchange holidays; unscheduled closures require confirmation. No FX or share/ADR conversion is implied by this return-based model.</p>
   </section>;
-}
+});
+
+export default TaiwanStockPanel;
