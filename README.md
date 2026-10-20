@@ -53,8 +53,16 @@ API timestamps in microseconds are converted to ms.
 
 **Model** resets to that day's 14:00 oracle at 14:00 HKT/Taipei on every verified
 TWSE trading day. Before 14:00 and on holidays/weekends, it uses the most recent
-trading-day 14:00 anchor. TWTSM resets its ADR return denominator with the oracle;
-there are no current-cash adjustments. Missing new index candles are retried and
+trading-day 14:00 anchor. TWTSM follows U.S. TSM ADR returns; TWUMC (TWSE 2303,
+United Microelectronics / 聯電) follows U.S. UMC ADR returns. Each uses
+`own 14:00 oracle × own ADR current / own ADR at-or-before anchor` and resets its
+ADR denominator with the oracle. The 5:1 ADS/common-share ratio is not used in this
+normalized return model. UMC's listing is verified by
+https://www.umc.com/en/Html/faqs. ADR observations and caches are isolated by ticker;
+missing UMC data never falls back to TSM or a perpetual. Available office quotes
+are preferred; Yahoo extended-hours 5m history is shared for 30s per ADR and
+retained observations keep their original timestamps during outages.
+There are no current-cash adjustments. Missing new index candles are retried and
 never replaced with an older anchor. The separate historical ADR opening study
 keeps its prior-date anchor and 09:00 cutoff after the model resets. It is folded below
 the model cards. Summary colors and expanded details depend only on the active tab.

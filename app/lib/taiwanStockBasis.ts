@@ -6,7 +6,7 @@ export const TAIWAN_STOCKS = [
   { code: "2330", name: "TSMC", chineseName: "台積電", symbol: "TWTSMUSDT", adrSymbol: "TSM" },
   { code: "2308", name: "Delta Electronics", chineseName: "台達電", symbol: "TWDELTAUSDT" },
   { code: "3711", name: "ASE Technology Holding", chineseName: "日月光投控", symbol: "TWASXUSDT" },
-  { code: "2303", name: "United Microelectronics", chineseName: "聯電", symbol: "TWUMCUSDT" },
+  { code: "2303", name: "United Microelectronics", chineseName: "聯電", symbol: "TWUMCUSDT", adrSymbol: "UMC" },
   { code: "2408", name: "Nanya Technology", chineseName: "南亞科", symbol: "NANYAUSDT" },
   { code: "2344", name: "Winbond Electronics", chineseName: "華邦電", symbol: "WINBONDUSDT" },
   { code: "2327", name: "Yageo", chineseName: "國巨", symbol: "YAGEOUSDT" },
@@ -19,12 +19,14 @@ export const QUOTE_MAX_AGE_MS = 60_000;
 export type Calendar = { year: number; holidays: string[]; source: string };
 export type ReferencePrice = { price: number; timestamp: number; source: string };
 export type TaiwanBook = { bid: number | null; ask: number | null; last: number | null; index: number | null; timestamp: number | null };
-export type TsmReference = { anchor: ReferencePrice | null; current: ReferencePrice | null; error: string | null; preOpen?: ReferencePrice | null; cutoffTimestamp?: number | null; openingAnchor?: ReferencePrice | null; openingAnchorTimestamp?: number | null };
+// Missing symbol is supported only for legacy TSM payloads during rolling deploys.
+export type AdrReference = { symbol?: string; anchor: ReferencePrice | null; current: ReferencePrice | null; error: string | null; preOpen?: ReferencePrice | null; cutoffTimestamp?: number | null; openingAnchor?: ReferencePrice | null; openingAnchorTimestamp?: number | null };
+export type TsmReference = AdrReference;
 export type TaiwanRow = {
   code: string; name: string; chineseName: string; symbol: string; adrSymbol: string | null;
   book: TaiwanBook; anchor: ReferencePrice | null; anchorError: string | null;
 };
-export type TaiwanPayload = { rows: TaiwanRow[]; anchorTimestamp: number | null; calendarSource: string; tsm: TsmReference; cash?: TaiwanCashFeed; fx?: TaiwanFxFeed; error: string | null; timestamp: number };
+export type TaiwanPayload = { rows: TaiwanRow[]; anchorTimestamp: number | null; calendarSource: string; tsm: TsmReference; adrs?: Record<string, AdrReference>; cash?: TaiwanCashFeed; fx?: TaiwanFxFeed; error: string | null; timestamp: number };
 
 // Verified against the TWSE 115-year holiday schedule. Used only if that year's
 // official endpoint is unavailable; never silently use weekdays for an unknown year.
@@ -111,23 +113,28 @@ export function lastReferenceAtOrBefore(points: ReferencePrice[], target: number
   return latest;
 }
 
-export function taiwanComparison(row: TaiwanRow, tsm: TsmReference, now: number) {
+export function taiwanAdrReference(symbol: string | null, payload: TaiwanPayload | null): AdrReference {
+  return (symbol ? payload?.adrs?.[symbol] : null) ?? (symbol === "TSM" ? payload?.tsm : null)
+    ?? { symbol: symbol ?? undefined, anchor: null, current: null, error: symbol ? `${symbol} ADR reference unavailable; no other ADR or perpetual substitution.` : null };
+}
+
+export function taiwanComparison(row: TaiwanRow, adr: AdrReference, now: number) {
   const bid = positive(row.book.bid), ask = positive(row.book.ask);
   const validBook = bid !== null && ask !== null && ask >= bid;
   const mid = validBook ? (bid + ask) / 2 : positive(row.book.last);
   const anchor = positive(row.anchor?.price);
-  const tsmAnchor = positive(tsm.anchor?.price), tsmNow = positive(tsm.current?.price);
-  const tsmUsable = tsm.anchor && tsm.current && row.anchor && tsm.anchor.timestamp <= row.anchor.timestamp
-    && tsm.current.timestamp >= tsm.anchor.timestamp && tsm.current.timestamp <= now + 5_000
-    && now - tsm.current.timestamp <= 4 * DAY_MS;
-  const tsmRatio = tsmUsable && tsmAnchor !== null && tsmNow !== null ? tsmNow / tsmAnchor : null;
-  const reference = anchor === null ? null : row.adrSymbol ? tsmRatio === null ? null : anchor * tsmRatio : anchor;
+  const adrAnchor = positive(adr.anchor?.price), adrNow = positive(adr.current?.price);
+  const adrUsable = (adr.symbol ?? "TSM") === row.adrSymbol && adr.anchor && adr.current && row.anchor && adr.anchor.timestamp <= row.anchor.timestamp
+    && adr.current.timestamp >= adr.anchor.timestamp && adr.current.timestamp <= now + 5_000
+    && now - adr.current.timestamp <= 4 * DAY_MS;
+  const adrRatio = adrUsable && adrAnchor !== null && adrNow !== null ? adrNow / adrAnchor : null;
+  const reference = anchor === null ? null : row.adrSymbol ? adrRatio === null ? null : anchor * adrRatio : anchor;
   const rawDeviation = reference !== null && mid !== null ? (mid / reference - 1) * 100 : null;
   const deviation = rawDeviation !== null && Math.abs(rawDeviation) < 1e-10 ? 0 : rawDeviation;
   return {
     mid, reference, deviation,
     perpReturn: anchor !== null && mid !== null ? (mid / anchor - 1) * 100 : null,
-    tsmReturn: tsmRatio === null ? null : (tsmRatio - 1) * 100,
+    adrReturn: adrRatio === null ? null : (adrRatio - 1) * 100,
     sellVsReference: validBook && reference !== null ? (bid / reference - 1) * 100 : null,
     buyVsReference: validBook && reference !== null ? (reference / ask - 1) * 100 : null,
     freshBook: Boolean(validBook && fresh(row.book.timestamp, now)),
