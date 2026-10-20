@@ -27,6 +27,28 @@ This starter does not use `wrangler.jsonc`.
 - `examples/d1/` contains an optional D1 example surface
 - `drizzle.config.ts` supports local migration generation when needed
 
+## Taiwan cash and pre-open trial quotes
+
+Set `FUGLE_API_KEY` only in the Render service's secret environment variables.
+Never use a `NEXT_PUBLIC_` variable or put the key in source, logs or browser storage.
+The `/api/stock-basis/taiwan` server requests one Fugle intraday quote for each of
+the eight Taiwan stocks at most once per minute while the panel is being viewed.
+One shared cache coalesces concurrent viewers. It keeps actual quote timestamps
+and last observations through failures, with additional backoff for HTTP 401/403/429.
+This in-memory quota coordination is per Node process; use a shared cache/collector
+before scaling to multiple replicas. No paid subscription is enabled by this code.
+
+Cash/auction prices are TWD. During 08:30–09:00 HKT (or an explicitly delayed
+opening), an additional indicative reference is `prior 14:00 Bitget oracle ×
+trial / cash previous close`. This never replaces the original oracle/TSM model
+and never compounds the TSM ADR return again. It is not an executable cash/perp
+spread: the cash close and oracle anchors have different times. Missing/stale
+trial observations, stale perp books and adjusted exchange reference prices
+disable this comparison. API timestamps in microseconds are converted to ms;
+historical trial records are labeled separately from current trials.
+One-minute snapshots are not tick-complete and are not an auction history archive.
+Confirm your provider's display/data-sharing permissions for the intended audience.
+
 ## Workspace Auth Headers
 
 OpenAI workspace sites can read the current user's email from

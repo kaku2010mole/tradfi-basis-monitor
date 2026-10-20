@@ -5,6 +5,8 @@ import { visiblePolling } from "../lib/visiblePolling";
 import { TAIWAN_STOCKS, taiwanComparison } from "../lib/taiwanStockBasis";
 import type { TaiwanPayload, TaiwanRow } from "../lib/taiwanStockBasis";
 import TaiwanAdrOutlook from "./TaiwanAdrOutlook";
+import TaiwanCashCard from "./TaiwanCashCard";
+import { taiwanAuctionComparison, taiwanCashView } from "../lib/taiwanCash";
 import styles from "./KoreanPerpMonitor.module.css";
 
 const fmt = (n: number | null | undefined, digits = 3) => n == null || !Number.isFinite(n) ? "—" : n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -27,7 +29,7 @@ const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: 
       controller = new AbortController();
       const timeout = window.setTimeout(() => controller?.abort(), 20_000);
       try {
-        // Independent of Posley login / KRX / TSE failures; only public references.
+        // Independent of Posley login / KRX / TSE failures. Cash credentials stay on the server.
         const response = await fetch("/api/stock-basis/taiwan", { cache: "no-store", signal: controller.signal });
         const next = await response.json() as TaiwanPayload;
         if (!response.ok || !Array.isArray(next.rows)) throw new Error(next.error || "Taiwan feed unavailable");
@@ -47,25 +49,29 @@ const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: 
   }, [visible]);
 
   return <section hidden={!visible} className={`${styles.marketGroup} ${styles.taiwanGroup}`} aria-label="Taiwan stock reference basis">
-    <div className={styles.groupHead}><div><span>03 / TAIWAN · BITGET</span><h3>Previous-day oracle &amp; TSM relative value</h3></div><small>{TAIWAN_STOCKS.length} names · 2s refresh<br />Anchor: {stamp(payload?.anchorTimestamp)} HKT / Taipei</small></div>
+    <div className={styles.groupHead}><div><span>03 / TAIWAN · BITGET + CASH</span><h3>Previous-day oracle, TSM &amp; trial auction</h3></div><small>{TAIWAN_STOCKS.length} names · perp 2s / cash 60s<br />Anchor: {stamp(payload?.anchorTimestamp)} HKT / Taipei</small></div>
     <p className={styles.taiwanIntro}>Previous TWSE trading date at 14:00, skipping weekends and exchange holidays. TWTSM is adjusted by the U.S. TSM ADR return from that anchor. These are reference deviations, not executable cash/ADR spreads.</p>
     {error && <p role="status" className={styles.taiwanWarning}>{error} · Last observed quotes remain visible with their original timestamps.</p>}
     <TaiwanAdrOutlook tsm={payload?.tsm ?? { anchor: null, current: null, error: null }} anchorTimestamp={payload?.anchorTimestamp ?? null} now={clock} />
     <div className={styles.rows}>{(payload?.rows ?? emptyRows).map((row) => {
       const tsm = payload?.tsm ?? { anchor: null, current: null, error: null };
       const comparison = taiwanComparison(row, tsm, clock);
+      const cash = payload?.cash?.quotes[row.code];
+      const cashView = taiwanCashView(cash, clock);
+      const auction = taiwanAuctionComparison(cash, row.anchor, row.book, clock);
       const magnitude = Math.abs(comparison.deviation ?? 0);
       const tone = magnitude >= 1 ? styles.spreadHigh : magnitude >= 0.3 ? styles.spreadMedium : styles.spreadQuiet;
       const refLabel = row.adrSymbol ? "TSM RETURN-ADJUSTED" : "PREVIOUS 14:00 ORACLE";
       return <details key={row.symbol} className={`${styles.assetRow} ${styles.taiwanRow} ${magnitude >= 1 ? styles.highSpreadRow : magnitude >= 0.3 ? styles.mediumSpreadRow : ""}`}>
         <summary className={styles.assetSummary}>
-          <span className={styles.summaryIdentity}><small>TWSE {row.code} · BITGET</small><strong>{row.name}</strong><small>{row.chineseName} · {row.symbol}</small><em>{fmt(row.book.bid)} / {fmt(row.book.ask)} USDT</em></span>
-          <span className={styles.summarySignals}><span className={`${styles.perpSignal} ${tone}`}><small>{refLabel} · INDICATIVE</small><strong>{pct(comparison.deviation)}</strong><em>{comparison.direction} · {comparison.freshBook ? "fresh perp BBO" : "stale / incomplete perp quote"}{row.adrSymbol ? " · vs TSM ADR relative move" : " · vs historical index"}</em></span></span>
+          <span className={styles.summaryIdentity}><small>TWSE {row.code} · BITGET</small><strong>{row.name}</strong><small>{row.chineseName} · {row.symbol}</small><em>{fmt(row.book.bid)} / {fmt(row.book.ask)} USDT</em>{cash && <small>Cash NT$ {fmt(cashView.price)} · {pct(cashView.changePct)} · {cashView.phase}{!cashView.fresh ? " · STALE" : ""}</small>}</span>
+          <span className={styles.summarySignals}><span className={`${styles.perpSignal} ${tone}`}><small>{refLabel} · INDICATIVE</small><strong>{pct(comparison.deviation)}</strong><em>{comparison.direction} · {comparison.freshBook ? "fresh perp BBO" : "stale / incomplete perp quote"}{row.adrSymbol ? " · vs TSM ADR relative move" : " · vs historical index"}</em></span>{auction.deviation !== null && <span className={`${styles.cashSignal} ${Math.abs(auction.deviation) >= 1 ? styles.spreadHigh : Math.abs(auction.deviation) >= 0.3 ? styles.spreadMedium : styles.spreadQuiet}`}><small>PERP VS TRIAL · INDICATIVE</small><strong>{pct(auction.deviation)}</strong><em>Trial NT$ {fmt(cash?.trial?.price)} · {pct(auction.trialReturn)} vs cash close · {stamp(cash?.trial?.timestamp)} HKT</em></span>}</span>
           <span className={styles.summaryToggle}>Details <b>⌄</b></span>
         </summary>
         <div className={styles.assetDetails}>
-          <div className={styles.identity}><small>TWSE {row.code} · {row.chineseName}</small><strong>{row.name}</strong><span className={styles.cashPrice}>{row.symbol}</span><span className={styles.sessionLabel}>Bitget quote: {stamp(row.book.timestamp)} HKT</span><span className={styles.sessionLabel}>No live Taiwan cash quote used</span></div>
+          <div className={styles.identity}><small>TWSE {row.code} · {row.chineseName}</small><strong>{row.name}</strong><span className={styles.cashPrice}>{row.symbol}</span><span className={styles.sessionLabel}>Bitget quote: {stamp(row.book.timestamp)} HKT</span><span className={styles.sessionLabel}>Cash: {stamp(cash?.timestamp)} HKT · 60s polling</span></div>
           <div className={styles.references}>
+            <TaiwanCashCard quote={cash} now={clock} error={payload?.cash?.errors[row.code]} configured={payload?.cash?.configured} auction={auction} />
             <div className={`${styles.referenceCard} ${tone}`}>
               <div className={styles.referenceHead}><div><span className={styles.referenceTag}>{refLabel}</span><strong>{row.symbol} · model deviation</strong></div><span className={styles.indicativePill}>INDICATIVE ONLY</span></div>
               <div className={styles.referencePrices}><span>PERP BID / ASK<b>{fmt(row.book.bid)} / {fmt(row.book.ask)}</b><small>USDT · {stamp(row.book.timestamp)} HKT</small></span><span>{row.adrSymbol ? "TSM-ADJUSTED REFERENCE" : "FROZEN ORACLE REFERENCE"}<b>{fmt(comparison.reference)} USDT</b><small>Mid deviation {pct(comparison.deviation)}</small></span></div>
@@ -83,7 +89,7 @@ const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: 
         </div>
       </details>;
     })}</div>
-    <p className={styles.taiwanIntro}>Source: Bitget index history + perpetual bid/ask; TSM ADR via existing Futu/office data or Yahoo extended-hours bars. {payload?.calendarSource || "Loading Taiwan trading calendar"}. Calendar reflects published exchange holidays; unscheduled closures require confirmation. No FX or share/ADR conversion is implied by this return-based model.</p>
+    <p className={styles.taiwanIntro}>Source: Bitget index history + perpetual bid/ask; Taiwan cash / trial quotes via Fugle (60s shared server cache); TSM ADR via existing Futu/office data or Yahoo extended-hours bars. {payload?.calendarSource || "Loading Taiwan trading calendar"}. Calendar reflects published exchange holidays; unscheduled closures require confirmation. No FX or share/ADR conversion is implied by this return-based model. Minute snapshots may miss short-lived trial changes.</p>
   </section>;
 });
 
