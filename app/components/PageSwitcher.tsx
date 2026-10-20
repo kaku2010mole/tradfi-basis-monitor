@@ -42,7 +42,7 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         </Link>
         <Link href="/stock-basis" aria-current={active === "stock-basis" ? "page" : undefined}>
           <span>Stock cross-venue basis</span>
-          <small>Korea, Japan &amp; U.S. ADR versus perpetuals</small>
+          <small>Korea, Japan, Taiwan &amp; U.S. ADR references</small>
         </Link>
         <Link href="/hk-auction" aria-current={active === "auction" ? "page" : undefined}>
           <span>HK auction basis</span>

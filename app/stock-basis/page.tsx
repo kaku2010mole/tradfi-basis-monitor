@@ -4,7 +4,7 @@ import styles from "./page.module.css";
 
 export const metadata: Metadata = {
   title: "Stock cross-venue basis · TradFi Monitor",
-  description: "Korean and Japanese cash stocks, U.S. ADRs and perpetuals: live bid/ask spreads, FX and trade directions.",
+  description: "Korean and Japanese cash/ADR spreads, plus Taiwan perpetual deviations from previous-day oracle and TSM relative-return references.",
 };
 
 export default function StockBasisPage() {

@@ -2,7 +2,7 @@ import type { PricePoint, Relationship } from "./relativeValue";
 
 const BASE = "https://api.bitget.com/api/v2/mix/market";
 const STEPS: Record<string, number> = { "1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000 };
-export type BitgetBook = { symbol?: string; bidPr?: string; askPr?: string; ts?: string };
+export type BitgetBook = { symbol?: string; bidPr?: string; askPr?: string; bidSz?: string; askSz?: string; lastPr?: string; indexPrice?: string; ts?: string };
 let nextRequestAt = 0;
 
 async function requestRows<T>(path: string): Promise<T[]> {

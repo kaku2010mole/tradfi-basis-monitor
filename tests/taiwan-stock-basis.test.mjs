@@ -1,0 +1,155 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { stripTypeScriptTypes } from "node:module";
+import test from "node:test";
+
+const source = await readFile(new URL("../app/lib/taiwanStockBasis.ts", import.meta.url), "utf8");
+const model = await import("data:text/javascript;base64," + Buffer.from(stripTypeScriptTypes(source)).toString("base64"));
+const at = (date) => Date.parse(date + "+08:00");
+const ref = (price, timestamp, source = "test") => ({ price, timestamp, source });
+const now = at("2026-10-20T10:00:00");
+const target = at("2026-10-19T14:00:00");
+const baseRow = { ...model.TAIWAN_STOCKS[1], adrSymbol: null, anchor: ref(100, target), anchorError: null,
+  book: { bid: 109, ask: 111, last: 999, index: 108, timestamp: now } };
+const tsm = { anchor: ref(200, target - 3_600_000), current: ref(220, now - 60_000), error: null };
+
+test("all eight Taiwan contracts map to distinct correct TWSE companies", () => {
+  assert.deepEqual(model.TAIWAN_STOCKS.map((s) => [s.symbol, s.code]), [
+    ["TWTSMUSDT", "2330"], ["TWDELTAUSDT", "2308"], ["TWASXUSDT", "3711"], ["TWUMCUSDT", "2303"],
+    ["NANYAUSDT", "2408"], ["WINBONDUSDT", "2344"], ["YAGEOUSDT", "2327"], ["WALSINUSDT", "2492"],
+  ]);
+  assert.equal(model.TAIWAN_STOCKS.filter((s) => s.adrSymbol).length, 1);
+  assert.equal(model.TAIWAN_STOCKS[7].name, "Walsin Technology");
+});
+
+test("previous trading DATE at 14:00, skipping Taiwan weekends and holidays, never today's anchor", () => {
+  const anchor = (date) => model.previousTaiwanAnchor(at(date), [model.TWSE_2026]);
+  assert.equal(anchor("2026-10-20T10:00:00"), target);
+  assert.equal(anchor("2026-10-20T18:00:00"), target);
+  assert.equal(anchor("2026-10-19T10:00:00"), at("2026-10-16T14:00:00"));
+  assert.equal(anchor("2026-10-18T10:00:00"), at("2026-10-16T14:00:00"));
+  assert.equal(anchor("2026-10-12T10:00:00"), at("2026-10-08T14:00:00"));
+  assert.equal(anchor("2026-10-27T10:00:00"), at("2026-10-23T14:00:00"));
+  assert.equal(anchor("2026-02-23T10:00:00"), at("2026-02-11T14:00:00"));
+  assert.equal(anchor("2027-01-05T10:00:00"), null, "unknown calendar year must not silently assume weekdays");
+});
+
+test("official calendar parser distinguishes trading-day notices and rejects wrong years", () => {
+  const data = { stat: "ok", queryYear: 2026, data: [
+    ["2026-01-01", "中華民國開國紀念日"], ["2026-01-02", "國曆新年開始交易日"],
+    ["2026-02-11", "農曆春節前最後交易日"], ["2026-02-12", "市場無交易，僅辦理結算交割作業"],
+  ] };
+  assert.deepEqual(model.parseTaiwanCalendar(data, 2026).holidays, ["2026-01-01", "2026-02-12"]);
+  assert.equal(model.parseTaiwanCalendar(data, 2027), null);
+  assert.equal(model.parseTaiwanCalendar({ ...data, data: [] }, 2026), null);
+});
+
+test("14:00 oracle uses the exact index candle OPEN, never later close, mark, or another date", () => {
+  const rows = [[target - 60_000, "99", "99", "99", "100"], [target, "100", "104", "99", "102"], [target + 60_000, "102"]];
+  assert.equal(model.indexAnchorFromCandles(rows, target).price, 100);
+  assert.equal(model.indexAnchorFromCandles(rows.slice(0, 1), target), null);
+  assert.equal(model.indexAnchorFromCandles([[target, "NaN"]], target), null);
+});
+
+test("TSM history cannot look ahead; unsorted data selects the last valid observation before anchor", () => {
+  const points = [ref(999, target + 1), ref(200, target - 1000), ref(150, target - 60_000), ref(100, target - 5 * model.DAY_MS)];
+  assert.equal(model.lastReferenceAtOrBefore(points, target).price, 200);
+  assert.equal(model.lastReferenceAtOrBefore([points[0], points[3]], target), null);
+});
+
+test("regular Taiwan rows use frozen oracle, not current index or last trade", () => {
+  const actual = model.taiwanComparison(baseRow, tsm, now);
+  assert.equal(actual.reference, 100);
+  assert.equal(actual.mid, 110);
+  assert.ok(Math.abs(actual.deviation - 10) < 1e-10);
+  assert.ok(Math.abs(actual.sellVsReference - 9) < 1e-10);
+  assert.equal(actual.direction, "PERP RICH");
+  assert.equal(actual.freshBook, true);
+});
+
+test("TWTSM compares normalized relative changes, not the 5:1 ADR/share absolute ratio", () => {
+  const row = { ...baseRow, adrSymbol: "TSM" };
+  const actual = model.taiwanComparison(row, tsm, now);
+  assert.ok(Math.abs(actual.reference - 110) < 1e-10);
+  assert.ok(Math.abs(actual.deviation) < 1e-10);
+  assert.ok(Math.abs(actual.tsmReturn - 10) < 1e-10);
+  for (const bad of [{ ...tsm, anchor: null }, { ...tsm, current: null }, { ...tsm, anchor: ref(200, target + 60_000) }, { ...tsm, current: ref(220, now + 60_000) }]) {
+    assert.equal(model.taiwanComparison(row, bad, now).reference, null);
+  }
+});
+
+test("stale/crossed/zero quotes are not live; reference remains visible without false executable edge", () => {
+  const stale = model.taiwanComparison(baseRow, tsm, now + 120_000);
+  assert.equal(stale.freshBook, false);
+  assert.ok(stale.deviation !== null);
+  const crossed = model.taiwanComparison({ ...baseRow, book: { ...baseRow.book, ask: 108 } }, tsm, now);
+  assert.equal(crossed.freshBook, false);
+  assert.equal(crossed.sellVsReference, null);
+  assert.equal(crossed.buyVsReference, null);
+  assert.equal(model.taiwanComparison({ ...baseRow, anchor: null }, tsm, now).reference, null);
+  assert.equal(model.positive(Infinity), null);
+  assert.equal(model.positive(0), null);
+});
+
+test("Taiwan is independently refreshed, foldable, filterable and outside the executable radar", async () => {
+  const panel = await readFile(new URL("../app/components/TaiwanStockPanel.tsx", import.meta.url), "utf8");
+  const parent = await readFile(new URL("../app/components/KoreanPerpMonitor.tsx", import.meta.url), "utf8");
+  assert.match(panel, /2_000/);
+  assert.match(panel, /<details key=\{row.symbol\}/);
+  assert.match(panel, /\/api\/stock-basis\/taiwan/);
+  assert.doesNotMatch(panel, /browserIdToken|beginPosleyLogin/);
+  assert.match(parent, /"ALL", "KRX", "TSE", "TWSE"/);
+  assert.match(parent, /excluded from the live quote radar/);
+});
+
+test("rendered Taiwan API returns eight rows, isolates missing anchors and uses actual ADR data", async () => {
+  const { default: worker } = await import("../dist/server/index.js");
+  const env = { ASSETS: { fetch: async () => new Response("missing", { status: 404 }) } };
+  const ctx = { waitUntil() {}, passThroughOnException() {} };
+  // Initialize the framework's fetch wrapper before replacing it with fixtures.
+  await worker.fetch(new Request("http://localhost/stock-basis"), env, ctx);
+  const original = globalThis.fetch, originalNow = Date.now;
+  Date.now = () => now;
+  const calls = [];
+  let failTsm = false;
+  globalThis.fetch = async (input) => {
+    const url = new URL(input);
+    calls.push(url);
+    if (url.host === "www.twse.com.tw") return Response.json({ stat: "ok", queryYear: 2026, data: model.TWSE_2026.holidays.map((date) => [date, "休市"]) });
+    if (url.pathname.endsWith("/tickers")) return Response.json({ code: "00000", data: model.TAIWAN_STOCKS.map((s) => ({ symbol: s.symbol, bidPr: "109", askPr: "111", indexPrice: "108", ts: String(now) })) });
+    if (url.pathname.endsWith("/history-index-candles")) {
+      assert.equal(url.searchParams.get("granularity"), "1m");
+      if (url.searchParams.get("symbol") === "NANYAUSDT") return new Response("unavailable", { status: 503 });
+      return Response.json({ code: "00000", data: [[target, "100", "105", "99", "104"]] });
+    }
+    if (url.host === "query1.finance.yahoo.com") return failTsm ? new Response("offline", { status: 503 }) : Response.json({ chart: { result: [{ meta: { symbol: "TSM", currency: "USD" }, timestamp: [(target - 300_000) / 1000, (now - 300_000) / 1000], indicators: { quote: [{ close: [200, 220] }] } }] } });
+    throw new Error(`Unexpected external request: ${url}`);
+  };
+  try {
+    const response = await worker.fetch(new Request("http://localhost/api/stock-basis/taiwan"), env, ctx);
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.rows.length, 8);
+    assert.equal(data.anchorTimestamp, target);
+    assert.ok(data.rows[0].anchor, data.rows[0].anchorError);
+    assert.equal(data.rows[0].anchor.price, 100);
+    assert.equal(data.rows.find((r) => r.symbol === "NANYAUSDT").anchor, null);
+    assert.match(data.rows.find((r) => r.symbol === "NANYAUSDT").anchorError, /503/);
+    assert.equal(data.tsm.anchor.price, 200);
+    assert.equal(data.tsm.current.price, 220);
+    assert.ok(Math.abs(model.taiwanComparison(data.rows[0], data.tsm, now).deviation) < 1e-10);
+    const count = calls.length;
+    await worker.fetch(new Request("http://localhost/api/stock-basis/taiwan"), env, ctx);
+    assert.equal(calls.length, count, "2s refresh must not re-fetch anchors, calendar and TSM history");
+    failTsm = true;
+    Date.now = () => now + 31_000;
+    const outage = await (await worker.fetch(new Request("http://localhost/api/stock-basis/taiwan"), env, ctx)).json();
+    assert.equal(outage.tsm.current.price, 220, "a transient ADR outage must retain real observations");
+    assert.equal(outage.tsm.current.timestamp, data.tsm.current.timestamp, "retained ADR must not be retimestamped");
+    assert.match(outage.tsm.error, /503/);
+    const rendered = await worker.fetch(new Request("http://localhost/stock-basis"), env, ctx);
+    const html = await rendered.text();
+    assert.match(html, /Previous-day oracle/);
+    for (const stock of model.TAIWAN_STOCKS) assert.ok(html.includes(stock.symbol));
+  } finally { globalThis.fetch = original; Date.now = originalNow; }
+});
