@@ -125,21 +125,21 @@ test("UI describes the 14:00 reset and gives the opening study its separate deno
   assert.match(panel, /LATEST 14:00 ORACLE/);
   assert.doesNotMatch(panel, /Previous TWSE trading date|PREVIOUS 14:00 ORACLE/);
   assert.match(study, /adrReturn\(openingAnchor, tsm.preOpen, openingTarget,/);
-  assert.match(panel, /same-date 16:00 fallback/);
+  assert.match(panel, /same-date 17:00 fallback/);
   assert.match(panel, /ADR BASELINE/);
   assert.doesNotMatch(panel, /AT \/ BEFORE ANCHOR/);
 });
 
-test("live ADR fallback uses the 16:00 candle OPEN, remains unavailable before it, and preserves the opening study", async () => {
+test("live ADR fallback uses the 17:00 candle OPEN, remains unavailable before it, and preserves the opening study", async () => {
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => undefined;")
     .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;");
-  const { taiwanSnapshot } = await import(moduleUrl(source + "\n// isolated 16:00 fallback test"));
+  const { taiwanSnapshot } = await import(moduleUrl(source + "\n// isolated 17:00 fallback test"));
   const originalFetch = globalThis.fetch, originalNow = Date.now, originalPush = globalThis.__FUTU_PUSH_SNAPSHOT__;
-  const target = at("2026-10-20T14:00:00"), fallback = at("2026-10-20T16:00:00");
-  let now = at("2026-10-20T15:59:59"), outage = false;
+  const target = at("2026-10-20T14:00:00"), fallback = at("2026-10-20T17:00:00");
+  let now = at("2026-10-20T16:59:59"), outage = false;
   Date.now = () => now;
   globalThis.__FUTU_PUSH_SNAPSHOT__ = undefined;
   globalThis.fetch = async (input) => {
@@ -169,15 +169,15 @@ test("live ADR fallback uses the 16:00 candle OPEN, remains unavailable before i
     const waiting = await taiwanSnapshot(now);
     assert.equal(waiting.adrs.UMC.anchor, null, "08:00 cannot replace 14:00");
     assert.equal(waiting.adrs.UMC.current.price, 20.06);
-    assert.match(waiting.adrs.UMC.error, /waiting.*16:00/);
+    assert.match(waiting.adrs.UMC.error, /waiting.*17:00/);
     assert.equal(waiting.tsm.openingAnchor.price, 20.2, "historical study denominator remains independent");
     assert.equal(waiting.tsm.preOpen.price, 20.06);
     now = fallback + 31_000;
     const live = await taiwanSnapshot(now);
     assert.equal(live.adrs.UMC.anchor.price, 19.33);
     assert.equal(live.adrs.UMC.anchor.timestamp, fallback);
-    assert.equal(live.adrs.UMC.anchorMode, "16:00 fallback");
-    assert.equal(live.adrs.UMC.current.price, 19.33, "incomplete 16:00 close and future 16:05 open must be excluded");
+    assert.equal(live.adrs.UMC.anchorMode, "17:00 fallback");
+    assert.equal(live.adrs.UMC.current.price, 19.33, "incomplete 17:00 close and future 17:05 open must be excluded");
     assert.match(live.adrs.UMC.anchor.source, /5m open/);
     assert.equal(live.tsm.anchor.price, 417.48);
     assert.equal(live.adrs.UMC.error, null);

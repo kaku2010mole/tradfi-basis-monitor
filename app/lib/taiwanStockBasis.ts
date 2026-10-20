@@ -16,11 +16,12 @@ export const TAIWAN_STOCKS = [
 export const DAY_MS = 86_400_000;
 export const TAIPEI_OFFSET_MS = 8 * 3_600_000;
 export const QUOTE_MAX_AGE_MS = 60_000;
+export const ADR_FALLBACK_OFFSET_MS = 3 * 3_600_000; // 14:00 -> 17:00 HKT, fixed across U.S. DST.
 export type Calendar = { year: number; holidays: string[]; source: string };
 export type ReferencePrice = { price: number; timestamp: number; source: string };
 export type TaiwanBook = { bid: number | null; ask: number | null; last: number | null; index: number | null; timestamp: number | null };
 // Missing symbol is supported only for legacy TSM payloads during rolling deploys.
-export type AdrReference = { symbol?: string; anchor: ReferencePrice | null; current: ReferencePrice | null; error: string | null; anchorTargetTimestamp?: number | null; anchorMode?: "14:00" | "16:00 fallback" | "waiting"; preOpen?: ReferencePrice | null; cutoffTimestamp?: number | null; openingAnchor?: ReferencePrice | null; openingAnchorTimestamp?: number | null };
+export type AdrReference = { symbol?: string; anchor: ReferencePrice | null; current: ReferencePrice | null; error: string | null; anchorTargetTimestamp?: number | null; anchorMode?: "14:00" | "17:00 fallback" | "waiting"; preOpen?: ReferencePrice | null; cutoffTimestamp?: number | null; openingAnchor?: ReferencePrice | null; openingAnchorTimestamp?: number | null };
 export type TsmReference = AdrReference;
 export type TaiwanRow = {
   code: string; name: string; chineseName: string; symbol: string; adrSymbol: string | null;
@@ -114,9 +115,9 @@ export function lastReferenceAtOrBefore(points: ReferencePrice[], target: number
 }
 
 // Use a contemporaneous observation, never an 08:00 close carried to 14:00.
-// The fallback is the SAME anchor date's 16:00, and cannot be used before then.
+// The fallback is the SAME anchor date's 17:00 HKT, and cannot be used before then.
 export function adrModelAnchor(points: ReferencePrice[], target: number, now: number) {
-  for (const [offset, mode] of [[0, "14:00"], [2 * 3_600_000, "16:00 fallback"]] as const) {
+  for (const [offset, mode] of [[0, "14:00"], [ADR_FALLBACK_OFFSET_MS, "17:00 fallback"]] as const) {
     const at = target + offset;
     if (!Number.isFinite(at) || at > now) continue;
     const anchor = lastReferenceAtOrBefore(points, at, QUOTE_MAX_AGE_MS);

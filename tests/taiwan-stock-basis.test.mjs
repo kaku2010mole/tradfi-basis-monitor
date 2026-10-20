@@ -68,8 +68,8 @@ test("TSM history cannot look ahead; unsorted data selects the last valid observ
   assert.equal(model.lastReferenceAtOrBefore([ref(200,target),ref(210,target)],target).price,200,"preserve first-source precedence on equal timestamps");
 });
 
-test("ADR model requires fresh 14:00, otherwise same-date 16:00, never the morning close or a future fallback", () => {
-  const fallback = target + 2 * 3_600_000;
+test("ADR model requires fresh 14:00, otherwise same-date 17:00 HKT, never the morning close or a future fallback", () => {
+  const fallback = target + 3 * 3_600_000;
   const morning = ref(20.06, target - 6 * 3_600_000);
   const primary = ref(20, target);
   const secondary = ref(19.33, fallback);
@@ -78,12 +78,15 @@ test("ADR model requires fresh 14:00, otherwise same-date 16:00, never the morni
   });
   assert.equal(model.adrModelAnchor([morning], target, now).anchor, null);
   assert.equal(model.adrModelAnchor([secondary, primary], target, now).anchor, primary);
-  assert.equal(model.adrModelAnchor([secondary], target, now).anchorMode, "16:00 fallback");
+  assert.equal(model.adrModelAnchor([secondary], target, now).anchorMode, "17:00 fallback");
   assert.equal(model.adrModelAnchor([secondary], target, now).anchorTargetTimestamp, fallback);
   assert.equal(model.adrModelAnchor([ref(20, target - 60_000)], target, now).anchorMode, "14:00");
   assert.equal(model.adrModelAnchor([ref(20, target - 60_001)], target, now).anchor, null);
   assert.equal(model.adrModelAnchor([ref(20, fallback + 1)], target, now).anchor, null);
   assert.equal(model.adrModelAnchor([ref(20, fallback - model.DAY_MS)], target, now).anchor, null);
+  assert.equal(model.adrModelAnchor([ref(19.33, target + 2 * 3_600_000)], target, now).anchor, null, "16:00 is no longer an eligible fallback");
+  const winter = at("2026-12-01T14:00:00");
+  assert.equal(model.adrModelAnchor([ref(20, at("2026-12-01T17:00:00"))], winter, at("2026-12-01T18:00:00")).anchorMode, "17:00 fallback", "HKT fallback stays 17:00 after U.S. daylight saving ends");
   const row = { ...baseRow, adrSymbol: "UMC" };
   assert.equal(model.taiwanComparison(row, { symbol: "UMC", anchor: morning, current: secondary }, now).reference, null);
   assert.ok(Math.abs(model.taiwanComparison(row, { symbol: "UMC", anchor: secondary, current: ref(secondary.price * 1.1, now) }, now).reference - 110) < 1e-10);
