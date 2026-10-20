@@ -144,7 +144,12 @@ export default function KoreanPerpMonitor() {
       } catch (reason) { if (!stopped) setError(reason instanceof Error ? reason.message : "Feeds reconnecting."); }
       finally { clearTimeout(timeout); if (!stopped) setClock(Date.now()); inFlight = false; }
     };
-    const stopPolling = visiblePolling(() => { setClock(Date.now()); void load(); }, POLL_MS);
+    const stopPolling = visiblePolling((resumed) => {
+      // Normal completed requests batch clock + quote state into one render.
+      // Resume/slow requests still age stale books immediately.
+      if (resumed || inFlight) setClock(Date.now());
+      void load();
+    }, POLL_MS);
     return () => { stopped = true; stopPolling(); controller?.abort(); };
   }, []);
 

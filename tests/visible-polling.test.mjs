@@ -12,10 +12,12 @@ test("visible 2s cadence remains; hidden tabs have no polling wakeups; resume an
   const page = { hidden: false, addEventListener: (_, fn) => listeners.add(fn), removeEventListener: (_, fn) => listeners.delete(fn) };
   const visible = (value) => { page.hidden = !value; for (const fn of listeners) fn(); };
   let calls = 0;
-  const stop = visiblePolling(() => calls++, 2000, page);
+  const resumes = [];
+  const stop = visiblePolling((resumed) => { calls++; resumes.push(resumed); }, 2000, page);
   t.mock.timers.tick(0); assert.equal(calls,1);
   for(let i=0;i<30;i++) t.mock.timers.tick(2000);
   assert.equal(calls,31,"30 updates per active minute plus immediate load");
+  assert.deepEqual(resumes,[true,...Array(30).fill(false)]);
   visible(false);
   for(let i=0;i<30;i++) t.mock.timers.tick(2000);
   assert.equal(calls,31,"zero requests during a hidden minute");
