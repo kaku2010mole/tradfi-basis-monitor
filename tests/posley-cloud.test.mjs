@@ -137,6 +137,8 @@ test("Render OAuth proxy requires site authentication and same-origin POST; call
     };
     response = await worker.fetch(new Request(`${origin}/api/posley-cloud/connect`, { method: "POST", headers: { cookie: authCookie, origin } }), { SITE_PASSWORD: password }, ctx);
     assert.equal(response.status, 200); assert.match(response.headers.get("set-cookie"), /HttpOnly/);
+    response = await worker.fetch(new Request(`http://tradfi-basis-monitor.onrender.com/api/posley-cloud/connect`, { method: "POST", headers: { cookie: authCookie, origin } }), { SITE_PASSWORD: password }, ctx);
+    assert.equal(response.status, 200, "Render TLS termination preserves the fixed HTTPS browser origin");
     response = await worker.fetch(new Request(`${origin}/?code=test-code&state=posley_cloud_test`, { headers: { cookie: authCookie } }), { SITE_PASSWORD: password }, ctx);
     assert.equal(response.status, 303); assert.match(response.headers.get("location"), /connected=1/);
     assert.equal(response.headers.get("referrer-policy"), "no-referrer");
