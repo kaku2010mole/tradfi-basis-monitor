@@ -12,6 +12,7 @@ if [[ ! -x "$runtime_dir/.venv/bin/python" ]]; then
 fi
 
 /bin/cp "$source_relay/push.py" "$runtime_dir/push.py"
+/bin/cp "$source_relay/umc_adr_anchors.py" "$runtime_dir/umc_adr_anchors.py"
 /bin/cp "$source_relay/posley-adr-pusher.mjs" "$runtime_dir/posley-adr-pusher.mjs"
 /bin/cp "$source_relay/run-macos.sh" "$runtime_dir/run-macos.sh"
 /bin/chmod 700 "$runtime_dir/run-macos.sh"
