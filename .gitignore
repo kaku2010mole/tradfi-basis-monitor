@@ -48,7 +48,6 @@ __pycache__/
 /services/jlp-research/data/*.sqlite3-shm
 /.futu-push-token
 **/.umc-adr-anchors.json
-**/posley-access/
 
 /services/jlp-research/data/liquidations.sqlite3*
 /services/jlp-research/data/*.lock

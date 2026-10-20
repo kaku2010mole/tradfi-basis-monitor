@@ -146,7 +146,7 @@ export async function GET(request: Request) {
     ];
     const officeFreshSymbols = new Set(office?.books.filter((book) => nowForSession - book.timestamp <= QUOTE_MAX_AGE_MS && book.timestamp - nowForSession < 5_000).map((book) => book.symbol));
     const officeCoversActiveMarkets = activeOfficeSymbols.every((symbol) => officeFreshSymbols.has(symbol));
-    const remoteRequest = !process.env.POSLEY_CLOUD_INTERNAL_URL && office && !suppliedIdToken && officeCoversActiveMarkets
+    const remoteRequest = office && !suppliedIdToken && officeCoversActiveMarkets
       ? Promise.resolve({ configured: false, state: "idle", error: "", books: [], missing: [], timestamp: Date.now() })
       : posleyAdrSnapshot([...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), ...ADR_SYMBOLS, "USDKRW", "USDJPY"], suppliedIdToken);
     const [remote, bitgetTickers, binanceResponse] = await Promise.all([
@@ -170,7 +170,7 @@ export async function GET(request: Request) {
     const hasCashQuote = [...KOREAN_STOCKS, ...JAPANESE_STOCKS].some((stock) => mergedBooks.has(stock.code));
     const posley = { ...remote, books: [...mergedBooks.values()], configured: remote.configured || Boolean(office), missing: unavailable,
       state: !remote.configured && !office ? "unconfigured" : sessions.KRX === "CLOSED" && sessions.TSE === "CLOSED" && sessions.US === "CLOSED" && hasCashQuote ? "closed" : unavailable.length ? "partial" : "live", error: activeOfficeSymbols.some((symbol) => unavailable.includes(symbol)) ? remote.error : "",
-      source: process.env.POSLEY_CLOUD_INTERNAL_URL && remote.books.length ? "Posley cloud gateway" : office && !remote.books.length ? "office relay" : remote.configured && office ? "Posley + office relay" : remote.configured ? "remote gateway" : office ? "office relay" : "unavailable" };
+      source: office && !remote.books.length ? "office relay" : remote.configured && office ? "Posley + office relay" : remote.configured ? "remote gateway" : office ? "office relay" : "unavailable" };
 
     const books = new Map(posley.books.map((book) => [book.symbol, book]));
     const tickers = new Map(bitgetTickers.flatMap((ticker) => ticker.symbol ? [[ticker.symbol, ticker] as const] : []));
