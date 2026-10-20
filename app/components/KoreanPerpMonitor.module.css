@@ -12,6 +12,15 @@
 .summarySignals .spreadQuiet{background:#f1f5f4;color:#657976}.summarySignals .adrSignal.spreadQuiet{background:#f0f4f7;color:#6a8191}.summarySignals .spreadMedium{background:#e7f5ef;color:#126c52;box-shadow:inset 0 0 0 1px #b9dfcf}.summarySignals .spreadHigh{background:#fff0d7;color:#8b4b09;box-shadow:inset 0 0 0 1px #e8bf7d}
 .referenceCard.spreadMedium{border-color:#aad8c4}.referenceCard.spreadHigh{border-color:#dfa957;box-shadow:0 3px 12px rgba(154,91,15,.1)}.referenceCard .referenceEdges .spreadQuiet{background:#f7f9f9;color:#718487}.referenceCard .referenceEdges .spreadQuiet b{color:#566f72}.referenceCard .referenceEdges .spreadMedium{background:#e7f5ef;color:#126c52}.referenceCard .referenceEdges .spreadMedium b{color:#08745a}.referenceCard .referenceEdges .spreadHigh{background:#fff0d7;color:#8b4b09}.referenceCard .referenceEdges .spreadHigh b{color:#975006}
 /* The dashboard menu must extend beyond the monitor without being clipped. */
+.taiwanGroup[hidden]{display:none}
+.taiwanGroup .groupHead{background:#f7f4fc}
+.taiwanRow{border-left-color:#cbbce5}
+.taiwanIntro{margin:0;padding:10px 20px;color:#6c6680;background:#faf8fd;font-size:11px;line-height:1.6}
+.taiwanWarning{margin:0;padding:10px 20px;color:#97602b;background:#fff6e7;font-size:12px}
+.taiwanRow .referenceHead{flex-wrap:wrap}
+.taiwanRow .referenceHead strong{white-space:normal;line-height:1.5}
+.taiwanRow .referencePrices b{white-space:normal;overflow-wrap:anywhere}
+.taiwanRow .referencePrices small{line-height:1.5}
 .monitorHeader{border-radius:18px 18px 0 0}
 .monitorHeader h1{margin:0;font-size:clamp(23px,2.2vw,31px);letter-spacing:-.045em;line-height:1.1}
 .monitorActions{display:flex;align-items:center;justify-content:flex-end;gap:10px}

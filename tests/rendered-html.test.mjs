@@ -753,11 +753,11 @@ test("stock basis replaces Funding & Basis navigation without duplicating the Or
   assert.match(html, /Filter stock market/);
   assert.match(html, /USD\/KRW/);
   assert.match(html, /USD\/JPY/);
-  assert.equal((html.match(/aria-label="Korean and Japanese stock cross-venue basis"/g) ?? []).length, 1);
+  assert.equal((html.match(/aria-label="Korean, Japanese and Taiwanese stock cross-venue basis"/g) ?? []).length, 1);
   const oracleHtml = await oracle.text();
   assert.match(oracleHtml, /Oracle Monitor/);
   assert.match(oracleHtml, /href="\/stock-basis"/);
-  assert.doesNotMatch(oracleHtml, /LIVE QUOTE RADAR|aria-label="Korean and Japanese stock cross-venue basis"/);
+  assert.doesNotMatch(oracleHtml, /LIVE QUOTE RADAR|aria-label="Korean, Japanese and Taiwanese stock cross-venue basis"/);
   assert.match(switcher, /href="\/stock-basis" aria-current=\{active === "stock-basis"/);
   assert.doesNotMatch(switcher, /href="\/polymarket"|Funding &amp; Basis/);
   assert.match(component, /equity_monitor_return_to", "\/stock-basis"/);
