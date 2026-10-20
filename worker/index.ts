@@ -68,14 +68,16 @@ const worker = {
     const cloudCallback = url.pathname === "/" && url.searchParams.get("state")?.startsWith("posley_cloud_");
     if (url.pathname.startsWith("/api/posley-cloud/") || cloudCallback) {
       const cloudUrl = (globalThis as typeof globalThis & { process?: { env?: Record<string, string | undefined> } }).process?.env?.POSLEY_CLOUD_INTERNAL_URL;
-      if (!sitePassword || cloudUrl !== "http://127.0.0.1:8791" || url.origin !== "https://tradfi-basis-monitor.onrender.com") {
+      // Render terminates TLS before forwarding to Node; keep a fixed public
+      // OAuth origin without trusting arbitrary forwarded protocol headers.
+      if (!sitePassword || cloudUrl !== "http://127.0.0.1:8791" || url.host !== "tradfi-basis-monitor.onrender.com") {
         return json({ error: "Server-side Posley login is available only on the authenticated Render service." }, 503);
       }
       let path: string;
       if (cloudCallback && request.method === "GET") path = `/callback?${url.searchParams}`;
       else if (url.pathname === "/api/posley-cloud/status" && request.method === "GET") path = "/status";
       else if (url.pathname === "/api/posley-cloud/connect" && request.method === "POST") {
-        if (request.headers.get("origin") !== url.origin) return json({ error: "Invalid request origin." }, 403);
+        if (request.headers.get("origin") !== "https://tradfi-basis-monitor.onrender.com") return json({ error: "Invalid request origin." }, 403);
         path = "/connect";
       } else return json({ error: "Not found." }, 404);
       try {
