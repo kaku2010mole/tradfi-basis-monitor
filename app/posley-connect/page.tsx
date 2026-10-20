@@ -14,7 +14,10 @@ export default function PosleyConnectPage() {
         const response = await fetch("/api/posley-cloud/status", { cache: "no-store", signal: AbortSignal.timeout(8_000) });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Cloud service unavailable.");
-        if (!stopped) setStatus(body);
+        if (!stopped) {
+          setStatus(body);
+          if (!new URLSearchParams(location.search).has("error")) setError("");
+        }
       } catch (reason) { if (!stopped) setError(reason instanceof Error ? reason.message : "Status unavailable."); }
     };
     void load(); const timer = setInterval(() => void load(), 5_000);
