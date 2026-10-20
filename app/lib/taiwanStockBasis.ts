@@ -19,7 +19,7 @@ export const QUOTE_MAX_AGE_MS = 60_000;
 export type Calendar = { year: number; holidays: string[]; source: string };
 export type ReferencePrice = { price: number; timestamp: number; source: string };
 export type TaiwanBook = { bid: number | null; ask: number | null; last: number | null; index: number | null; timestamp: number | null };
-export type TsmReference = { anchor: ReferencePrice | null; current: ReferencePrice | null; error: string | null; preOpen?: ReferencePrice | null; cutoffTimestamp?: number | null };
+export type TsmReference = { anchor: ReferencePrice | null; current: ReferencePrice | null; error: string | null; preOpen?: ReferencePrice | null; cutoffTimestamp?: number | null; openingAnchor?: ReferencePrice | null; openingAnchorTimestamp?: number | null };
 export type TaiwanRow = {
   code: string; name: string; chineseName: string; symbol: string; adrSymbol: string | null;
   book: TaiwanBook; anchor: ReferencePrice | null; anchorError: string | null;
@@ -55,20 +55,29 @@ export function parseTaiwanCalendar(data: unknown, year: number): Calendar | nul
   return holidays.length ? { year, holidays, source: "TWSE official holiday schedule" } : null;
 }
 
-export function previousTaiwanAnchor(now: number, calendars: Calendar[]): number | null {
+function taiwanAnchor(now: number, calendars: Calendar[], includeToday: boolean): number | null {
   if (!Number.isFinite(now)) return null;
   const localMidnight = Math.floor((now + TAIPEI_OFFSET_MS) / DAY_MS) * DAY_MS;
-  for (let days = 1; days <= 40; days++) {
+  for (let days = includeToday ? 0 : 1; days <= 40; days++) {
     const date = new Date(localMidnight - days * DAY_MS);
+    const target = date.getTime() - TAIPEI_OFFSET_MS + 14 * 3_600_000;
+    if (target > now) continue;
     if ([0, 6].includes(date.getUTCDay())) continue;
     const calendar = calendars.find((item) => item.year === date.getUTCFullYear());
     if (!calendar) return null;
-    if (!calendar.holidays.includes(date.toISOString().slice(0, 10))) {
-      // Always the prior trading DATE, even after today's 14:00. HKT = Taipei.
-      return date.getTime() - TAIPEI_OFFSET_MS + 14 * 3_600_000;
-    }
+    if (!calendar.holidays.includes(date.toISOString().slice(0, 10))) return target;
   }
   return null;
+}
+
+// Model resets at 14:00 HKT/Taipei on each verified TWSE trading day.
+export function latestTaiwanAnchor(now: number, calendars: Calendar[]): number | null {
+  return taiwanAnchor(now, calendars, true);
+}
+
+// The separate opening study keeps its prior-date baseline after the model resets.
+export function previousTaiwanAnchor(now: number, calendars: Calendar[]): number | null {
+  return taiwanAnchor(now, calendars, false);
 }
 
 export function indexAnchorFromCandles(rows: unknown[][], target: number): ReferencePrice | null {
