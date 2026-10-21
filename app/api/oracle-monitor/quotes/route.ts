@@ -1,3 +1,5 @@
+import { publicBinanceJson } from "../../../lib/publicBinanceJson";
+
 const BINANCE_API = "https://fapi.binance.com";
 const HYPERLIQUID_INFO = "https://api.hyperliquid.xyz/info";
 
@@ -97,6 +99,9 @@ async function fetchJson<T>(url: string, init?: RequestInit) {
   for (const delay of RETRY_DELAYS_MS) {
     if (delay) await wait(delay);
     try {
+      if (!init && url.startsWith(`${BINANCE_API}/`)) {
+        return await publicBinanceJson<T>(url, FETCH_TIMEOUT_MS);
+      }
       const response = await fetch(url, {
         ...init,
         cache: "no-store",

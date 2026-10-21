@@ -14,12 +14,13 @@ class DataTests(unittest.TestCase):
         self.dbpatch=patch.object(server,'DB',Path(self.temp.name)/'test.sqlite3')
         self.statepatch=patch.object(server,'STATE',{})
         self.pendingpatch=patch.object(server,'PENDING',{})
-        self.dbpatch.start();self.statepatch.start();self.pendingpatch.start()
+        self.dirtypatch=patch.object(server,'DIRTY_CACHE',set())
+        self.dbpatch.start();self.statepatch.start();self.pendingpatch.start();self.dirtypatch.start()
         with server.connect() as c:
             c.executescript('CREATE TABLE samples(metric TEXT,ts INTEGER,value REAL,source TEXT,PRIMARY KEY(metric,ts,source)); CREATE TABLE cache(name TEXT PRIMARY KEY,body TEXT);')
         self.now=int(time.time())
     def tearDown(self):
-        self.pendingpatch.stop();self.statepatch.stop();self.dbpatch.stop();self.temp.cleanup()
+        self.dirtypatch.stop();self.pendingpatch.stop();self.statepatch.stop();self.dbpatch.stop();self.temp.cleanup()
     def mock_price(self,source_age=0):
         d={server.JLP:dict(usdPrice=9.9,blockId=100,priceChange24h=-1)}
         return patch.object(server,'fetch',side_effect=[d,dict(result=self.now-source_age)])
@@ -185,5 +186,74 @@ class DataTests(unittest.TestCase):
         with server.connect() as c:
             self.assertEqual(c.execute('SELECT value FROM samples').fetchone()[0],6)
             self.assertEqual(json.loads(c.execute("SELECT body FROM cache WHERE name='loan'").fetchone()[0])['apr'],6)
+
+    def test_persist_only_serializes_changed_sources_and_idle_does_not_open_database(self):
+        server.store('history',dict(points=list(range(10000))))
+        with patch.object(server.json,'dumps',wraps=json.dumps) as dumps:
+            server.store('loan',dict(apr=7,fetchedAt=self.now*1000))
+            self.assertEqual(dumps.call_count,1)
+            self.assertEqual(dumps.call_args.args[0]['apr'],7)
+        written_at=server.LAST_WRITE
+        with patch.object(server,'connect',side_effect=AssertionError('idle database write')),patch.object(server.time,'time',return_value=self.now+100):
+            server.persist()
+        self.assertEqual(server.LAST_WRITE,written_at,'idle ticks never invent a successful write')
+        server.fail('loan',RuntimeError('offline'))
+        server.persist()
+        with server.connect() as c:
+            self.assertEqual(json.loads(c.execute("SELECT body FROM cache WHERE name='loan'").fetchone()[0])['error'],'offline')
+
+    def test_failed_commit_keeps_dirty_cache_for_retry(self):
+        with patch.object(server,'connect',side_effect=sqlite3.OperationalError('disk busy')):
+            with self.assertRaises(sqlite3.OperationalError):server.store('loan',dict(apr=6))
+        self.assertEqual(server.DIRTY_CACHE,{'loan'})
+        server.persist()
+        self.assertFalse(server.DIRTY_CACHE)
+        with server.connect() as c:
+            self.assertEqual(json.loads(c.execute("SELECT body FROM cache WHERE name='loan'").fetchone()[0])['apr'],6)
+
+    def test_streamed_history_and_csv_exactly_match_previous_algorithm(self):
+        import csv,io
+        from datetime import datetime,timezone
+        rows=[]
+        for i in range(1805):
+            ts=1000000+i*60000
+            rows.extend([(k,ts,v,'source') for k,v in [('nav',5+i/1000),('funding_BTC',.01),('carry_fee_1x',8),('carry_funding_1x',6),('carry_borrow_apr',5),('carry_margin_notional_1x',.6)]])
+            if i%2:rows.append(('sparse',ts,9,'source'))
+        # Multiple sources at one timestamp and incomplete carry groups.
+        rows.extend([('nav',1000000,7,'second source'),('carry_fee_1x',999999,1,'partial'),('jlp_apr_archive',999998,8,'archive, "quoted"\n韩文')])
+        with server.connect() as c:
+            c.executemany('INSERT INTO samples VALUES (?,?,?,?)',rows)
+            c.execute('CREATE INDEX samples_by_ts ON samples(ts)')
+        for leverage,hedge_leverage in [(1,1),(2,10),(10,40)]:
+            with server.connect() as c:
+                old=c.execute('SELECT metric,ts,value,source FROM samples WHERE ts>=? ORDER BY ts',(0,)).fetchall()
+                snapshots={}
+                for k,t,v,s in old:
+                    if k in server.CARRY_COMPONENTS:snapshots.setdefault(t,{})[k]=v
+                for ts,x in snapshots.items():
+                    if len(x)==4:
+                        apr=server.total_capital_carry(x['carry_fee_1x'],x['carry_funding_1x'],x['carry_borrow_apr'],x['carry_margin_notional_1x'],leverage,hedge_leverage)['apr']
+                        old.append(('neutral_carry_apr',ts,apr,f'Theoretical carry; JLP leverage={leverage:g}; HL leverage={hedge_leverage:g}; total capital incl. margin'))
+                old.sort(key=lambda row:row[1])
+                self.assertEqual(list(server.history_rows(c,0,leverage,hedge_leverage)),old)
+                expected={}
+                for k,t,v,s in old:expected.setdefault(k,[]).append([t,v])
+                for k,points in expected.items():
+                    if len(points)>1600 and k not in server.UNBUCKETED_METRICS:
+                        bucket=max(1000,int(7*86400000/1200));grouped={}
+                        for t,v in points:grouped[t//bucket]=[t,v]
+                        expected[k]=list(grouped.values())
+                self.assertEqual(server.history_series(server.history_rows(c,0,leverage,hedge_leverage),7),expected)
+                buf=io.StringIO();w=csv.writer(buf);w.writerow(['metric','timestamp_utc','value','source'])
+                for k,t,v,s in old:w.writerow([k,datetime.fromtimestamp(t/1000,timezone.utc).isoformat(),v,s])
+                with tempfile.SpooledTemporaryFile(max_size=1024,mode='w+b') as raw:
+                    server.write_history_csv(raw,server.history_rows(c,0,leverage,hedge_leverage))
+                    self.assertTrue(raw._rolled)
+                    raw.seek(0);self.assertEqual(raw.read(),buf.getvalue().encode())
+        with server.connect() as c:
+            self.assertEqual(server.history_series(server.history_rows(c,10**15,2,10),7),{})
+        for count in [1599,1600,1601]:
+            raw=[('nav',i,1,'source') for i in range(count)]
+            self.assertEqual(len(server.history_series(iter(raw),7)['nav']),count if count<=1600 else 1)
 
 if __name__=='__main__':unittest.main()

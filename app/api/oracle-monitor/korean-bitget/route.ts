@@ -1,6 +1,7 @@
 import { equityBasis, equitySpreads, preferCashLast } from "../../../lib/equityBasis";
 import { posleyAdrSnapshot } from "../../../lib/posleyAdr";
 import { bitgetBooksWithin } from "../../../lib/bitgetRelativeMarket";
+import { publicBinanceJson } from "../../../lib/publicBinanceJson";
 
 export const dynamic = "force-dynamic";
 
@@ -150,13 +151,11 @@ export async function GET(request: Request) {
     const remoteRequest = office && !suppliedIdToken && officeCoversActiveMarkets
       ? Promise.resolve({ configured: false, state: "idle", error: "", books: [], missing: [], timestamp: Date.now() })
       : posleyAdrSnapshot([...KOREAN_STOCKS.map((stock) => stock.code), ...JAPANESE_STOCKS.map((stock) => stock.code), ...ADR_SYMBOLS, "USDKRW", "USDJPY"], suppliedIdToken);
-    const [remote, bitgetTickers, binanceResponse] = await Promise.all([
+    const [remote, bitgetTickers, binancePayload] = await Promise.all([
       remoteRequest,
       bitgetBooksWithin(7_000),
-      fetch(BINANCE_BOOKS, { cache: "no-store", signal: AbortSignal.timeout(7_000) }),
+      publicBinanceJson<BinanceBook[]>(BINANCE_BOOKS, 7_000),
     ]);
-    if (!binanceResponse.ok) throw new Error(`Binance books HTTP ${binanceResponse.status}`);
-    const binancePayload = await binanceResponse.json() as BinanceBook[];
 
     const mergedBooks = new Map(remote.books.map((book) => [book.symbol, book]));
     office?.books.forEach((book) => {
