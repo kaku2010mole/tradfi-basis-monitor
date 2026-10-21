@@ -11,8 +11,10 @@ export function preferCashLast(market: "KRX" | "TSE", session: string, bookUpdat
 }
 
 // Session and freshness describe the basis; they never suppress its value.
-export function equityBasis(cash: Book, fx: Book, sharesPerPerp = 1, preferLast = false) {
-  const last = valid(cash.last);
+export function equityBasis(cash: Book, fx: Book, sharesPerPerp = 1, preferLast = false, bookOnly = false) {
+  // Limit-up/down books may legitimately have just one side. Opt-in cash
+  // instruments retain that side, without synthesizing the other from a print.
+  const last = bookOnly ? null : valid(cash.last);
   const cashBid = preferLast && last !== null ? last : valid(cash.bid) ?? last;
   const cashAsk = preferLast && last !== null ? last : valid(cash.ask) ?? last;
   const fxBid = valid(fx.bid) ?? valid(fx.last);

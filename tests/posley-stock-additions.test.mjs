@@ -26,7 +26,7 @@ test('Fast Retailing stays in Japan with Bitget quotes, without inventing a miss
   const stamp=Date.parse('2026-10-15T01:00:00Z');
   Date.now=()=>stamp;
   globalThis.__FUTU_PUSH_SNAPSHOT__={receivedAt:stamp,payload:{quotes:[
-    ...['034020','035420','042700','066570','454910',...korean].map(code=>({symbol:`KRX.${code}`,bid:100000,ask:100100,marketTimestamp:stamp})),
+    ...['034020','035420','042700','066570','454910','0158S0',...korean].map(code=>({symbol:`KRX.${code}`,bid:100000,ask:100100,marketTimestamp:stamp})),
     ...['285A','5802','6758','6857','6920',...japanese,'7203','8035','8306','9984'].map(code=>({symbol:`TSE.${code}`,bid:1000,ask:1001,marketTimestamp:stamp})),
     {symbol:'FX.USDJPY',bid:157,ask:158,marketTimestamp:stamp},
     {symbol:'FX.USDKRW',bid:1349,ask:1351,marketTimestamp:stamp},
@@ -73,7 +73,7 @@ test('office pusher maps the actual sources and does not refresh closed Japanese
     .replace('const TOKEN_FILE = process.env.FUTU_PUSH_TOKEN_FILE;', 'const TOKEN_FILE = "test-only";');
   const m = await import('data:text/javascript;base64,' + Buffer.from(decoder + '\nexport { quoteFromEntry, KEY_GROUPS };').toString('base64'));
   assert.ok(m.KEY_GROUPS.every(group => group.length <= 25));
-  assert.equal(m.KEY_GROUPS.flat().length, 32);
+  assert.equal(m.KEY_GROUPS.flat().length, 33);
   const old = Date.now() - 3600000, now = Date.now();
   for (const code of korean) {
     const key = `orderbook:futu:web_api:KR.${code}`;

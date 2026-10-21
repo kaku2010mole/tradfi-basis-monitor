@@ -13,7 +13,7 @@ const COGNITO_DOMAIN = process.env.NEXT_PUBLIC_COGNITO_DOMAIN ?? "posley.auth.us
 type VenueQuote = { venue: string; symbol: string; sharesPerPerp?: number; bid: number | null; ask: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null; buyKoreaSellPerp: number | null; buyPerpSellKorea: number | null };
 type Session = "PRE-MARKET" | "OPENING AUCTION" | "REGULAR" | "AFTER-HOURS OPENING" | "AFTER-HOURS" | "LUNCH" | "CLOSED";
 type AdrQuote = { symbol: string; sharesPerAdr: number; source: string; marketState: string | null; bid: number | null; ask: number | null; last: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null };
-type Row = { code: string; name: string; chineseName?: string | null; cashSource?: string; showPerpQuote?: boolean; market: "KRX" | "TSE"; session: Session; currency: "KRW" | "JPY"; sharesPerPerp: number; cashBidKrw: number | null; cashAskKrw: number | null; cashLast: number | null; cashBidQty: number | null; cashAskQty: number | null; cashUpdatedAt: number | null; cashBidUsd: number | null; cashAskUsd: number | null; venues: VenueQuote[]; adr?: AdrQuote | null; perpPair?: { leftSymbol: string; rightSymbol: string } | null; mappingNote: string | null };
+type Row = { strictCashBook?: boolean; code: string; name: string; chineseName?: string | null; cashSource?: string; showPerpQuote?: boolean; market: "KRX" | "TSE"; session: Session; currency: "KRW" | "JPY"; sharesPerPerp: number; cashBidKrw: number | null; cashAskKrw: number | null; cashLast: number | null; cashBidQty: number | null; cashAskQty: number | null; cashUpdatedAt: number | null; cashBidUsd: number | null; cashAskUsd: number | null; venues: VenueQuote[]; adr?: AdrQuote | null; perpPair?: { leftSymbol: string; rightSymbol: string } | null; mappingNote: string | null };
 type FxBook = { source: string; bid: number | null; ask: number | null; last: number | null; updatedAt: number | null };
 type BitgetOnlyKorean = { code: string; name: string; chineseName: string; symbol: string; bid: number | null; ask: number | null; last: number | null; updatedAt: number | null; impliedBidKrw: number | null; impliedAskKrw: number | null; impliedLastKrw: number | null };
 type KrwConversion = { rate: number | null; source: string; date: string | null; updatedAt: number | null; live: boolean };
@@ -166,7 +166,7 @@ export default function KoreanPerpMonitor() {
       ? row.venues.flatMap((quote) => {
         if (!isFresh(quote.updatedAt, clock) || !quote.bidQty || !quote.askQty) return [];
         const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, quote.sharesPerPerp ?? row.sharesPerPerp,
-          preferCashLast(row.market, row.session, row.cashUpdatedAt, clock));
+          preferCashLast(row.market, row.session, row.cashUpdatedAt, clock), row.strictCashBook);
         if (basis.usesLast || basis.usesFxLast) return [];
         const spreads = equitySpreads(basis.cashBidUsd, basis.cashAskUsd, quote);
         return [{ value: spreads.buyKoreaSellPerp, direction: `Buy ${row.market} · sell ${quote.venue} ${quote.symbol}`, name: row.name, code: row.code, source: row.market === "KRX" ? "KRX route unverified" : "Live TSE BBO" },
@@ -218,7 +218,9 @@ export default function KoreanPerpMonitor() {
     const cashActive = row.session === "REGULAR" || row.market === "KRX" && row.session === "AFTER-HOURS";
     const fx = row.market === "TSE" ? payload.yenFx : payload.fx;
     const basis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, row.sharesPerPerp,
-      preferCashLast(row.market, row.session, row.cashUpdatedAt, clock));
+      preferCashLast(row.market, row.session, row.cashUpdatedAt, clock), row.strictCashBook);
+    const displayLast = basis.usesLast && row.cashLast != null &&
+      (!row.strictCashBook || row.cashBidKrw === null && row.cashAskKrw === null);
     const adr = row.adr;
     const adrActive = payload.sessions?.US === "REGULAR" && (!adr?.marketState || ["MORNING", "AFTERNOON", "REGULAR"].includes(adr.marketState.toUpperCase()));
     const adrComparisons = adr ? row.venues.filter((quote) => quote.venue === "Bitget").map((perp) => ({
@@ -236,7 +238,7 @@ export default function KoreanPerpMonitor() {
       strongerTone(spreadTone(spreads.buyAdrSellPerp), spreadTone(spreads.buyPerpSellAdr))), "quiet");
     const cashComparisons = row.venues.map((quote) => {
       const quoteBasis = equityBasis({ bid: row.cashBidKrw, ask: row.cashAskKrw, last: row.cashLast }, fx ?? {}, quote.sharesPerPerp ?? row.sharesPerPerp,
-        preferCashLast(row.market, row.session, row.cashUpdatedAt, clock));
+        preferCashLast(row.market, row.session, row.cashUpdatedAt, clock), row.strictCashBook);
       const spreads = equitySpreads(quoteBasis.cashBidUsd, quoteBasis.cashAskUsd, quote);
       const live = cashActive && !quoteBasis.usesLast && !quoteBasis.usesFxLast && Boolean(row.cashBidQty && row.cashAskQty && quote.bidQty && quote.askQty) && isFresh(row.cashUpdatedAt, clock) && isFresh(fx?.updatedAt, clock) && isFresh(quote.updatedAt, clock);
       const tone = strongerTone(spreadTone(spreads.buyKoreaSellPerp), spreadTone(spreads.buyPerpSellKorea));
@@ -274,7 +276,7 @@ export default function KoreanPerpMonitor() {
     });
     return <details className={`${styles.assetRow} ${row.market === "KRX" ? styles.koreaRow : styles.japanRow} ${rowTone === "high" ? styles.highSpreadRow : rowTone === "medium" ? styles.mediumSpreadRow : ""}`} key={row.code}>
       <summary className={styles.assetSummary}>
-        <span className={styles.summaryIdentity}><small>{row.market} {row.code} · {row.session}</small><strong>{row.name}</strong>{row.chineseName && <small>{row.chineseName}</small>}<em>{row.currency} {basis.usesLast && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} / ${fmt(row.cashAskKrw, 0)}`}</em></span>
+        <span className={styles.summaryIdentity}><small>{row.market} {row.code} · {row.session}</small><strong>{row.name}</strong>{row.chineseName && <small>{row.chineseName}</small>}<em>{row.currency} {displayLast ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} / ${fmt(row.cashAskKrw, 0)}`}</em></span>
         <span className={styles.summarySignals}>
           {row.showPerpQuote && row.venues.map((quote) => <span className={styles.perpSignal} key={quoteKey(quote)}><small>{quote.venue.toUpperCase()} PERP · {isFresh(quote.updatedAt, clock) && quote.bid != null && quote.ask != null ? "LIVE BBO" : "STALE / INCOMPLETE"}</small><strong>{fmt(quote.bid)} / {fmt(quote.ask)} USDT</strong><em>{quote.symbol} · bid / ask · not cash</em></span>)}
           {pair && <span className={`${styles.perpSignal} ${toneClass(perpTone)}`}><small>BITGET PERP / PERP · {pair.live ? "LIVE" : "INDICATIVE"}</small><strong>{pct(pair.headline?.value ?? null)}</strong><em>{pair.headline?.direction ?? `${pair.left.symbol} / ${pair.right.symbol} · waiting for BBO`}</em></span>}
@@ -282,7 +284,7 @@ export default function KoreanPerpMonitor() {
           {adr && <span className={`${styles.adrSignal} ${toneClass(adrTone)}`}><small>U.S. ADR {adr.symbol} · {adrLive ? "LIVE" : "IMPLIED USD"}</small><strong>{adrHeadline ? pct(adrHeadline.value) : fmt(impliedMid)}</strong><em>{adrHeadline?.direction ?? `Bitget-implied ADR bid / ask ${fmt(impliedHeadline?.bid ?? null)} / ${fmt(impliedHeadline?.ask ?? null)} · no ADR spread`}</em></span>}
         </span><span className={styles.summaryToggle}>Details <b>⌄</b></span>
       </summary>
-      <div className={styles.assetDetails}><div className={styles.identity}><small>{row.market} {row.code}</small><strong>{row.name}</strong>{row.chineseName && <span>{row.chineseName}</span>}<span className={styles.cashPrice}>{row.currency} {basis.usesLast && row.cashLast != null ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} bid / ${fmt(row.cashAskKrw, 0)} ask`}</span><span className={styles.sessionLabel}>{row.session} · {dateTime(row.cashUpdatedAt)} HKT{row.cashSource ? ` · ${row.cashSource}` : ""}</span></div>
+      <div className={styles.assetDetails}><div className={styles.identity}><small>{row.market} {row.code}</small><strong>{row.name}</strong>{row.chineseName && <span>{row.chineseName}</span>}<span className={styles.cashPrice}>{row.currency} {displayLast ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} bid / ${fmt(row.cashAskKrw, 0)} ask`}</span><span className={styles.sessionLabel}>{row.session} · {dateTime(row.cashUpdatedAt)} HKT{row.cashSource ? ` · ${row.cashSource}` : ""}</span></div>
         <div className={styles.references}>{perpCard}{row.market === "TSE" && adrActive && adrCards}{cashCards}{row.market === "TSE" && !adrActive && adrCards}</div>
         {row.mappingNote && <p className={styles.mapping}>{row.mappingNote}</p>}</div>
     </details>;
