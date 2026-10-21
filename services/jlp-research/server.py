@@ -3,6 +3,7 @@
 import concurrent.futures
 import csv
 import io
+from itertools import groupby
 import json
 import math
 import os
@@ -12,6 +13,7 @@ import signal
 import sqlite3
 import subprocess
 import threading
+import tempfile
 import time
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -30,6 +32,7 @@ HL = 'https://api.hyperliquid.xyz/info'
 LOCK = threading.RLock()
 STATE = {}
 PENDING = {}
+DIRTY_CACHE = set()
 LIVE_SOURCES = {'pool','loan','price','funding','strategy','activity'}
 MARKETS={'BTC':'3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh',
          'ETH':'7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs',
@@ -54,6 +57,7 @@ with connect() as c:
     c.executescript('''
     CREATE TABLE IF NOT EXISTS samples(metric TEXT, ts INTEGER, value REAL, source TEXT, PRIMARY KEY(metric, ts, source));
     CREATE INDEX IF NOT EXISTS samples_time ON samples(metric, ts);
+    CREATE INDEX IF NOT EXISTS samples_by_ts ON samples(ts);
     CREATE TABLE IF NOT EXISTS cache(name TEXT PRIMARY KEY, body TEXT);
     ''')
     for name, body in c.execute('SELECT name, body FROM cache'):
@@ -81,6 +85,7 @@ def store(name, body, rows=()):
     now = int(time.time()*1000)
     with LOCK:
         STATE[name] = body
+        DIRTY_CACHE.add(name)
         if name in LIVE_SOURCES:
             if body.get('error') or not 0 <= now-body.get('fetchedAt',0) < 45000:
                 rows = ()
@@ -95,11 +100,15 @@ def store(name, body, rows=()):
 def persist():
     """Durably save observations; retries never retimestamp or invent samples."""
     global LAST_WRITE
-    with LOCK, connect() as c:
-        c.executemany('INSERT OR REPLACE INTO cache VALUES (?,?)',
-                      [(name,json.dumps(body)) for name,body in STATE.items()])
-        c.executemany('INSERT OR REPLACE INTO samples VALUES (?,?,?,?)',PENDING.values())
-        c.commit()
+    with LOCK:
+        if not DIRTY_CACHE and not PENDING: return
+        with connect() as c:
+            c.executemany('INSERT OR REPLACE INTO cache VALUES (?,?)',
+                          [(name,json.dumps(STATE[name])) for name in DIRTY_CACHE if name in STATE])
+            c.executemany('INSERT OR REPLACE INTO samples VALUES (?,?,?,?)',PENDING.values())
+            c.commit()
+        # Clear only after commit; a failed write retains both retry queues.
+        DIRTY_CACHE.clear()
         PENDING.clear()
         LAST_WRITE = int(time.time()*1000)
         STATE.pop('persistence',None)
@@ -109,6 +118,7 @@ def fail(name, error):
         prior = dict(STATE.get(name, {}))
         prior.update(error=str(error), attemptedAt=int(time.time()*1000))
         STATE[name] = prior
+        if name != 'persistence': DIRTY_CACHE.add(name)
 
 def derive_hedges(d):
     """First-order NAV delta with custody balances / trader positions held fixed.
@@ -333,6 +343,50 @@ def loop(name, fn, interval):
             print(name, str(e), flush=True);fail(name,e)
         STOP.wait(max(1,interval-(time.monotonic()-start)))
 
+CARRY_COMPONENTS = {'carry_fee_1x','carry_funding_1x','carry_borrow_apr','carry_margin_notional_1x'}
+UNBUCKETED_METRICS = {'funding_BTC','funding_ETH','funding_SOL','jlp_apr_archive'}
+
+def history_rows(c, start, leverage, hedge_leverage):
+    """Exact old row order/values, retaining only one timestamp group in RAM."""
+    cursor = c.execute('SELECT metric,ts,value,source FROM samples WHERE ts>=? ORDER BY ts',(start,))
+    for ts, batch in groupby(cursor, key=lambda row: row[1]):
+        components = {}
+        for row in batch:
+            if row[0] in CARRY_COMPONENTS: components[row[0]] = row[2]
+            yield row
+        if len(components) == 4:
+            apr = total_capital_carry(components['carry_fee_1x'],components['carry_funding_1x'],components['carry_borrow_apr'],components['carry_margin_notional_1x'],leverage,hedge_leverage)['apr']
+            yield ('neutral_carry_apr',ts,apr,f'Theoretical carry; JLP leverage={leverage:g}; HL leverage={hedge_leverage:g}; total capital incl. margin')
+
+def history_series(rows, days):
+    """Same existing 1600-point threshold/buckets; no loss of stored/export data."""
+    series, buckets = {}, {}
+    bucket = max(1000,int(days*86400000/1200))
+    for k,t,v,s in rows:
+        if k in buckets:
+            buckets[k][t//bucket] = [t,v]
+            continue
+        points = series.setdefault(k,[])
+        points.append([t,v])
+        if len(points) > 1600 and k not in UNBUCKETED_METRICS:
+            buckets[k] = {pt//bucket:[pt,pv] for pt,pv in points}
+            series[k] = []
+    for k, grouped in buckets.items(): series[k] = list(grouped.values())
+    return series
+
+def write_history_csv(raw, rows):
+    # Spill large exports to an ephemeral file, preserving every row and byte.
+    # The wrapper is detached so the caller owns and closes the binary spool.
+    text = io.TextIOWrapper(raw,encoding='utf-8',newline='')
+    try:
+        writer = csv.writer(text)
+        writer.writerow(['metric','timestamp_utc','value','source'])
+        for k,t,v,s in rows:
+            writer.writerow([k,datetime.fromtimestamp(t/1000,__import__('datetime').timezone.utc).isoformat(),v,s])
+        text.flush()
+    finally:
+        text.detach()
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*a,**kw): super().__init__(*a,directory=str(ROOT/'public'),**kw)
     def log_message(self,*args): pass
@@ -369,29 +423,18 @@ class Handler(SimpleHTTPRequestHandler):
                 total_capital_carry(0,0,0,0,leverage,hedge_leverage)
             except ValueError: self.send_error(400);return
             start=int(time.time()*1000-days*86400000)
-            with connect() as c:
-                rows=c.execute('SELECT metric,ts,value,source FROM samples WHERE ts>=? ORDER BY ts',(start,)).fetchall()
-            snapshots={}
-            components={'carry_fee_1x','carry_funding_1x','carry_borrow_apr','carry_margin_notional_1x'}
-            for k,t,v,s in rows:
-                if k in components:snapshots.setdefault(t,{})[k]=v
-            for ts,x in snapshots.items():
-                if len(x)==4:
-                    apr=total_capital_carry(x['carry_fee_1x'],x['carry_funding_1x'],x['carry_borrow_apr'],x['carry_margin_notional_1x'],leverage,hedge_leverage)['apr']
-                    rows.append(('neutral_carry_apr',ts,apr,f'Theoretical carry; JLP leverage={leverage:g}; HL leverage={hedge_leverage:g}; total capital incl. margin'))
-            rows.sort(key=lambda row:row[1])
             if p.path.endswith('.csv'):
-                buf=io.StringIO();w=csv.writer(buf);w.writerow(['metric','timestamp_utc','value','source'])
-                for k,t,v,s in rows:w.writerow([k,datetime.fromtimestamp(t/1000,__import__('datetime').timezone.utc).isoformat(),v,s])
-                return self.send(buf.getvalue(),'text/csv; charset=utf-8')
-            series={}
-            for k,t,v,s in rows:series.setdefault(k,[]).append([t,v])
-            # Bucket dense local samples for efficient charting; retain exact data in SQLite/CSV.
-            for k,points in series.items():
-                if len(points)>1600 and not k in ['funding_BTC','funding_ETH','funding_SOL','jlp_apr_archive']:
-                    bucket=max(1000,int(days*86400000/1200)); grouped={}
-                    for t,v in points:grouped[t//bucket]=[t,v]
-                    series[k]=list(grouped.values())
+                with tempfile.SpooledTemporaryFile(max_size=256*1024,mode='w+b') as raw:
+                    with connect() as c:
+                        write_history_csv(raw,history_rows(c,start,leverage,hedge_leverage))
+                    length=raw.tell();raw.seek(0)
+                    self.send_response(200);self.send_header('Content-Type','text/csv; charset=utf-8')
+                    self.send_header('Content-Length',str(length));self.send_header('Cache-Control','no-store')
+                    self.send_header('X-Content-Type-Options','nosniff');self.end_headers()
+                    shutil.copyfileobj(raw,self.wfile,64*1024)
+                return
+            with connect() as c:
+                series=history_series(history_rows(c,start,leverage,hedge_leverage),days)
             return self.send(json.dumps(series,allow_nan=False))
         if p.path.startswith('/api/'):
             self.send_error(404);return
