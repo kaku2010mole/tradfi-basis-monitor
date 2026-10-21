@@ -195,7 +195,8 @@ test("keeps exact Korean and Japanese stock comparisons on the standalone stock 
   assert.match(officePusher, /"6976", "6981"/);
   assert.match(officePusher, /specific_data/);
   assert.match(officePusher, /if \(stale && \(last === null \|\| !staleMarketTimes\.length\)\) return null/);
-  assert.match(officePusher, /bid: !stale && bid\.size !== null \? bid\.price : null/);
+  assert.match(officePusher, /const retainBook = !stale \|\| symbol === "KRX\.0158S0"/);
+  assert.match(officePusher, /bid: retainBook && bid\.size !== null \? bid\.price : null/);
   assert.match(officePusher, /marketTimestamp: stale \? Math\.max\(\.\.\.staleMarketTimes\)/);
   assert.match(officePusher, /bookTimes = \[fields\.bids_receive_ts_ms, fields\.asks_receive_ts_ms\]/);
   assert.match(route, /quote\.symbol\?\.startsWith\("TSE\."\)/);

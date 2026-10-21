@@ -7,7 +7,7 @@ const PUSH_URL = process.env.FUTU_PUSH_URL || "https://tradfi-basis-monitor.onre
 const TOKEN_FILE = process.env.FUTU_PUSH_TOKEN_FILE;
 const SYMBOLS = ["TCEHY", "XIACY", "KSHTY", "MPNGY", "PMRTY", "MMXGY", "LNVGY", "BYDDY"];
 const KEYS = SYMBOLS.map((symbol) => `orderbook:ibkr:STK:${symbol}:SMART:USD`);
-const KOREAN_CODES = ["034020", "035420", "042700", "066570", "454910"];
+const KOREAN_CODES = ["034020", "035420", "042700", "066570", "454910", "0158S0"];
 const KOREAN_KEYS = KOREAN_CODES.map((code) => `orderbook:ibkr:STK:${code}:KRX:KRW`);
 const FUTU_KOREAN_CODES = ["207940", "000270", "373220", "035720", "105560"];
 const FUTU_KOREAN_KEYS = FUTU_KOREAN_CODES.map((code) => `orderbook:futu:web_api:KR.${code}`);
@@ -86,6 +86,9 @@ const quoteFromEntry = (message) => {
   if (stale && (last === null || !staleMarketTimes.length)) return null;
   if (!stale && bid.price === null && ask.price === null && last === null) return null;
   const isFx = symbol.startsWith("FX.");
+  // Elice's limit-up book can be bid-only. A heartbeat retains the observed
+  // sides with their ORIGINAL timestamp, never a fabricated ask or fresh time.
+  const retainBook = !stale || symbol === "KRX.0158S0";
   return {
     symbol,
     name: symbol,
@@ -93,10 +96,10 @@ const quoteFromEntry = (message) => {
     auctionPrice: null,
     last,
     previousClose: positive(fields.previous_close ?? fields.prev_close),
-    bid: !stale && bid.size !== null ? bid.price : null,
-    ask: !stale && ask.size !== null ? ask.price : null,
-    bidSize: stale ? null : bid.size,
-    askSize: stale ? null : ask.size,
+    bid: retainBook && bid.size !== null ? bid.price : null,
+    ask: retainBook && ask.size !== null ? ask.price : null,
+    bidSize: retainBook ? bid.size : null,
+    askSize: retainBook ? ask.size : null,
     // An opening-auction book can update before the first print. Timestamp
     // a complete BBO from its receive time, not the prior session's last tick.
     marketTimestamp: stale ? Math.max(...staleMarketTimes)
@@ -147,6 +150,7 @@ const connectGroup = (keys, groupIndex) => {
         const quote = quoteFromEntry(message);
         if (quote) {
           const existing = latest.get(quote.symbol);
+          if (quote.symbol === "KRX.0158S0" && existing?.marketTimestamp > quote.marketTimestamp) return;
           if (message.key !== FX_HL_KEY || !existing?.bid || !existing?.ask) latest.set(quote.symbol, quote);
           if (quote.symbol === "FX.USDKRW") {
             const price = quote.bid && quote.ask ? (quote.bid + quote.ask) / 2 : quote.last;

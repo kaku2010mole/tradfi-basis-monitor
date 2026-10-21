@@ -11,6 +11,7 @@ const EXISTING_KOREAN_STOCKS = [
   { code: "042700", name: "Hanmi Semiconductor", bitgetSymbol: null, binanceSymbol: "HANMIUSDT" },
   { code: "066570", name: "LG Electronics", bitgetSymbol: "LGELECTRONICSUSDT", binanceSymbol: "LGELECTRONICSUSDT" },
   { code: "454910", name: "Doosan Robotics", bitgetSymbol: "DOOSBOTUSDT", binanceSymbol: null },
+  { code: "0158S0", name: "Elice", chineseName: "Elice（엘리스）", bitgetSymbol: "ELICEUSDT", binanceSymbol: null, strictCashBook: true },
 ] as const;
 // Posley publishes these cash books through Futu Web API, not IBKR.
 // These names stay in the normal Korean group even during a cash-feed outage.
@@ -197,7 +198,8 @@ export async function GET(request: Request) {
       const cashBidKrw = positive(cash?.bid);
       const cashAskKrw = positive(cash?.ask);
       const cashSessionActive = sessions.KRX === "REGULAR" || sessions.KRX === "AFTER-HOURS";
-      const { cashBidUsd, cashAskUsd } = equityBasis(cash ?? {}, fx ?? {}, 1, !cashSessionActive);
+      const strictCashBook = "strictCashBook" in stock && stock.strictCashBook;
+      const { cashBidUsd, cashAskUsd } = equityBasis(cash ?? {}, fx ?? {}, 1, !cashSessionActive, strictCashBook);
       const venues = [
         stock.bitgetSymbol ? (() => { const quote = tickers.get(stock.bitgetSymbol); return { venue: "Bitget", symbol: stock.bitgetSymbol, bid: positive(quote?.bidPr), ask: positive(quote?.askPr), bidQty: positive(quote?.bidSz), askQty: positive(quote?.askSz), updatedAt: positive(quote?.ts) }; })() : null,
         stock.binanceSymbol ? (() => { const quote = binanceBooks.get(stock.binanceSymbol); return { venue: "Binance", symbol: stock.binanceSymbol, bid: positive(quote?.bidPrice), ask: positive(quote?.askPrice), bidQty: positive(quote?.bidQty), askQty: positive(quote?.askQty), updatedAt: positive(quote?.time) }; })() : null,
@@ -208,8 +210,9 @@ export async function GET(request: Request) {
       return {
         code: stock.code, name: stock.name, chineseName: "chineseName" in stock ? stock.chineseName : null,
         cashSource: cash && "source" in cash ? String(cash.source) : cash?.streamKey?.includes("futu:web_api") ? "Posley Futu Web API" : "Posley IBKR",
-        market: "KRX", session: sessions.KRX, currency: "KRW", sharesPerPerp: 1, venues,
-        mappingNote: stock.code === "042700" ? "Binance HANMIUSDT is the exact 042700 contract. Bitget HANMIUSDT is Hanmi Pharm, so it is deliberately excluded." : null,
+        market: "KRX", session: sessions.KRX, currency: "KRW", sharesPerPerp: 1, venues, strictCashBook,
+        mappingNote: stock.code === "0158S0" ? "Elice · KOSDAQ 0158S0 · Posley IBKR orderbook. Missing bid/ask sides stay unavailable; last trades never substitute for a missing side. Cash/perp unit assumes one ordinary share."
+          : stock.code === "042700" ? "Binance HANMIUSDT is the exact 042700 contract. Bitget HANMIUSDT is Hanmi Pharm, so it is deliberately excluded." : null,
         cashBidKrw, cashAskKrw, cashBidQty: positive(cash?.bidSize), cashAskQty: positive(cash?.askSize), cashUpdatedAt: cash?.timestamp ?? null,
         cashLast: positive(cash?.last),
         cashBidUsd, cashAskUsd,
