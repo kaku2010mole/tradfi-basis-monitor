@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
 import { visiblePolling } from "../lib/visiblePolling";
+import { decimalNumber } from "../lib/numberFormat";
 import {
   DEFAULT_ORACLE_BINANCE,
   DEFAULT_ORACLE_PARA,
@@ -82,7 +83,7 @@ const DEFAULT_PAIR_CATALOG: CustomPair[] = [
 const formatPct = (value: number, digits = 3) => `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 const formatPrice = (value: number | null) => value == null || !Number.isFinite(value)
   ? "—"
-  : value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: value >= 100 ? 3 : 6 });
+  : decimalNumber(value, value >= 100 ? 3 : 6, 2);
 const usdFormats = [0, 2].map((maximumFractionDigits) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits }));
 const formatUsd = (value: number | null) => value == null || !Number.isFinite(value)
   ? "—"

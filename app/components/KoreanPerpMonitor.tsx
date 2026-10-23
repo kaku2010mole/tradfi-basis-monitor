@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { visiblePolling } from "../lib/visiblePolling";
+import { decimalNumber } from "../lib/numberFormat";
 import PageSwitcher from "./PageSwitcher";
 import TaiwanStockPanel from "./TaiwanStockPanel";
 import KoreanKrwPanel from "./KoreanKrwPanel";
@@ -21,7 +22,7 @@ type BitgetOnlyKorean = { code: string; name: string; chineseName: string; symbo
 type KrwConversion = { rate: number | null; source: string; date: string | null; updatedAt: number | null; live: boolean };
 type Payload = { rows?: Row[]; bitgetOnlyKorean?: BitgetOnlyKorean[]; krwConversion?: KrwConversion; sessions?: { KRX: Session; TSE: Session; US: Session }; fx?: FxBook; yenFx?: FxBook; posley?: { state: string; error: string; missing: string[]; source?: string }; timestamp?: number; error?: string };
 
-const fmt = (value: number | null, digits = 2) => value === null ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+const fmt = (value: number | null, digits = 2) => value === null ? "—" : decimalNumber(value, digits, digits);
 const pct = (value: number | null) => value === null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(3)}%`;
 const timeFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 const dateTimeFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
@@ -53,7 +54,7 @@ const adrSpreads = (row: Row, adr: AdrQuote, perp: VenueQuote) => {
 type SpreadTone = "quiet" | "medium" | "high";
 // Spread magnitude controls color independently of whether the quote is live or indicative.
 const spreadTone = (value: number | null | undefined): SpreadTone =>
-  value == null || value <= 0 ? "quiet" : value >= 1 ? "high" : value >= 0.3 ? "medium" : "quiet";
+  value == null || value <= 0 ? "quiet" : value >= 1 ? "high" : value >= 0.5 ? "medium" : "quiet";
 const strongerTone = (left: SpreadTone, right: SpreadTone): SpreadTone =>
   left === "high" || right === "high" ? "high" : left === "medium" || right === "medium" ? "medium" : "quiet";
 const toneClass = (tone: SpreadTone) => tone === "high" ? styles.spreadHigh : tone === "medium" ? styles.spreadMedium : styles.spreadQuiet;
@@ -294,7 +295,7 @@ export default function KoreanPerpMonitor() {
 
   return <section className={styles.monitor} aria-label="Korean, Japanese and Taiwanese stock cross-venue basis">
     <header className={styles.monitorHeader}><div><p>KRX · TSE · TWSE · U.S. ADR / PERPETUALS</p><h1>Stock cross-venue basis</h1><span>Live quote edges first. Closed-market and Taiwan anchor comparisons are explicitly indicative.</span></div><div className={styles.monitorActions}><div className={styles.status}><i />{payload.sessions ? `KRX ${payload.sessions.KRX} · TSE ${payload.sessions.TSE} · US ${payload.sessions.US}` : "CONNECTING"}</div><PageSwitcher active="stock-basis" /></div></header>
-    {effectiveMarket !== "TWSE" && <div className={styles.signalDeck}><div className={styles.signalIntro}><span>LIVE QUOTE RADAR</span><strong>{liveEdges.length ? `${liveEdges.length} positive edges` : "No live positive edge"}</strong><small>Card colors: positive spreads ≥1% amber, ≥0.3% teal, including closed-market comparisons. Radar ranks live edges only; INDICATIVE is not executable.</small></div><div className={styles.signalList}>{liveEdges.slice(0, 3).map((edge, index) => <div key={`${edge.code}:${edge.direction}`} className={`${styles.signalItem} ${toneClass(spreadTone(edge.value))}`}><small>0{index + 1} · {edge.source}</small><strong>{edge.name}<b>{pct(edge.value)}</b></strong><span>{edge.direction}</span></div>)}{!liveEdges.length && <p>{radarMessage}</p>}</div></div>}
+    {effectiveMarket !== "TWSE" && <div className={styles.signalDeck}><div className={styles.signalIntro}><span>LIVE QUOTE RADAR</span><strong>{liveEdges.length ? `${liveEdges.length} positive edges` : "No live positive edge"}</strong><small>Card colors: positive spreads ≥1% amber, ≥0.5% teal, including closed-market comparisons. Radar ranks live edges only; INDICATIVE is not executable.</small></div><div className={styles.signalList}>{liveEdges.slice(0, 3).map((edge, index) => <div key={`${edge.code}:${edge.direction}`} className={`${styles.signalItem} ${toneClass(spreadTone(edge.value))}`}><small>0{index + 1} · {edge.source}</small><strong>{edge.name}<b>{pct(edge.value)}</b></strong><span>{edge.direction}</span></div>)}{!liveEdges.length && <p>{radarMessage}</p>}</div></div>}
     <div className={styles.toolRow}><div className={styles.filters} role="group" aria-label="Filter stock market">{(["ALL", "KRX", "TSE", "TWSE"] as const).map((market) => <button key={market} className={effectiveMarket === market ? styles.activeFilter : ""} onClick={() => setMarketFilter(market)}>{market === "ALL" ? "All stocks" : market === "KRX" ? "Korea" : market === "TWSE" ? "Taiwan" : "Japan + ADR"}</button>)}</div><div className={styles.fxGroup}><span>USD/KRW <b>{payload.fx?.bid != null && payload.fx?.ask != null ? `${fmt(payload.fx.bid)} / ${fmt(payload.fx.ask)}` : fmt(payload.fx?.last ?? null)}</b><small>{isFresh(payload.fx?.updatedAt, clock) && payload.fx?.bid && payload.fx.ask ? "LIVE BBO" : "LAST / INDICATIVE"}</small></span><span>USD/JPY <b>{payload.yenFx?.bid != null && payload.yenFx?.ask != null ? `${fmt(payload.yenFx.bid)} / ${fmt(payload.yenFx.ask)}` : fmt(payload.yenFx?.last ?? null)}</b><small>{isFresh(payload.yenFx?.updatedAt, clock) && payload.yenFx?.bid && payload.yenFx.ask ? "LIVE BBO" : payload.yenFx?.source.includes("index") ? "INDEX / INDICATIVE" : "LAST / INDICATIVE"}</small></span></div></div>
     {effectiveMarket !== "TWSE" && (loginError || error || payload.posley?.error) && <div className={styles.notice}><span>{loginError || error || payload.posley?.error}</span><button disabled={loginBusy} onClick={() => void connect()}>{loginBusy ? "Checking…" : "Connect Posley"}</button></div>}
     {(koreaRows.length > 0 || bitgetOnlyKorean.length > 0) && <div className={styles.marketGroup}><div className={styles.groupHead}><div><span>01 / KOREA</span><h3>KRX cash vs perpetuals</h3></div><small>{payload.sessions?.KRX ?? "—"} · {koreaRows.length} cash comparisons</small></div><div className={styles.rows}>{koreaRows.map(renderRow)}</div>

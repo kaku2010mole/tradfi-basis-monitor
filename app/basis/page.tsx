@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BroadcastAlert from "../components/BroadcastAlert";
 import PageSwitcher from "../components/PageSwitcher";
 import TreasuryYieldEstimator from "../components/TreasuryYieldEstimator";
+import { decimalNumber } from "../lib/numberFormat";
 
 type Venue = "Hyperliquid" | "Binance";
 type Market = {
@@ -51,7 +52,7 @@ function mostRecentSaturdayNine() {
 const formatPrice = (value: number | null) => {
   if (value == null || !Number.isFinite(value)) return "—";
   const digits = value >= 1000 ? 2 : value >= 10 ? 3 : value >= 1 ? 4 : 6;
-  return value.toLocaleString("en-US", { maximumFractionDigits: digits, minimumFractionDigits: Math.min(2, digits) });
+  return decimalNumber(value, digits, Math.min(2, digits));
 };
 
 const formatPct = (value: number | null, digits = 2) =>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
 import { visiblePolling } from "../lib/visiblePolling";
+import { decimalNumber } from "../lib/numberFormat";
 import AdrPerpNightPanel, { type NightBasisPair } from "./AdrPerpNightPanel";
 import styles from "./page.module.css";
 
@@ -123,7 +124,7 @@ const isHkQuotedPerp = (perp: string) => /^HK\d+USDT$/.test(perp.toUpperCase());
 const defaultShares = (perp: string) => isHkQuotedPerp(perp) ? 7.84 : 1;
 const pairKey = (pair: PairConfig) => `${pair.stockSymbol}:${pair.perpVenue ?? "binance"}:${pair.perpSymbol}`;
 const venueMetricClass = (venue: string) => venue === "BINANCE" ? styles.binanceMetric : venue === "BITGET" ? styles.bitgetMetric : venue === "MEXC" ? styles.mexcMetric : venue === "HYPERLIQUID" ? styles.hyperliquidMetric : styles.bybitMetric;
-const number = (value: number | null | undefined, digits = 3) => value === null || value === undefined || !Number.isFinite(value) ? "—" : value.toLocaleString("en-US", { maximumFractionDigits: digits });
+const number = (value: number | null | undefined, digits = 3) => value === null || value === undefined || !Number.isFinite(value) ? "—" : decimalNumber(value, digits);
 const pct = (value: number | null | undefined, digits = 3) => value === null || value === undefined || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 const timeFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 const sessionFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });

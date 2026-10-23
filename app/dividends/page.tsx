@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
+import { decimalNumber } from "../lib/numberFormat";
 import type { EarningsEvent, EarningsPayload } from "../lib/earningsCalendar";
 import styles from "./page.module.css";
 
@@ -23,7 +24,7 @@ const readSnapshot = (month: string): Payload | null => {
   catch { return null; }
 };
 
-const fmt = (value: number | null, digits = 2) => value === null ? "—" : value.toLocaleString("en-US", { maximumFractionDigits: digits });
+const fmt = (value: number | null, digits = 2) => value === null ? "—" : decimalNumber(value, digits);
 const monthLabel = (month: string) => new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", timeZone: "UTC" }).format(new Date(`${month}-01T00:00:00Z`));
 const moveMonth = (month: string, delta: number) => { const date = new Date(`${month}-01T00:00:00Z`); date.setUTCMonth(date.getUTCMonth() + delta); return date.toISOString().slice(0, 7); };
 const eventDate = (event: DividendEvent) => event.calendarDate ?? event.exDate ?? "";

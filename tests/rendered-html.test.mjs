@@ -250,7 +250,7 @@ test("cross-venue spread colors prioritize material edges even while markets are
     readFile(new URL("../app/components/KoreanPerpMonitor.module.css", import.meta.url), "utf8"),
   ]);
   assert.match(component, /value == null \|\| value <= 0 \? "quiet"/);
-  assert.match(component, /value >= 1 \? "high" : value >= 0\.3 \? "medium"/);
+  assert.match(component, /value >= 1 \? "high" : value >= 0\.5 \? "medium"/);
   assert.doesNotMatch(component, /!live \|\| value == null/);
   assert.match(component, /cashSummaryLive \? cashComparisons\.filter\(\(\{ live \}\) => live\) : cashComparisons/);
   assert.match(component, /const adrTone = adrComparisons\.reduce<SpreadTone>/);

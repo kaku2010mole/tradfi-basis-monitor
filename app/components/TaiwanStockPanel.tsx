@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useState } from "react";
 import { visiblePolling } from "../lib/visiblePolling";
+import { decimalNumber } from "../lib/numberFormat";
 import { TAIWAN_STOCKS, taiwanAdrReference, taiwanComparison } from "../lib/taiwanStockBasis";
 import type { TaiwanPayload, TaiwanRow } from "../lib/taiwanStockBasis";
 import TaiwanAdrOutlook from "./TaiwanAdrOutlook";
@@ -10,7 +11,7 @@ import { taiwanLiveComparison } from "../lib/taiwanLiveBasis";
 import styles from "./KoreanPerpMonitor.module.css";
 import tabs from "./TaiwanStockPanel.module.css";
 
-const fmt = (n: number | null | undefined, digits = 3) => n == null || !Number.isFinite(n) ? "—" : n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+const fmt = (n: number | null | undefined, digits = 3) => n == null || !Number.isFinite(n) ? "—" : decimalNumber(n, digits, digits);
 const pct = (n: number | null | undefined) => n == null || !Number.isFinite(n) ? "—" : `${n >= 0 ? "+" : ""}${n.toFixed(3)}%`;
 const stampFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Taipei", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 const stamp = (n: number | null | undefined) => n == null ? "—" : stampFormat.format(n);
@@ -74,10 +75,10 @@ const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: 
       const live = taiwanLiveComparison(cash, row.book, payload?.fx?.quote, clock);
       const selected = mode === "live" ? live : comparison;
       const magnitude = Math.abs(selected.deviation ?? 0);
-      const tone = magnitude >= 1 ? styles.spreadHigh : magnitude >= 0.3 ? styles.spreadMedium : styles.spreadQuiet;
+      const tone = magnitude >= 1 ? styles.spreadHigh : magnitude >= 0.5 ? styles.spreadMedium : styles.spreadQuiet;
       const modelLabel = row.adrSymbol ? `${row.adrSymbol} RETURN-ADJUSTED` : "LATEST 14:00 ORACLE";
       const refLabel = mode === "live" ? `PERP VS ${live.kind}` : modelLabel;
-      return <details key={`${mode}:${row.symbol}`} className={`${styles.assetRow} ${styles.taiwanRow} ${magnitude >= 1 ? styles.highSpreadRow : magnitude >= 0.3 ? styles.mediumSpreadRow : ""}`}>
+      return <details key={`${mode}:${row.symbol}`} className={`${styles.assetRow} ${styles.taiwanRow} ${magnitude >= 1 ? styles.highSpreadRow : magnitude >= 0.5 ? styles.mediumSpreadRow : ""}`}>
         <summary className={styles.assetSummary}>
           <span className={styles.summaryIdentity}><small>TWSE {row.code} · BITGET</small><strong>{row.name}</strong><small>{row.chineseName} · {row.symbol}</small><em>{fmt(row.book.bid)} / {fmt(row.book.ask)} USDT</em></span>
           <span className={styles.summarySignals}><span className={`${styles.perpSignal} ${tone}`}><small>{refLabel} · INDICATIVE{mode === "model" && row.adrSymbol ? ` · ADR ${adr.anchorMode ?? "waiting"}` : ""}</small><strong>{pct(selected.deviation)}</strong><em>{selected.direction} · {mode === "live" ? `${live.isTrial ? "Trial" : "Cash"} NT$ ${fmt(live.cashPrice)} · ${stamp(live.cashTimestamp)} HKT${live.reason ? ` · ${live.reason}` : ""}` : `${comparison.freshBook ? "fresh perp BBO" : "stale / incomplete perp quote"} · model ${fmt(comparison.reference)} USDT`}</em></span></span>
