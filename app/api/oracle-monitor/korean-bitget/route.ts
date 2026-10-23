@@ -2,6 +2,7 @@ import { equityBasis, equitySpreads, preferCashLast } from "../../../lib/equityB
 import { posleyAdrSnapshot } from "../../../lib/posleyAdr";
 import { bitgetBooksWithin } from "../../../lib/bitgetRelativeMarket";
 import { publicBinanceJson } from "../../../lib/publicBinanceJson";
+import { koreanPreviousClose } from "../../../lib/koreanPreviousClose";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +59,7 @@ const positive = (value: unknown) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
-type PushedQuote = { symbol?: string; bid?: number | null; ask?: number | null; last?: number | null; bidSize?: number | null; askSize?: number | null; marketTimestamp?: number; marketState?: string; source?: string };
+type PushedQuote = { symbol?: string; bid?: number | null; ask?: number | null; last?: number | null; previousClose?: number | null; bidSize?: number | null; askSize?: number | null; marketTimestamp?: number; marketState?: string; source?: string };
 type PushStore = typeof globalThis & { __FUTU_PUSH_SNAPSHOT__?: { payload: { quotes?: PushedQuote[] }; receivedAt: number } };
 const QUOTE_MAX_AGE_MS = 60_000;
 const DISPLAY_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
@@ -125,7 +126,7 @@ function officeRelaySnapshot() {
     const code = quote.symbol?.startsWith("KRX.") || quote.symbol?.startsWith("TSE.") ? quote.symbol.slice(4) : quote.symbol?.startsWith("US.") ? quote.symbol.slice(3) : quote.symbol === "FX.USDKRW" ? "USDKRW" : quote.symbol === "FX.USDJPY" ? "USDJPY" : null;
     const timestamp = Number(quote.marketTimestamp);
     if (!code || !Number.isFinite(timestamp) || timestamp > Date.now() + 5_000 || Date.now() - timestamp > DISPLAY_MAX_AGE_MS) return [];
-    return [{ symbol: code, streamKey: `office:${quote.symbol}`, bid: positive(quote.bid), ask: positive(quote.ask), last: positive(quote.last), bidSize: positive(quote.bidSize), askSize: positive(quote.askSize), timestamp, marketState: quote.marketState ?? null, source: quote.source ?? (quote.symbol?.startsWith("US.") ? "Futu OpenD" : "Posley office relay") }];
+    return [{ symbol: code, streamKey: `office:${quote.symbol}`, bid: positive(quote.bid), ask: positive(quote.ask), last: positive(quote.last), previousClose: positive(quote.previousClose), bidSize: positive(quote.bidSize), askSize: positive(quote.askSize), timestamp, marketState: quote.marketState ?? null, source: quote.source ?? (quote.symbol?.startsWith("US.") ? "Futu OpenD" : "Posley office relay") }];
   });
   if (!books.length) return null;
   const found = new Set(books.map((book) => book.symbol));
@@ -194,6 +195,7 @@ export async function GET(request: Request) {
 
     const rows = KOREAN_STOCKS.map((stock) => {
       const cash = books.get(stock.code);
+      const cashSource = cash && "source" in cash ? String(cash.source) : cash?.streamKey?.includes("futu:web_api") ? "Posley Futu Web API" : "Posley IBKR";
       const cashBidKrw = positive(cash?.bid);
       const cashAskKrw = positive(cash?.ask);
       const cashSessionActive = sessions.KRX === "REGULAR" || sessions.KRX === "AFTER-HOURS";
@@ -208,7 +210,8 @@ export async function GET(request: Request) {
       }] : []);
       return {
         code: stock.code, name: stock.name, chineseName: "chineseName" in stock ? stock.chineseName : null,
-        cashSource: cash && "source" in cash ? String(cash.source) : cash?.streamKey?.includes("futu:web_api") ? "Posley Futu Web API" : "Posley IBKR",
+        cashSource,
+        previousClose: koreanPreviousClose(stock.code, cash?.previousClose, cash?.timestamp, cashSource, now),
         market: "KRX", session: sessions.KRX, currency: "KRW", sharesPerPerp: 1, venues, strictCashBook,
         mappingNote: stock.code === "0158S0" ? "Elice · KOSDAQ 0158S0 · Posley IBKR orderbook. Missing bid/ask sides stay unavailable; last trades never substitute for a missing side. Cash/perp unit assumes one ordinary share."
           : stock.code === "042700" ? "Binance HANMIUSDT is the exact 042700 contract. Bitget HANMIUSDT is Hanmi Pharm, so it is deliberately excluded." : null,

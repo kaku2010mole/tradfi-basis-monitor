@@ -13,6 +13,7 @@ export type PosleyAdrBook = {
   bid: number | null;
   ask: number | null;
   last: number | null;
+  previousClose?: number | null;
   bidSize: number | null;
   askSize: number | null;
   timestamp: number;
@@ -161,6 +162,7 @@ function acceptBook(state: SharedState, streamKey: string, data: Record<string, 
     bid: bids[0]?.price ?? null,
     ask: asks[0]?.price ?? null,
     last,
+    previousClose: positive(data.previous_close ?? data.prev_close),
     bidSize: bids[0]?.size ?? null,
     askSize: asks[0]?.size ?? null,
     timestamp: marketTimestamp(data),
