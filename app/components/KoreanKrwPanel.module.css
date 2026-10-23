@@ -1,0 +1,19 @@
+.panel{margin:18px 20px 22px;border:1px solid #cddfe5;border-radius:12px;overflow:hidden;background:#fff;color:#173037}
+.header{display:flex;justify-content:space-between;align-items:flex-start;gap:22px;padding:18px 20px;background:#f0f6fa;border-bottom:1px solid #dce7ed}
+.header span{color:#426b86;font:800 10px var(--font-geist-mono),monospace;letter-spacing:.1em}
+.header h3{margin:6px 0;font-size:20px;letter-spacing:-.025em}
+.header p{margin:0;max-width:640px;color:#637b88;font-size:12px;line-height:1.5}
+.fx{display:grid;gap:4px;min-width:190px;padding:10px 14px;border-radius:8px;border:1px solid #d4e2ea;background:#fff}
+.fx strong{font:800 18px var(--font-geist-mono),monospace}.fx small{color:#617e8c;font-size:10px}
+.scroll{overflow:auto}.scroll:focus-visible{outline:2px solid #26759a;outline-offset:-2px}
+.table{width:100%;border-collapse:collapse;text-align:left;font-variant-numeric:tabular-nums}
+.table thead{background:#f8fafc;color:#647b88;font-size:10px;text-transform:uppercase}
+.table th,.table td{padding:12px 16px;border-bottom:1px solid #e8eef1;vertical-align:middle}
+.table thead th{font-weight:800;white-space:nowrap}.table tbody th{min-width:165px;font-weight:400}
+.table td{white-space:nowrap}.table strong{display:block;font:700 12px var(--font-geist-mono),monospace}.table tbody th strong{font-family:inherit;font-size:13px}
+.table small{display:block;margin-top:4px;color:#758790;font-size:10px;font-weight:400;line-height:1.35}
+.table tbody tr:nth-child(even){background:#fafcfd}.table tbody tr:hover{background:#f4f8fb}
+.table .change{display:inline-block;padding:5px 9px;border-radius:6px;font-size:19px;letter-spacing:-.025em}
+.up{color:#087454;background:#e6f5ed}.down{color:#b23b3b;background:#fff0ee}.neutral{color:#657d89;background:#f1f5f7}
+.table .warning{color:#956322}.note{margin:0;padding:12px 16px;background:#f8fafc;color:#758790;font-size:10px;line-height:1.6}
+@media(max-width:680px){.panel{margin:12px 10px 16px}.header{padding:14px;flex-direction:column;gap:12px}.header h3{font-size:18px}.header p{font-size:11px}.fx{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0}.fx strong{font-size:15px}.table th,.table td{padding:10px 12px}.table .change{font-size:17px}.table tbody th{min-width:145px}.note{font-size:10px}}
