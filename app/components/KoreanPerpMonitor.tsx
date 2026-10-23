@@ -230,14 +230,11 @@ export default function KoreanPerpMonitor() {
       perp, spreads: adrSpreads(row, adr, perp), implied: impliedAdrBook(perp, perp.sharesPerPerp ?? row.sharesPerPerp, adr.sharesPerAdr),
       live: Boolean(adrActive && isFresh(adr.updatedAt, clock) && isFresh(perp.updatedAt, clock) && adr.bidQty && adr.askQty && perp.bidQty && perp.askQty),
     })) : [];
-    const adrLive = adrComparisons.some(({ live }) => live);
     const adrHeadline = adrComparisons.filter(({ live }) => live).flatMap(({ perp, spreads }) => [
       { value: spreads.buyAdrSellPerp, direction: `Buy ${adr?.symbol} · sell ${perp.symbol}` },
       { value: spreads.buyPerpSellAdr, direction: `Buy ${perp.symbol} · sell ${adr?.symbol}` },
     ]).filter((edge): edge is { value: number; direction: string } => edge.value !== null).sort((left, right) => right.value - left.value)[0];
     const impliedHeadline = adrComparisons[0]?.implied;
-    const impliedPerpFresh = isFresh(adrComparisons[0]?.perp.updatedAt, clock);
-    const impliedMid = impliedHeadline?.bid != null && impliedHeadline.ask != null ? (impliedHeadline.bid + impliedHeadline.ask) / 2 : impliedHeadline?.bid ?? impliedHeadline?.ask ?? null;
     const adrTone = adrComparisons.reduce<SpreadTone>((tone, { spreads }) => strongerTone(tone,
       strongerTone(spreadTone(spreads.buyAdrSellPerp), spreadTone(spreads.buyPerpSellAdr))), "quiet");
     const cashComparisons = row.venues.map((quote) => {
@@ -285,7 +282,7 @@ export default function KoreanPerpMonitor() {
           {row.showPerpQuote && row.venues.map((quote) => <span className={styles.perpSignal} key={quoteKey(quote)}><small>{quote.venue.toUpperCase()} PERP · {isFresh(quote.updatedAt, clock) && quote.bid != null && quote.ask != null ? "LIVE BBO" : "STALE / INCOMPLETE"}</small><strong>{fmt(quote.bid)} / {fmt(quote.ask)} USDT</strong><em>{quote.symbol} · bid / ask · not cash</em></span>)}
           {pair && <span className={`${styles.perpSignal} ${toneClass(perpTone)}`}><small>BITGET PERP / PERP · {pair.live ? "LIVE" : "INDICATIVE"}</small><strong>{pct(pair.headline?.value ?? null)}</strong><em>{pair.headline?.direction ?? `${pair.left.symbol} / ${pair.right.symbol} · waiting for BBO`}</em></span>}
           <span className={`${styles.cashSignal} ${toneClass(cashTone)}`}><small>{row.market} CASH · {cashSummaryLive ? "BBO" : "INDICATIVE"}</small><strong>{pct(cashHeadline?.value ?? null)}</strong><em>{cashHeadline?.direction ?? "No comparable cash quote"}</em></span>
-          {adr && <span className={`${styles.adrSignal} ${toneClass(adrTone)}`}><small>U.S. ADR {adr.symbol} · {adrLive ? "LIVE" : "IMPLIED"}</small><strong>{adrHeadline ? pct(adrHeadline.value) : `USD ${fmt(impliedMid, 3)}`}</strong><em>{adrHeadline?.direction ?? `Implied ADR price · bid / ask ${fmt(impliedHeadline?.bid ?? null, 3)} / ${fmt(impliedHeadline?.ask ?? null, 3)} · ${impliedPerpFresh ? "fresh perp" : "stale / missing perp"} · no ADR spread`}</em></span>}
+          {adr && <span className={`${styles.adrSignal} ${!adrHeadline ? styles.impliedAdrSignal : ""} ${toneClass(adrTone)}`}><small>{adrHeadline ? `U.S. ADR ${adr.symbol} · LIVE` : `${adr.symbol} · IMPLIED BID / ASK (USD)`}</small><strong>{adrHeadline ? pct(adrHeadline.value) : `${fmt(impliedHeadline?.bid ?? null, 3)} / ${fmt(impliedHeadline?.ask ?? null, 3)}`}</strong>{adrHeadline && <em>{adrHeadline.direction}</em>}</span>}
         </span><span className={styles.summaryToggle}>Details <b>⌄</b></span>
       </summary>
       <div className={styles.assetDetails}><div className={styles.identity}><small>{row.market} {row.code}</small><strong>{row.name}</strong>{row.chineseName && <span>{row.chineseName}</span>}<span className={styles.cashPrice}>{row.currency} {displayLast ? `${fmt(row.cashLast, 0)} last` : `${fmt(row.cashBidKrw, 0)} bid / ${fmt(row.cashAskKrw, 0)} ask`}</span><span className={styles.sessionLabel}>{row.session} · {dateTime(row.cashUpdatedAt)} HKT{row.cashSource ? ` · ${row.cashSource}` : ""}</span></div>
