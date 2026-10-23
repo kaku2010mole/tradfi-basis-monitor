@@ -68,12 +68,19 @@ test('ADR unit conversion retains missing sides and rejects invalid ratios witho
   }
 });
 
-test('collapsed and expanded ADR cards label implied USD prices, freshness and ratio sources', async () => {
+test('folded ADR cards show only labeled bid/ask while details retain freshness and ratio sources', async () => {
   const component = await readFile(new URL('../app/components/KoreanPerpMonitor.tsx', import.meta.url), 'utf8');
+  const summary = component.slice(component.indexOf('<summary className={styles.assetSummary}>'), component.indexOf('</summary>'));
+  const css = await readFile(new URL('../app/components/KoreanPerpMonitor.module.css', import.meta.url), 'utf8');
+  assert.match(summary, /IMPLIED BID \/ ASK \(USD\)/);
+  assert.match(summary, /fmt\(impliedHeadline\?\.bid \?\? null, 3\)/);
+  assert.match(summary, /fmt\(impliedHeadline\?\.ask \?\? null, 3\)/);
+  assert.match(summary, /adrHeadline && <em>\{adrHeadline\.direction\}<\/em>/, 'live ADR edge/direction remains unchanged');
+  assert.doesNotMatch(summary, /Implied ADR price|fresh perp|stale \/ missing perp|no ADR spread|impliedMid/);
+  assert.match(css, /\.summarySignals>\.impliedAdrSignal\{grid-template-columns:minmax\(0,1fr\)/);
   assert.match(component, /Implied ADR price · USD/);
-  assert.match(component, /Implied ADR price · bid \/ ask/);
   assert.match(component, /not an ADR market quote/);
-  assert.match(component, /stale \/ missing perp/);
+  assert.match(component, /Stale \/ missing perp/);
   assert.match(component, /href=\{adr\.ratioSourceUrl\}/);
   assert.match(component, /Ratio checked \{adr\.ratioVerifiedOn\}/);
   assert.match(component, /const POLL_MS = 2_000/);
