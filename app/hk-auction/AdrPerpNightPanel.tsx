@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { decimalNumber } from "../lib/numberFormat";
 import styles from "./page.module.css";
 
 export type NightBasisPair = {
@@ -29,15 +30,17 @@ const pct = (value: number | null | undefined) => value === null || value === un
   : `${value >= 0 ? "+" : ""}${value.toFixed(3)}%`;
 const price = (value: number | null | undefined) => value === null || value === undefined || !Number.isFinite(value)
   ? "—"
-  : value.toLocaleString("en-US", { maximumFractionDigits: 4 });
-const hktTime = (value: number) => new Intl.DateTimeFormat("en-GB", {
+  : decimalNumber(value, 4);
+const hktTimeFormat = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Asia/Hong_Kong",
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,
-}).format(value);
+});
+const hktTime = (value: number) => hktTimeFormat.format(value);
+const hktHourFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", hour12: false });
 const isNightNow = () => {
-  const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", hour: "2-digit", hour12: false }).format(Date.now())) % 24;
+  const hour = Number(hktHourFormat.format(Date.now())) % 24;
   return hour >= 21 || hour < 4;
 };
 

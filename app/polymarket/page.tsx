@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageSwitcher from "../components/PageSwitcher";
+import { decimalNumber } from "../lib/numberFormat";
 import styles from "./page.module.css";
 
 type Market = {
@@ -65,9 +66,11 @@ const finite = (value: unknown) => {
 };
 const formatPct = (value: number | null, digits = 4) => value === null || !Number.isFinite(value) ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 const formatFunding = (value: number | null) => value === null ? "—" : formatPct(value * 100, 5);
-const formatPrice = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: value >= 100 ? 3 : 7 });
-const formatCompact = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format(value);
-const formatTime = (value: number | null, date = false) => value === null ? "—" : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: date ? "short" : undefined, day: date ? "2-digit" : undefined, hour: "2-digit", minute: "2-digit", hour12: false }).format(value);
+const formatPrice = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : decimalNumber(value, value >= 100 ? 3 : 7, 2);
+const compactFormat = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
+const formatCompact = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : compactFormat.format(value);
+const timeFormats = [false, true].map(date => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Hong_Kong", month: date ? "short" : undefined, day: date ? "2-digit" : undefined, hour: "2-digit", minute: "2-digit", hour12: false }));
+const formatTime = (value: number | null, date = false) => value === null ? "—" : timeFormats[Number(date)].format(value);
 const fundingHours = (interval: string) => {
   const match = interval.trim().toLowerCase().match(/([\d.]+)\s*h/);
   const hours = Number(match?.[1]);

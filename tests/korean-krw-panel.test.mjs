@@ -85,10 +85,12 @@ test('cash fallback is non-blocking, coalesced, cached and refreshes after the K
   } finally { globalThis.fetch = originalFetch; Date.now = originalNow; }
 });
 
-test('independent table displays all venues, three decimals and explicit old/missing reference states', async () => {
+test('independent table displays integer KRW, precise USDT/returns and explicit old/missing reference states', async () => {
   const source = await readFile(new URL('../app/components/KoreanKrwPanel.tsx', import.meta.url), 'utf8');
+  const formatUrl = dataUrl(stripTypeScriptTypes(await readFile(new URL('../app/lib/numberFormat.ts', import.meta.url), 'utf8')));
   let js = ts.transpileModule(source, { compilerOptions: { jsx: ts.JsxEmit.React, module: ts.ModuleKind.ESNext } }).outputText
     .replace('"../lib/koreanPerpKrw"', JSON.stringify(helperUrl))
+    .replace('"../lib/numberFormat"', JSON.stringify(formatUrl))
     .replace('import styles from "./KoreanKrwPanel.module.css";', 'const styles = new Proxy({}, { get: (_, key) => String(key) });');
   js = `import React from ${JSON.stringify(import.meta.resolve('react'))};\n` + js;
   const { default: Panel } = await import(dataUrl(js));
@@ -96,7 +98,19 @@ test('independent table displays all venues, three decimals and explicit old/mis
   const conversion = { rate: 1400, live: true, updatedAt: now, source: 'Posley USD/KRW', date: null };
   const render = (r = rows, fx = conversion) => renderToStaticMarkup(React.createElement(Panel, { rows: r, conversion: fx, now }));
   const html = render();
-  assert.match(html, /105,000\.000 \/ 107,800\.000/); assert.match(html, /\+6\.400%/);
+  assert.match(html, /105,000 \/ 107,800/); assert.match(html, /\+6\.400%/);
+  assert.match(html, /Midpoint 106,400</); assert.match(html, /<strong>100,000<\/strong>/);
+  assert.match(html, /75\.000 \/ 77\.000/);
+  const fractional = render([{ ...rows[0], venues: [{ ...rows[0].venues[0], bid: 75.0002, ask: 77.0006 }] }]);
+  assert.match(fractional, /105,000 \/ 107,801/); assert.match(fractional, /Midpoint 106,401</);
+  assert.match(fractional, /\+6\.401%/);
+  const preciseReturn = render([{ ...rows[0], previousClose: { ...rows[0].previousClose, price: 10000 }, venues: [{ ...rows[0].venues[0], bid: 7.5001, ask: 7.5003 }] }]);
+  assert.match(preciseReturn, /Midpoint 10,500</);
+  assert.match(preciseReturn, /\+5\.003%/); // rounded midpoint would incorrectly give +5.000%
+  const color = (change) => render([{ ...rows[0], venues: [{ ...rows[0].venues[0], bid: 100000 * (1 + change / 100), ask: 100000 * (1 + change / 100) }] }], { ...conversion, rate: 1 });
+  assert.match(color(0.499), /class="change neutral"/);
+  assert.match(color(0.501), /class="change up"/);
+  assert.match(color(-0.1), /class="change down"/);
   assert.match(html, /Bitget/); assert.match(html, /Binance/); assert.match(html, /CURRENT PERP/);
   assert.match(render([{ ...rows[0], previousClose: null }]), /Previous close unavailable/);
   assert.match(render([{ ...rows[0], previousClose: { ...rows[0].previousClose, sessionDate: '2026-10-22' } }]), /OLDER REFERENCE/);
