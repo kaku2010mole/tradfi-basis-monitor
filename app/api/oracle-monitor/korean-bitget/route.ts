@@ -26,24 +26,27 @@ const FUTU_KOREAN_STOCKS = [
 ] as const;
 const KOREAN_STOCKS = [...EXISTING_KOREAN_STOCKS, ...FUTU_KOREAN_STOCKS.map((stock) => ({ ...stock, bitgetSymbol: stock.symbol, binanceSymbol: null }))];
 // ADR shares/ADS: TYOYY 0.25 (SEC F-6, Aug 2026), MRAAY 0.5 (Citi/BNY),
-// TM 10 (Toyota SEC filing). New Bitget perp/share units are inferred from
+// TM 10 (Toyota SEC filing). The four additional OTC ratios below were checked
+// against issuer/depositary records on 2026-10-23, including 2026 corporate actions.
+// New Bitget perp/share units are inferred from
 // contemporaneous contract index prices versus TSE and remain indicative.
 const JAPANESE_STOCKS = [
   { code: "285A", name: "Kioxia", bitgetSymbol: "KIOXIAUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
-  { code: "5802", name: "Sumitomo Electric", bitgetSymbol: "SUMIELECUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
+  { code: "5802", name: "Sumitomo Electric", bitgetSymbol: "SUMIELECUSDT", sharesPerPerp: 1, adrSymbol: "SMTOY", sharesPerAdr: 0.5, adrRatioSource: "Citi · current ORD:DR 1:2", adrRatioUrl: "https://depositaryreceipts.citi.com/adr/notices/pgm_dispCA.aspx?cusip=865617203&pageid=15&subpageID=113" },
   { code: "6758", name: "Sony Group", bitgetSymbol: "JPSONYUSDT", sharesPerPerp: 1, additionalBitgetSymbol: "SONYUSDT", additionalSharesPerPerp: 1, comparePerps: true, adrSymbol: "SONY", sharesPerAdr: 1 },
-  { code: "6857", name: "Advantest", bitgetSymbol: "ADVANTESTUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
-  { code: "6920", name: "Lasertec", bitgetSymbol: "LASERTECUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
+  { code: "6857", name: "Advantest", bitgetSymbol: "ADVANTESTUSDT", sharesPerPerp: 1, adrSymbol: "ATEYY", sharesPerAdr: 1, adrRatioSource: "Citi · ORD:DR 1:1", adrRatioUrl: "https://depositaryreceipts.citi.com/adr/guides/pgm_dispabook.aspx?cusip=00762U200&pageId=15&subpageID=111" },
+  { code: "6920", name: "Lasertec", bitgetSymbol: "LASERTECUSDT", sharesPerPerp: 1, adrSymbol: "LSRCY", sharesPerAdr: 0.2, adrRatioSource: "Deutsche Bank · ORD:DR 1:5", adrRatioUrl: "https://adr.db.com/drwebrebrand/dr-universe/dr_details.html?identifier=11720" },
   { code: "6976", name: "Taiyo Yuden", bitgetSymbol: "TAIYOYUDENUSDT", sharesPerPerp: 1, adrSymbol: "TYOYY", sharesPerAdr: 0.25 },
   { code: "6981", name: "Murata Manufacturing", bitgetSymbol: "MURATAUSDT", sharesPerPerp: 1, adrSymbol: "MRAAY", sharesPerAdr: 0.5 },
   { code: "7203", name: "Toyota Motor", bitgetSymbol: "TOYOTAUSDT", sharesPerPerp: 1, additionalBitgetSymbol: "TMUSDT", additionalSharesPerPerp: 10, adrSymbol: "TM", sharesPerAdr: 10 },
-  { code: "8035", name: "Tokyo Electron", bitgetSymbol: "TOKYOELUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
+  { code: "8035", name: "Tokyo Electron", bitgetSymbol: "TOKYOELUSDT", sharesPerPerp: 1, adrSymbol: "TELWY", sharesPerAdr: 0.5, adrRatioSource: "Tokyo Electron IR · current ticker TELWY · ADR:ORD 2:1", adrRatioUrl: "https://www.tel.com/ir/stocks/info/" },
   { code: "8306", name: "MUFG", bitgetSymbol: "JPMUFGUSDT", sharesPerPerp: 1, additionalBitgetSymbol: "MUFGUSDT", additionalSharesPerPerp: 1, comparePerps: true, adrSymbol: "MUFG", sharesPerAdr: 1 },
   { code: "9983", name: "Fast Retailing", chineseName: "迅销（优衣库母公司）", bitgetSymbol: "FASTRETAILINGUSDT", sharesPerPerp: 1, showPerpQuote: true, cashFeedPending: true, adrSymbol: null, sharesPerAdr: null },
   { code: "9984", name: "SoftBank Group", bitgetSymbol: "SOFTBANKUSDT", sharesPerPerp: 1, adrSymbol: null, sharesPerAdr: null },
 ] as const;
-// The office feed only carries these U.S. books. TYOYY and MRAAY still get
-// a contract-derived ADR equivalent, without claiming a live ADR spread.
+// Only request U.S. books actually carried by the office feed. Other mapped
+// ADRs still get a contract-derived equivalent, without claiming a live ADR
+// spread or creating new subscriptions / missing-feed warnings.
 const ADR_SYMBOLS = ["SONY", "TM", "MUFG"];
 
 // A known-unavailable new cash feed must not force healthy office books through
@@ -242,11 +245,12 @@ export async function GET(request: Request) {
         mappingNote: stock.code === "7203" ? "Comparison assumes TOYOTAUSDT is priced per ordinary share and TMUSDT per ADR-equivalent (10 ordinary shares), consistent with their quoted prices. Confirm Bitget contract specifications before trading."
           : "comparePerps" in stock ? "Bitget JP and ADR-linked perps are compared in USDT using a 1:1 contract-unit mapping, consistent with current index prices and the 1:1 ADR/share ratio. This is perp/perp basis, not a live ADR quote; funding and dividend adjustments may differ."
           : stock.code === "9983" ? `${cash ? "" : "Waiting for the Posley TSE 9983 cash feed; Bitget prices are not cash-stock quotes. "}Cash comparison assumes one ordinary share per Bitget contract unit. Confirm contract specifications before trading.`
-          : stock.code === "6976" || stock.code === "6981" ? "Comparison assumes one Bitget contract unit tracks one TSE ordinary share, consistent with the current index price. Confirm Bitget contract specifications before trading." : null,
+          : stock.code === "6976" || stock.code === "6981" || "adrRatioUrl" in stock ? "Comparison assumes one Bitget contract unit tracks one TSE ordinary share, consistent with the current index price. Confirm Bitget contract specifications before trading." : null,
         cashBidKrw, cashAskKrw, cashBidQty: positive(cash?.bidSize), cashAskQty: positive(cash?.askSize), cashUpdatedAt: cash?.timestamp ?? null,
         cashLast: positive(cash?.last),
         cashBidUsd, cashAskUsd,
         adr: stock.adrSymbol ? { symbol: stock.adrSymbol, sharesPerAdr: stock.sharesPerAdr, source: !adr ? "No live ADR feed" : "source" in adr ? String(adr.source) : "Posley IBKR", marketState: adr && "marketState" in adr ? adr.marketState : null,
+          ratioSource: "adrRatioSource" in stock ? stock.adrRatioSource : null, ratioSourceUrl: "adrRatioUrl" in stock ? stock.adrRatioUrl : null, ratioVerifiedOn: "adrRatioUrl" in stock ? "2026-10-23" : null,
           bid: positive(adr?.bid), ask: positive(adr?.ask), last: positive(adr?.last), bidQty: positive(adr?.bidSize), askQty: positive(adr?.askSize), updatedAt: adr?.timestamp ?? null,
         } : null,
         venues: contracts.map(({ symbol, sharesPerPerp }) => {
