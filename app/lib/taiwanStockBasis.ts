@@ -27,7 +27,7 @@ export type TaiwanRow = {
   code: string; name: string; chineseName: string; symbol: string; adrSymbol: string | null;
   book: TaiwanBook; anchor: ReferencePrice | null; anchorError: string | null;
 };
-export type TaiwanPayload = { rows: TaiwanRow[]; anchorTimestamp: number | null; calendarSource: string; tsm: TsmReference; adrs?: Record<string, AdrReference>; cash?: TaiwanCashFeed; fx?: TaiwanFxFeed; error: string | null; timestamp: number };
+export type TaiwanPayload = { rows: TaiwanRow[]; anchorTimestamp: number | null; calendarSource: string; tsm: TsmReference; adrs?: Record<string, AdrReference>; cash?: TaiwanCashFeed; fx?: TaiwanFxFeed; latestCloseDate?: string | null; closes?: Record<string, import("./taiwanPerpTwd").TaiwanCloseReference>; view?: "full" | "prices"; error: string | null; timestamp: number };
 
 // Verified against the TWSE 115-year holiday schedule. Used only if that year's
 // official endpoint is unavailable; never silently use weekdays for an unknown year.
@@ -58,12 +58,12 @@ export function parseTaiwanCalendar(data: unknown, year: number): Calendar | nul
   return holidays.length ? { year, holidays, source: "TWSE official holiday schedule" } : null;
 }
 
-function taiwanAnchor(now: number, calendars: Calendar[], includeToday: boolean): number | null {
+function taiwanAnchor(now: number, calendars: Calendar[], includeToday: boolean, minute = 840): number | null {
   if (!Number.isFinite(now)) return null;
   const localMidnight = Math.floor((now + TAIPEI_OFFSET_MS) / DAY_MS) * DAY_MS;
   for (let days = includeToday ? 0 : 1; days <= 40; days++) {
     const date = new Date(localMidnight - days * DAY_MS);
-    const target = date.getTime() - TAIPEI_OFFSET_MS + 14 * 3_600_000;
+    const target = date.getTime() - TAIPEI_OFFSET_MS + minute * 60_000;
     if (target > now) continue;
     if ([0, 6].includes(date.getUTCDay())) continue;
     const calendar = calendars.find((item) => item.year === date.getUTCFullYear());
@@ -76,6 +76,12 @@ function taiwanAnchor(now: number, calendars: Calendar[], includeToday: boolean)
 // Model resets at 14:00 HKT/Taipei on each verified TWSE trading day.
 export function latestTaiwanAnchor(now: number, calendars: Calendar[]): number | null {
   return taiwanAnchor(now, calendars, true);
+}
+
+// Separate from the legacy 14:00 model: normal TWSE cash closes at 13:30.
+// The actual closing record still must be confirmed (including delayed auctions).
+export function latestTaiwanCashClose(now: number, calendars: Calendar[]): number | null {
+  return taiwanAnchor(now, calendars, true, 810);
 }
 
 // The separate opening study keeps its prior-date baseline after the model resets.

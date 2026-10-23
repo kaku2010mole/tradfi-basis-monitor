@@ -221,7 +221,9 @@ test("rendered Taiwan API returns eight rows, isolates missing anchors and uses 
     assert.match(html, /Live \/ Pre-open/);
     assert.match(html, /id="taiwan-live-tab"[^>]+aria-selected="true"/);
     assert.match(html, /role="tabpanel" id="taiwan-live-panel"/);
-    assert.doesNotMatch(html, /DIRECTION HIT|TSM ADR → Taiwan opening outlook|LATEST 14:00 ORACLE/);
+    assert.doesNotMatch(html, /DIRECTION HIT|LATEST 14:00 ORACLE|id="taiwan-model-tab"/);
+    assert.match(html, /Change vs close/);
+    assert.match(html, /TSM ADR → Taiwan opening outlook/);
     for (const stock of model.TAIWAN_STOCKS) assert.ok(html.includes(stock.symbol));
   } finally { globalThis.fetch = original; Date.now = originalNow; }
 });

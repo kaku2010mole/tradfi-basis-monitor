@@ -37,7 +37,8 @@ test("a running server reanchors all eight names, TSM and UMC without a restart 
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
-    .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => undefined;")
+    .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
+    .replace('import { taiwanLatestCloses } from "./taiwanLatestClose";', "const taiwanLatestCloses = () => ({});")
     .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;");
   const { taiwanSnapshot } = await import(moduleUrl(source));
   const originalFetch = globalThis.fetch, originalNow = Date.now;
@@ -118,15 +119,14 @@ test("a running server reanchors all eight names, TSM and UMC without a restart 
   }
 });
 
-test("UI describes the 14:00 reset and gives the opening study its separate denominator", async () => {
+test("UI removes the model but preserves the historical opening study and separate denominator", async () => {
   const panel = await readFile(new URL("../app/components/TaiwanStockPanel.tsx", import.meta.url), "utf8");
   const study = await readFile(new URL("../app/components/TaiwanAdrOutlook.tsx", import.meta.url), "utf8");
-  assert.match(panel, /Automatically resets at 14:00 HKT/);
-  assert.match(panel, /LATEST 14:00 ORACLE/);
+  assert.match(panel, /Change vs close/);
+  assert.match(panel, /studyOpen &&/);
   assert.doesNotMatch(panel, /Previous TWSE trading date|PREVIOUS 14:00 ORACLE/);
   assert.match(study, /adrReturn\(openingAnchor, tsm.preOpen, openingTarget,/);
-  assert.match(panel, /same-date 17:00 fallback/);
-  assert.match(panel, /ADR BASELINE/);
+  assert.doesNotMatch(panel, /LATEST 14:00 ORACLE|ADR BASELINE/);
   assert.doesNotMatch(panel, /AT \/ BEFORE ANCHOR/);
 });
 
@@ -134,7 +134,8 @@ test("live ADR fallback uses the 17:00 candle OPEN, remains unavailable before i
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
-    .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => undefined;")
+    .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
+    .replace('import { taiwanLatestCloses } from "./taiwanLatestClose";', "const taiwanLatestCloses = () => ({});")
     .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;");
   const { taiwanSnapshot } = await import(moduleUrl(source + "\n// isolated 17:00 fallback test"));
   const originalFetch = globalThis.fetch, originalNow = Date.now, originalPush = globalThis.__FUTU_PUSH_SNAPSHOT__;
@@ -205,7 +206,8 @@ test("UMC validates ticker identity, isolates outages and prefers its own fresh 
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
-    .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => undefined;")
+    .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
+    .replace('import { taiwanLatestCloses } from "./taiwanLatestClose";', "const taiwanLatestCloses = () => ({});")
     .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;");
   const { taiwanSnapshot } = await import(moduleUrl(source + "\n// separate UMC feed isolation instance"));
   const originalFetch = globalThis.fetch, originalNow = Date.now, originalPush = globalThis.__FUTU_PUSH_SNAPSHOT__;

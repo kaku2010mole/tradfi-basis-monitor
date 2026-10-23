@@ -112,8 +112,9 @@ test('independent table displays integer KRW, precise USDT/returns and explicit 
   assert.match(color(0.501), /class="change up"/);
   assert.match(color(-0.1), /class="change down"/);
   assert.match(html, /Bitget/); assert.match(html, /Binance/); assert.match(html, /CURRENT PERP/);
-  assert.match(render([{ ...rows[0], previousClose: null }]), /Previous close unavailable/);
-  assert.match(render([{ ...rows[0], previousClose: { ...rows[0].previousClose, sessionDate: '2026-10-22' } }]), /OLDER REFERENCE/);
+  assert.match(render([{ ...rows[0], previousClose: null }]), /Latest cash close unavailable/);
+  assert.match(render([{ ...rows[0], previousClose: { ...rows[0].previousClose, closeDate: '2026-10-22', pendingCloseDate: '2026-10-23' } }]), /OLDER REFERENCE/);
+  assert.doesNotMatch(render([{ ...rows[0], previousClose: { ...rows[0].previousClose, closeDate: '2026-10-22' } }]), /OLDER REFERENCE/);
   assert.match(render(rows, { ...conversion, live: false, source: 'Daily reference' }), /REFERENCE \/ STALE/);
   const monitor = await readFile(new URL('../app/components/KoreanPerpMonitor.tsx', import.meta.url), 'utf8');
   assert.ok(monitor.indexOf('<KoreanKrwPanel') > monitor.indexOf('{koreaRows.map(renderRow)}'));
@@ -132,16 +133,18 @@ test('previous close reaches the existing quote API without changing cash/perp e
   globalThis.fetch = async url => {
     if (String(url).includes('api.bitget.com')) return Response.json({ code: '00000', data: [{ symbol: 'ELICEUSDT', bidPr: '70', askPr: '71', bidSz: '10', askSz: '12', ts: String(now) }] });
     if (String(url).includes('fapi.binance.com')) return Response.json([]);
-    if (String(url).includes('m.stock.naver.com')) return new Response('', { status: 503 });
+    if (String(url).includes('api.stock.naver.com')) return Response.json({ code: String(url).split('/').at(-1).split('?')[0], periodType: 'day', stockExchangeType: 'KRX', tradeBaseAt: '20261023', lastTradeBaseAt: '20261022', lastClosePrice: 93600, openTime: '20261023090000', priceInfos: [{ localDateTime: '20261023153000', currentPrice: 94200 }] });
     throw new Error('Unexpected URL');
   };
   try {
     const quotes = [{ symbol: 'KRX.0158S0', bid: 93400, ask: null, bidSize: 10, askSize: null, last: 93400, previousClose: 93600, marketTimestamp: now }, { symbol: 'FX.USDKRW', bid: 1330, ask: 1332, marketTimestamp: now }];
     const push = await worker.fetch(new Request('http://localhost/api/hk-auction/ingest', { method: 'POST', headers: { Authorization: 'Bearer test-krw-token' }, body: JSON.stringify({ generatedAt: now, quotes }) }), { FUTU_PUSH_TOKEN: 'test-krw-token' }, ctx);
     assert.equal(push.status, 202);
+    await worker.fetch(new Request('http://localhost/api/oracle-monitor/korean-bitget'), {}, ctx);
+    await new Promise(resolve => setImmediate(resolve));
     const response = await worker.fetch(new Request('http://localhost/api/oracle-monitor/korean-bitget'), {}, ctx);
     const payload = await response.json(), row = payload.rows.find(r => r.code === '0158S0');
-    assert.equal(row.previousClose.price, 93600); assert.equal(row.previousClose.sessionDate, '2026-10-23');
+    assert.equal(row.previousClose.price, 93600); assert.equal(row.previousClose.closeDate, '2026-10-22');
     assert.equal(row.cashAskKrw, null); assert.equal(row.venues[0].buyKoreaSellPerp, null);
     assert.equal(payload.krwConversion.rate, 1331); assert.equal(payload.rows.filter(r => r.market === 'KRX').length, 11);
     assert.ok(payload.rows.filter(r => r.market === 'TSE').every(r => !Object.hasOwn(r, 'previousClose')));
