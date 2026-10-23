@@ -1,4 +1,4 @@
-export type KoreanCloseReference = { price: number; source: string; observedAt: number; sessionDate: string };
+export type KoreanCloseReference = { price: number; source: string; observedAt: number; sessionDate: string; closeDate?: string; tradingDate?: string; pendingCloseDate?: string };
 export type KrwConversionRate = { rate: number | null; source: string; date: string | null; updatedAt: number | null; live: boolean };
 
 const dateFormat = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" });

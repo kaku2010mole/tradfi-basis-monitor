@@ -2,7 +2,7 @@ import { equityBasis, equitySpreads, preferCashLast } from "../../../lib/equityB
 import { posleyAdrSnapshot } from "../../../lib/posleyAdr";
 import { bitgetBooksWithin } from "../../../lib/bitgetRelativeMarket";
 import { publicBinanceJson } from "../../../lib/publicBinanceJson";
-import { koreanPreviousClose } from "../../../lib/koreanPreviousClose";
+import { koreanLatestClose } from "../../../lib/koreanLatestClose";
 
 export const dynamic = "force-dynamic";
 
@@ -211,7 +211,7 @@ export async function GET(request: Request) {
       return {
         code: stock.code, name: stock.name, chineseName: "chineseName" in stock ? stock.chineseName : null,
         cashSource,
-        previousClose: koreanPreviousClose(stock.code, cash?.previousClose, cash?.timestamp, cashSource, now),
+        previousClose: koreanLatestClose(stock.code, now),
         market: "KRX", session: sessions.KRX, currency: "KRW", sharesPerPerp: 1, venues, strictCashBook,
         mappingNote: stock.code === "0158S0" ? "Elice · KOSDAQ 0158S0 · Posley IBKR orderbook. Missing bid/ask sides stay unavailable; last trades never substitute for a missing side. Cash/perp unit assumes one ordinary share."
           : stock.code === "042700" ? "Binance HANMIUSDT is the exact 042700 contract. Bitget HANMIUSDT is Hanmi Pharm, so it is deliberately excluded." : null,
