@@ -6,7 +6,8 @@ const url = text => "data:text/javascript;base64," + Buffer.from(stripTypeScript
 const cashUrl = url(await readFile(new URL("../app/lib/taiwanCash.ts", import.meta.url), "utf8"));
 const liveUrl = url((await readFile(new URL("../app/lib/taiwanLiveBasis.ts", import.meta.url), "utf8")).replaceAll('from "./taiwanCash"', `from ${JSON.stringify(cashUrl)}`));
 const { taiwanLiveComparison: compare, parseTaiwanFx } = await import(liveUrl);
-const serverUrl = url((await readFile(new URL("../app/lib/taiwanFxMarket.ts", import.meta.url), "utf8")).replace('from "./taiwanLiveBasis"', `from ${JSON.stringify(liveUrl)}`));
+const refreshUrl = url(await readFile(new URL("../app/lib/marketCacheRefresh.ts", import.meta.url), "utf8"));
+const serverUrl = url((await readFile(new URL("../app/lib/taiwanFxMarket.ts", import.meta.url), "utf8")).replace('from "./taiwanLiveBasis"', `from ${JSON.stringify(liveUrl)}`).replace('from "./marketCacheRefresh"', `from ${JSON.stringify(refreshUrl)}`));
 const { createTaiwanFxClient } = await import(serverUrl);
 const now = Date.parse("2026-10-20T10:00:00+08:00");
 const fx = { price: 32, timestamp: now, fetchedAt: now, source: "test FX" };
@@ -47,6 +48,10 @@ test("missing, stale, future and halted inputs suppress live spreads without hid
 const fxData = (t = now) => ({ chart: { result: [{ meta: { symbol: "TWD=X", currency: "TWD", instrumentType: "CURRENCY", regularMarketPrice: 32, regularMarketTime: t / 1000 } }] } });
 test("USD/TWD identity and original market timestamp are checked", () => {
   assert.equal(parseTaiwanFx(fxData(), now).timestamp, now);
+  const alias = fxData(); alias.chart.result[0].meta.symbol = "USDTWD=X";
+  assert.equal(parseTaiwanFx(alias, now).price, 32);
+  alias.chart.result[0].meta.symbol = "TWDUSD=X";
+  assert.equal(parseTaiwanFx(alias, now), null);
   assert.equal(parseTaiwanFx(fxData(now + 60000), now), null);
   assert.equal(parseTaiwanFx(fxData(now - 8 * 86400000), now), null);
   const wrong = fxData(); wrong.chart.result[0].meta.symbol = "JPY=X";
@@ -58,9 +63,74 @@ test("one FX request per minute is shared; failure preserves original timestamp 
   const all = await Promise.all(Array.from({ length: 20 }, () => get()));
   assert.equal(count, 1); assert.equal(all[0].quote.timestamp, now);
   t += 59999; await get(); assert.equal(count, 1);
-  t++; rateLimited = true; const retained = await get();
-  assert.equal(retained.quote.timestamp, now); assert.equal(count, 2);
+  t++; rateLimited = true; const retained = await get({ waitForRefresh: true });
+  assert.equal(retained.quote.timestamp, now); assert.equal(count, 3);
   await new Promise(resolve => setImmediate(resolve));
-  t += 60000; const failed = await get(); assert.equal(count, 2);
+  t += 60000; const failed = await get(); assert.equal(count, 3);
   assert.equal(failed.quote.timestamp, now); assert.ok(!JSON.stringify(failed).includes("private upstream"));
+});
+
+test("FX secondary endpoint accepts canonical USD/TWD and respects primary Retry-After", async () => {
+  let t = now;
+  const calls = [];
+  const get = createTaiwanFxClient({ clock: () => t, fetcher: async address => {
+    const host = new URL(address).hostname; calls.push(host);
+    if (host.startsWith("query1")) return new Response("secret", { status: 429, headers: { "Retry-After": "600" } });
+    const data = fxData(t); data.chart.result[0].meta.symbol = "USDTWD=X";
+    return Response.json(data);
+  } });
+  let result = await get({ waitForRefresh: true });
+  assert.equal(calls.length, 2); assert.equal(result.error, null);
+  assert.match(result.quote.source, /secondary endpoint/);
+  for (let i = 0; i < 9; i++) { t += 60_000; result = await get({ waitForRefresh: true }); }
+  assert.equal(calls.filter(host => host.startsWith("query1")).length, 1);
+  assert.equal(result.quote.timestamp, t);
+  t += 60_000; await get({ waitForRefresh: true });
+  assert.equal(calls.filter(host => host.startsWith("query1")).length, 2);
+});
+
+test("transient FX failures retry at 5/15/30/60 seconds without overwriting old timestamps", async () => {
+  let t = now, failing = false, calls = 0;
+  const get = createTaiwanFxClient({ clock: () => t, fetcher: async () => {
+    calls++; if (failing) throw new Error("upstream private error");
+    return Response.json(fxData(t));
+  } });
+  await get(); failing = true; t += 60_000;
+  for (const delay of [5_000, 15_000, 30_000, 60_000]) {
+    const result = await get({ waitForRefresh: true });
+    assert.equal(result.quote.timestamp, now); assert.equal(result.quote.fetchedAt, now);
+    assert.equal(result.nextRefreshAt, t + delay);
+    assert.ok(!JSON.stringify(result).includes("upstream private"));
+    const count = calls; t += delay - 1; await get(); assert.equal(calls, count); t++;
+  }
+  failing = false;
+  const result = await get({ waitForRefresh: true });
+  assert.equal(result.quote.timestamp, t); assert.equal(result.error, null);
+});
+
+test("slow FX recovery never blocks normal polling; resume waits for the same shared request", async () => {
+  let t = now, release, calls = 0;
+  let gate = null;
+  const get = createTaiwanFxClient({ clock: () => t, fetcher: async () => {
+    calls++; if (gate) await gate; return Response.json(fxData(t));
+  } });
+  await get(); t += 180_000;
+  gate = new Promise(resolve => { release = resolve; });
+  const retained = await get();
+  assert.equal(retained.refreshing, true); assert.equal(retained.quote.timestamp, now);
+  let resumed = false;
+  const waits = get({ waitForRefresh: true }).then(result => { resumed = true; return result; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(resumed, false); assert.equal(calls, 2);
+  release(); const fresh = await waits;
+  assert.equal(fresh.quote.timestamp, t); assert.equal(fresh.refreshing, false);
+});
+
+test("older FX responses cannot move the displayed observation backwards; fallback uses fresh data", async () => {
+  let t = now, oldPrimary = false;
+  const get = createTaiwanFxClient({ clock: () => t, fetcher: async address =>
+    Response.json(fxData(oldPrimary && address.includes("query1.") ? now - 60_000 : t)) });
+  await get(); oldPrimary = true; t += 60_000;
+  const result = await get({ waitForRefresh: true });
+  assert.equal(result.quote.timestamp, t); assert.match(result.quote.source, /secondary/);
 });

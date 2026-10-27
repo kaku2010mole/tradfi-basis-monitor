@@ -1,6 +1,8 @@
 import { parseTaiwanCash } from "./taiwanCash";
 import type { TaiwanCashFeed } from "./taiwanCash";
 import { TAIWAN_STOCKS } from "./taiwanStockBasis";
+import { createMarketRefreshLease, waitForMarketRefresh } from "./marketCacheRefresh";
+import type { MarketRefreshOptions } from "./marketCacheRefresh";
 
 const REFRESH_MS = 60_000;
 // One cache and one in-flight batch per server, shared by every browser. The
@@ -12,6 +14,7 @@ export function createTaiwanCashClient(options: {
   let snapshot: TaiwanCashFeed = { configured: false, quotes: {}, errors: {}, checkedAt: null, refreshMs: REFRESH_MS };
   let pending: Promise<TaiwanCashFeed> | null = null;
   let retryAt = 0;
+  const lease = createMarketRefreshLease(ensureRefresh, clock);
   async function refresh(key: string): Promise<TaiwanCashFeed> {
     let cooldown = REFRESH_MS;
     const errors: Record<string, string> = {};
@@ -46,14 +49,26 @@ export function createTaiwanCashClient(options: {
     snapshot = { configured: true, quotes, errors, checkedAt, refreshMs: REFRESH_MS };
     return snapshot;
   }
-  return async function get(): Promise<TaiwanCashFeed> {
+  async function ensureRefresh() {
     const key = options.getKey()?.trim();
-    if (!key) return { configured: false, quotes: {}, errors: {}, checkedAt: null, refreshMs: REFRESH_MS };
+    if (!key) { lease.stop(); return; }
     if (!pending && clock() >= retryAt) {
-      pending = refresh(key).finally(() => { pending = null; });
+      pending = refresh(key).finally(() => { pending = null; lease.schedule(retryAt); });
     }
+    return pending;
+  }
+  return async function get(access: MarketRefreshOptions = {}): Promise<TaiwanCashFeed> {
+    if (!options.getKey()?.trim()) {
+      lease.stop();
+      return { configured: false, quotes: {}, errors: {}, checkedAt: null, refreshMs: REFRESH_MS };
+    }
+    lease.touch();
+    void ensureRefresh();
+    if (!pending) lease.schedule(retryAt);
+    if (access.waitForRefresh) await waitForMarketRefresh(pending);
+    else if (snapshot.checkedAt === null && pending) await pending;
     // Once hydrated, keep Bitget's 2s refresh independent of slow cash requests.
-    return snapshot.checkedAt === null && pending ? pending : snapshot;
+    return { ...snapshot, configured: true, refreshing: pending !== null, nextRefreshAt: retryAt };
   };
 }
 
