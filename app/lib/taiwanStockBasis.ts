@@ -11,6 +11,9 @@ export const TAIWAN_STOCKS = [
   { code: "2344", name: "Winbond Electronics", chineseName: "華邦電", symbol: "WINBONDUSDT" },
   { code: "2327", name: "Yageo", chineseName: "國巨", symbol: "YAGEOUSDT" },
   { code: "2492", name: "Walsin Technology", chineseName: "華新科", symbol: "WALSINUSDT" },
+  // https://www.bitget.com/support/articles/12560603898876
+  { code: "2317", name: "Hon Hai Precision", chineseName: "鴻海精密", symbol: "HONHAIUSDT" },
+  { code: "2454", name: "MediaTek", chineseName: "聯發科", symbol: "MEDIATEKUSDT" },
 ] as const;
 
 export const DAY_MS = 86_400_000;
@@ -27,7 +30,7 @@ export type TaiwanRow = {
   code: string; name: string; chineseName: string; symbol: string; adrSymbol: string | null;
   book: TaiwanBook; anchor: ReferencePrice | null; anchorError: string | null;
 };
-export type TaiwanPayload = { rows: TaiwanRow[]; anchorTimestamp: number | null; calendarSource: string; tsm: TsmReference; adrs?: Record<string, AdrReference>; cash?: TaiwanCashFeed; fx?: TaiwanFxFeed; latestCloseDate?: string | null; closes?: Record<string, import("./taiwanPerpTwd").TaiwanCloseReference>; view?: "full" | "prices"; error: string | null; timestamp: number };
+export type TaiwanPayload = { rows: TaiwanRow[]; anchorTimestamp: number | null; calendarSource: string; tsm: TsmReference; adrs?: Record<string, AdrReference>; honHaiGdr?: import("./honHaiGdr").HonHaiGdrFeed; cash?: TaiwanCashFeed; fx?: TaiwanFxFeed; latestCloseDate?: string | null; closes?: Record<string, import("./taiwanPerpTwd").TaiwanCloseReference>; view?: "full" | "prices"; error: string | null; timestamp: number };
 
 // Verified against the TWSE 115-year holiday schedule. Used only if that year's
 // official endpoint is unavailable; never silently use weekdays for an unknown year.

@@ -33,13 +33,14 @@ test("Taiwan model reanchors exactly at 14:00, not midnight, and respects holida
   assert.equal(model.latestTaiwanAnchor(NaN, calendars), null);
 });
 
-test("a running server reanchors all eight names, TSM and UMC without a restart or stale-date fallback", async () => {
+test("a running server reanchors all ten names, TSM and UMC without a restart or stale-date fallback", async () => {
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
     .replace('import { taiwanLatestCloses } from "./taiwanLatestClose";', "const taiwanLatestCloses = () => ({});")
-    .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;");
+    .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;")
+    .replace('import { honHaiGdrSnapshot } from "./honHaiGdrMarket";', "const honHaiGdrSnapshot = () => ({ quote: null, error: null });");
   const { taiwanSnapshot } = await import(moduleUrl(source));
   const originalFetch = globalThis.fetch, originalNow = Date.now;
   const firstTarget = at("2026-10-19T14:00:00"), secondTarget = at("2026-10-20T14:00:00");
@@ -72,20 +73,20 @@ test("a running server reanchors all eight names, TSM and UMC without a restart 
   try {
     const first = await taiwanSnapshot(now);
     assert.equal(first.anchorTimestamp, firstTarget);
-    assert.equal(indexCalls.length, 8);
+    assert.equal(indexCalls.length, 10);
     assert.ok(first.rows.every((row) => row.anchor?.price === 100 && row.anchor.timestamp === firstTarget));
     assert.equal(first.tsm.anchor.price, 200);
     assert.equal(first.adrs.UMC.anchor.price, 10);
     await taiwanSnapshot(now);
-    assert.equal(indexCalls.length, 8, "unchanged anchors are shared, not re-fetched every 2 seconds");
+    assert.equal(indexCalls.length, 10, "unchanged anchors are shared, not re-fetched every 2 seconds");
     assert.equal(adrRequests.length, 2, "one cached history request per ADR, not per browser refresh");
 
     now = at("2026-10-20T14:00:00");
     failWinbond = true;
     const next = await taiwanSnapshot(now);
     assert.equal(next.anchorTimestamp, secondTarget);
-    assert.equal(indexCalls.length, 16, "all eight cache keys must change at 14:00");
-    assert.deepEqual(new Set(indexCalls.slice(8).map((call) => call.target)), new Set([secondTarget]));
+    assert.equal(indexCalls.length, 20, "all ten cache keys must change at 14:00");
+    assert.deepEqual(new Set(indexCalls.slice(10).map((call) => call.target)), new Set([secondTarget]));
     const winbond = next.rows.find((row) => row.symbol === "WINBONDUSDT");
     assert.equal(winbond.anchor, null, "a missing new anchor must not fall back to yesterday's cached anchor");
     assert.match(winbond.anchorError, /503/);
@@ -106,11 +107,11 @@ test("a running server reanchors all eight names, TSM and UMC without a restart 
     now += 31_000;
     const recovered = await taiwanSnapshot(now);
     assert.ok(recovered.rows.every((row) => row.anchor?.price === 120 && row.anchor.timestamp === secondTarget));
-    assert.equal(indexCalls.length, 17, "only the missing daily anchor needs retrying");
+    assert.equal(indexCalls.length, 21, "only the missing daily anchor needs retrying");
     now = at("2026-10-21T00:00:00");
     const midnight = await taiwanSnapshot(now);
     assert.equal(midnight.anchorTimestamp, secondTarget);
-    assert.equal(indexCalls.length, 17, "midnight must not reset or re-fetch the price model");
+    assert.equal(indexCalls.length, 21, "midnight must not reset or re-fetch the price model");
     assert.equal(midnight.tsm.openingAnchorTimestamp, secondTarget, "the next opening study advances independently");
     assert.equal(midnight.adrs.UMC.anchor.price, 9);
   } finally {
@@ -136,7 +137,8 @@ test("live ADR fallback uses the 17:00 candle OPEN, remains unavailable before i
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
     .replace('import { taiwanLatestCloses } from "./taiwanLatestClose";', "const taiwanLatestCloses = () => ({});")
-    .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;");
+    .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;")
+    .replace('import { honHaiGdrSnapshot } from "./honHaiGdrMarket";', "const honHaiGdrSnapshot = () => ({ quote: null, error: null });");
   const { taiwanSnapshot } = await import(moduleUrl(source + "\n// isolated 17:00 fallback test"));
   const originalFetch = globalThis.fetch, originalNow = Date.now, originalPush = globalThis.__FUTU_PUSH_SNAPSHOT__;
   const target = at("2026-10-20T14:00:00"), fallback = at("2026-10-20T17:00:00");
@@ -208,7 +210,8 @@ test("UMC validates ticker identity, isolates outages and prefers its own fresh 
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
     .replace('import { taiwanLatestCloses } from "./taiwanLatestClose";', "const taiwanLatestCloses = () => ({});")
-    .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;");
+    .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;")
+    .replace('import { honHaiGdrSnapshot } from "./honHaiGdrMarket";', "const honHaiGdrSnapshot = () => ({ quote: null, error: null });");
   const { taiwanSnapshot } = await import(moduleUrl(source + "\n// separate UMC feed isolation instance"));
   const originalFetch = globalThis.fetch, originalNow = Date.now, originalPush = globalThis.__FUTU_PUSH_SNAPSHOT__;
   const target = at("2026-10-20T14:00:00");

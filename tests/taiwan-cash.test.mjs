@@ -61,7 +61,7 @@ test("pre-open reference uses trial return once, preserves oracle units and reje
   assert.ok(compare(delayed, anchor, { ...book, timestamp: delayedNow }, delayedNow).reference);
 });
 
-test("many viewers share eight requests/min, stale-while-refresh, no secret output, independent failure retention", async () => {
+test("many viewers share ten requests/min, stale-while-refresh, no secret output, independent failure retention", async () => {
   let t = now, count = 0, fail = false, gate;
   const get = createTaiwanCashClient({ getKey: () => "test-private-key", clock: () => t, fetcher: async (url, options) => {
     count++;
@@ -72,20 +72,20 @@ test("many viewers share eight requests/min, stale-while-refresh, no secret outp
     return Response.json(raw(url.split("/").pop(), t));
   } });
   const initial = await Promise.all(Array.from({ length: 30 }, () => get()));
-  assert.equal(count, 8);
-  assert.equal(Object.keys(initial[0].quotes).length, 8);
+  assert.equal(count, 10);
+  assert.equal(Object.keys(initial[0].quotes).length, 10);
   assert.ok(!JSON.stringify(initial).includes("test-private-key"));
   t += 59999;
-  await get(); assert.equal(count, 8);
+  await get(); assert.equal(count, 10);
   t++;
   let release;
   gate = new Promise(resolve => { release = resolve; });
   fail = true;
   const retained = await get();
-  assert.equal(count, 16);
+  assert.equal(count, 20);
   assert.equal(retained.quotes["2330"].timestamp, now, "serve prior quote immediately while refreshing");
   await Promise.all(Array.from({ length: 30 }, () => get()));
-  assert.equal(count, 16);
+  assert.equal(count, 20);
   release(); await new Promise(resolve => setImmediate(resolve));
   const outage = await get();
   assert.equal(outage.quotes["2330"].timestamp, now);
@@ -104,8 +104,8 @@ test("missing credentials make zero calls; auth and quota errors back off withou
       count++; return new Response("sensitive upstream body", { status, headers: { "Retry-After": "300" } });
     } });
     assert.ok(!JSON.stringify(await get()).includes("sensitive"));
-    t += 60000; await get(); assert.equal(count, 8);
-    t += 240000; await get(); assert.equal(count, 16);
+    t += 60000; await get(); assert.equal(count, 10);
+    t += 240000; await get(); assert.equal(count, 20);
     await new Promise(resolve => setImmediate(resolve));
   }
 });
@@ -117,7 +117,7 @@ test("returning after an idle gap waits for refreshed cash without duplicate ups
   } });
   await get(); t += 600_000;
   const results = await Promise.all(Array.from({ length: 20 }, () => get({ waitForRefresh: true })));
-  assert.equal(count, 16);
+  assert.equal(count, 20);
   assert.equal(results[0].quotes["2330"].timestamp, t);
   assert.equal(results[0].refreshing, false);
 });

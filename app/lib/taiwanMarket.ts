@@ -2,6 +2,7 @@ import { bitgetBooks } from "./bitgetRelativeMarket";
 import { taiwanCashSnapshot } from "./fugleTaiwanMarket";
 import { taiwanFxSnapshot } from "./taiwanFxMarket";
 import { taiwanLatestCloses } from "./taiwanLatestClose";
+import { honHaiGdrSnapshot } from "./honHaiGdrMarket";
 import { ADR_FALLBACK_OFFSET_MS, DAY_MS, TAIPEI_OFFSET_MS, TAIWAN_STOCKS, TWSE_2026, adrModelAnchor, fresh, indexAnchorFromCandles, lastReferenceAtOrBefore, latestTaiwanAnchor, latestTaiwanCashClose, parseTaiwanCalendar, positive, previousTaiwanAnchor, taiwanOpeningCutoff } from "./taiwanStockBasis";
 import type { AdrReference, Calendar, ReferencePrice, TaiwanPayload, TaiwanRow } from "./taiwanStockBasis";
 
@@ -143,6 +144,7 @@ let lastBooks: { data: Awaited<ReturnType<typeof bitgetBooks>>; receivedAt: numb
 const taiwanSymbols = new Set<string>(TAIWAN_STOCKS.map((stock) => stock.symbol));
 
 export async function taiwanSnapshot(now = Date.now(), view: "full" | "prices" = "full", waitForRefresh = false): Promise<TaiwanPayload> {
+  const honHaiGdr = honHaiGdrSnapshot();
   const today = new Date(now + TAIPEI_OFFSET_MS);
   const years = [...new Set([today.getUTCFullYear(), new Date(today.getTime() - 40 * DAY_MS).getUTCFullYear(), new Date(today.getTime() + 40 * DAY_MS).getUTCFullYear()])];
   const [calendarResults, tickerResult, cash, fx] = await Promise.all([
@@ -170,7 +172,7 @@ export async function taiwanSnapshot(now = Date.now(), view: "full" | "prices" =
   // and old clients during rolling deployments.
   if (view === "prices") return { rows: makeRows(TAIWAN_STOCKS.map(() => ({ anchor: null, anchorError: null }))),
     anchorTimestamp: null, calendarSource, latestCloseDate, closes, view, tsm: { anchor: null, current: null, error: null },
-    cash, fx, error: tickerResult.error, timestamp: Date.now() };
+    cash, fx, honHaiGdr, error: tickerResult.error, timestamp: Date.now() };
   const anchorTimestamp = latestTaiwanAnchor(now, calendars);
   const [anchors, tsm, umc] = await Promise.all([
     Promise.all(TAIWAN_STOCKS.map(async (stock) => {
@@ -182,5 +184,5 @@ export async function taiwanSnapshot(now = Date.now(), view: "full" | "prices" =
     anchorTimestamp === null ? Promise.resolve({ symbol: "TSM", anchor: null, current: null, error: "Taiwan anchor date unavailable" }) : adrReference("TSM", anchorTimestamp, now, taiwanOpeningCutoff(now, calendars), previousTaiwanAnchor(now, calendars)),
     anchorTimestamp === null ? Promise.resolve({ symbol: "UMC", anchor: null, current: null, error: "Taiwan anchor date unavailable" }) : adrReference("UMC", anchorTimestamp, now),
   ]);
-  return { rows: makeRows(anchors), anchorTimestamp, calendarSource, latestCloseDate, closes, view, tsm, adrs: { TSM: tsm, UMC: umc }, cash, fx, error: tickerResult.error, timestamp: Date.now() };
+  return { rows: makeRows(anchors), anchorTimestamp, calendarSource, latestCloseDate, closes, view, tsm, adrs: { TSM: tsm, UMC: umc }, cash, fx, honHaiGdr, error: tickerResult.error, timestamp: Date.now() };
 }

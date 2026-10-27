@@ -8,6 +8,7 @@ export function mergeTaiwanFeed(prior: TaiwanPayload | null, next: TaiwanPayload
     if (!quotes[code] || quotes[code].timestamp < old.timestamp) quotes[code] = old;
   }
   const oldFx = prior?.fx?.quote, newFx = next.fx?.quote;
+  const oldGdr = prior?.honHaiGdr?.quote, newGdr = next.honHaiGdr?.quote;
   return { ...next,
     rows: next.rows.map(row => {
       const old = prior?.rows.find(item => item.symbol === row.symbol);
@@ -16,5 +17,6 @@ export function mergeTaiwanFeed(prior: TaiwanPayload | null, next: TaiwanPayload
     }),
     cash: next.cash ? { ...next.cash, quotes } : prior?.cash,
     fx: next.fx ? { ...next.fx, quote: oldFx && (!newFx || oldFx.timestamp > newFx.timestamp) ? oldFx : newFx ?? null } : prior?.fx,
+    honHaiGdr: next.honHaiGdr ? { ...next.honHaiGdr, quote: oldGdr && (!newGdr || oldGdr.timestamp > newGdr.timestamp) ? oldGdr : newGdr ?? null } : prior?.honHaiGdr,
   };
 }
