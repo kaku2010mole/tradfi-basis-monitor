@@ -259,3 +259,52 @@ tests/smic-opening-api.test.mjs tests/posley-stock-additions.test.mjs`
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
 - [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+# DOOSENER opening outlook
+
+The existing `/smic-opening` page now has an instrument selector for SMIC
+(`00981.HK`) and Doosan Enerbility (`034020.KS`, DOOSENER). A direct link to
+Doosan is `/smic-opening?asset=doosener`; switching instruments resets manual
+scenarios and stops polling the previous instrument. The settings menu links
+to the shared opening-outlook page.
+
+`/api/doosener-opening` uses a rolling one-calendar-year OLS model with EWY
+regular-session open-to-current return and SMH current-to-reference-close
+return. Actual ETF BBO midpoints come from `orderbook:futu:US.EWY` and
+`orderbook:futu:US.SMH` through the existing authenticated office pusher.
+The relay must include both stream keys; there are 35 subscriptions in two
+groups of 20 and 15, below the per-connection cap. No perpetual proxy is used.
+
+EWY has explicit session states:
+
+- Before the associated U.S. session, the displayed **early estimate** assumes
+  EWY intraday return is 0%; the API preserves `ewy.return: null` and labels
+  `ewy.effectiveReturn: 0` as an assumption. Premarket EWY quote changes cannot
+  masquerade as a regular-session return.
+- During the U.S. session, live EWY midpoint is divided by that session's
+  reported regular opening price. A missing opening anchor suspends the
+  forecast, rather than substituting a prior session's opening price.
+- After the U.S. close, confirmed EWY regular close/open return is fixed. Its
+  after-hours quote does not enter the EWY intraday factor. Confirmation can
+  take up to ten minutes; the page explains the wait. SMH remains live against
+  its original preceding regular close through the next KRX opening.
+
+Yahoo daily OHLC refreshes the historical model and anchors in the background;
+EWY session anchors are checked at 15-second intervals when missing (30 seconds
+on failure). Stale ETF quotes retain their original timestamp and estimate,
+and the page marks them stale. Missing/future-dated inputs cannot create a live
+forecast. An unfinished Korean daily close cannot anchor an implied price.
+
+Direction probabilities use **both factors** in nine historical joint cohorts,
+with fixed boundaries at −1% and +1% for each factor. The UI shows cohort counts,
+Wilson intervals, and the historical middle-80% opening range, plus separate
+one-percentage-point SMH/EWY reference tables. Empty cohorts remain empty and
+small cohorts are labelled. These are historical frequencies, not a calibrated
+intraday probability model. Walk-forward accuracy uses completed U.S. sessions
+only and excludes actual flat openings for direction accuracy.
+
+The target is the official KRX cash opening, not Nextrade or the perpetual
+market. Standard opening is 09:00 KST / 08:00 HKT. Calendar rules cover
+2026–2027 (KRX holidays, Korean public holidays, usual first-session/CSAT delayed
+openings, and NYSE holidays/early closes); unexpected changes need an update.
+The target rolls at KRX opening independently from SMIC's Hong Kong target.
+Zero/multiple U.S. sessions across a Korean holiday suspend automatic forecasts.
