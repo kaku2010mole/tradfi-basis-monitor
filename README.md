@@ -308,3 +308,45 @@ market. Standard opening is 09:00 KST / 08:00 HKT. Calendar rules cover
 openings, and NYSE holidays/early closes); unexpected changes need an update.
 The target rolls at KRX opening independently from SMIC's Hong Kong target.
 Zero/multiple U.S. sessions across a Korean holiday suspend automatic forecasts.
+
+## ZHONGJI and GIGADEV opening outlook
+
+The same `/smic-opening` selector also includes Zhongji InnoLight H shares
+(`/smic-opening?asset=zhongji`, 03308.HK) and GigaDevice H shares
+(`/smic-opening?asset=gigadev`, 03986.HK). Each selected panel polls
+`/api/peer-opening?asset=...` every two seconds while visible; switching panels
+unmounts the prior poller and resets manual scenarios.
+
+Both regressions combine SMH close-to-current return with a U.S. stock's
+regular-open-to-current return: LITE for Zhongji, MU for GigaDevice. Real BBOs
+come from `orderbook:futu:US.SMH`, `orderbook:futu:US.LITE` and
+`orderbook:futu:US.MU`. Deploy the updated ingest allowlist **before** updating
+the office pusher, which adds LITE and MU to its existing two connections
+(20/17 streams, below the 25-stream per-connection limit).
+
+The stock factor follows the EWY session-timing rules above: explicit 0%
+assumption before the associated U.S. regular open, no substituted opening
+anchor, and confirmed regular open-to-close return fixed after the session.
+SMH continues live against the same preceding regular close until the HK
+opening rolls. Each price keeps its original timestamp; stale inputs remain
+labelled. Implied HK opening prices require the completed preceding HK close.
+
+Training uses at most one calendar year before the target HK opening. Zhongji
+starts at its 2026-07-30 IPO, with 30 prior observations required (58 rows,
+28 forward predictions in the dated seed). GigaDevice starts at its 2026-01-13
+IPO, with 60 required (183 rows, 123 predictions). A-share data and history
+belonging to reused HK stock codes are excluded. Both seeds are dated
+2026-10-27 and refresh from Yahoo daily OHLC. Existing verified HK/US trading
+calendars govern the target and skip zero/multiple-U.S.-session windows.
+
+Main probabilities are joint historical frequencies in fixed 3×3 cohorts,
+SMH boundaries −1%/+1% and stock boundaries −2%/+2%, including flat openings.
+Counts, Wilson 95% intervals and sparse-cohort labels accompany them. Separate
+fixed 2-percentage-point tables reproduce the research marginal groups.
+Neither the cohorts nor the completed-session forward accuracy establish
+calibrated probabilities or equal accuracy during live intraday estimates.
+
+Checks: `node --test tests/hk-peer-opening*.test.mjs` after building. Tests
+reconcile independent research coefficients/errors, IPO clipping, prior-only
+training, true stock inputs, empty/missing anchors, fixed after-hours stock
+returns and stale/future timestamps.

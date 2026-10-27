@@ -73,9 +73,15 @@ test('office pusher maps the actual sources and does not refresh closed Japanese
     .replace('const TOKEN_FILE = process.env.FUTU_PUSH_TOKEN_FILE;', 'const TOKEN_FILE = "test-only";');
   const m = await import('data:text/javascript;base64,' + Buffer.from(decoder + '\nexport { quoteFromEntry, KEY_GROUPS };').toString('base64'));
   assert.ok(m.KEY_GROUPS.every(group => group.length <= 25));
-  assert.equal(m.KEY_GROUPS.flat().length, 35);
+  assert.equal(m.KEY_GROUPS.flat().length, 37);
   assert.ok(m.KEY_GROUPS.flat().includes('orderbook:futu:US.SMH'));
   assert.ok(m.KEY_GROUPS.flat().includes('orderbook:futu:US.EWY'));
+  for (const symbol of ['LITE','MU']) {
+    const key=`orderbook:futu:US.${symbol}`;
+    assert.ok(m.KEY_GROUPS.flat().includes(key));
+    const quote=m.quoteFromEntry({key,fields:{bids:'300,10',asks:'301,8',bids_receive_ts_ms:String(Date.now()),asks_receive_ts_ms:String(Date.now())}});
+    assert.equal(quote.symbol,`US.${symbol}`);assert.equal(quote.bid,300);assert.equal(quote.ask,301);
+  }
   const ew=m.quoteFromEntry({key:'orderbook:futu:US.EWY',fields:{bids:'155,10',asks:'156,8',bids_receive_ts_ms:String(Date.now()),asks_receive_ts_ms:String(Date.now())}});
   assert.equal(ew.symbol,'US.EWY');assert.equal(ew.bid,155);assert.equal(ew.ask,156);
   const smhNow=Date.now();
