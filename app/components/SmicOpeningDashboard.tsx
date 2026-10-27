@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import PageSwitcher from "./PageSwitcher";
 import { visiblePolling } from "../lib/visiblePolling";
 import { smicEstimate, SMIC_GROUP_EXAMPLES } from "../lib/smicOpening";
@@ -12,7 +13,7 @@ const num=(v:number|null|undefined,d=2)=>typeof v==="number"&&Number.isFinite(v)
 const stamp=(v:number|null|undefined)=>v?new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Hong_Kong",month:"short",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).format(v)+" HKT":"—";
 const age=(v:number|null|undefined,now:number)=>!v?"No quote":`${Math.max(0,Math.floor((now-v)/1000))}s ago`;
 
-export default function SmicOpeningDashboard(){
+export default function SmicOpeningDashboard({instrumentControl}:{instrumentControl?:ReactNode}={}){
   const [data,setData]=useState<SmicOpeningPayload|null>(null),[error,setError]=useState(""),[clock,setClock]=useState(0),[loading,setLoading]=useState(true);
   const [manual,setManual]=useState(false),[input,setInput]=useState("2.0");
   useEffect(()=>{
@@ -41,6 +42,7 @@ export default function SmicOpeningDashboard(){
   return <main className={styles.dashboard}>
     <header className={styles.topbar}><a href="/" className={styles.brand}><b>↗</b><span>TRADFI MONITOR<small>OPENING OUTLOOK</small></span></a><div className={styles.topActions}><span className={`${styles.status} ${quoteFresh?styles.live:styles.stale}`}><i/>{quoteFresh?"LIVE ETF FEED":loading?"CONNECTING":"FEED STALE / WAITING"}</span><PageSwitcher active="smic"/></div></header>
     <div className={styles.content}>
+      {instrumentControl}
       <section className={styles.heading}><div><p className={styles.eyebrow}>HONG KONG · 00981.HK · 中芯国际</p><h1>SMIC opening outlook</h1><p>Live SMH return → estimated next opening gap and historical probabilities.</p></div><div className={styles.nextOpen}><small>NEXT HONG KONG OPEN</small><strong>{data?.target?.date??"Checking calendar…"}</strong><span>09:30 HKT · SMH only</span></div></section>
       {(error||data?.error||data?.quote.error||data?.history.error)&&<div className={styles.notice} role="status">{error||data?.error||data?.quote.error||data?.history.error}</div>}
       <section className={styles.mainGrid}>

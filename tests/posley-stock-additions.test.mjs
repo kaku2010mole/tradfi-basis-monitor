@@ -73,8 +73,11 @@ test('office pusher maps the actual sources and does not refresh closed Japanese
     .replace('const TOKEN_FILE = process.env.FUTU_PUSH_TOKEN_FILE;', 'const TOKEN_FILE = "test-only";');
   const m = await import('data:text/javascript;base64,' + Buffer.from(decoder + '\nexport { quoteFromEntry, KEY_GROUPS };').toString('base64'));
   assert.ok(m.KEY_GROUPS.every(group => group.length <= 25));
-  assert.equal(m.KEY_GROUPS.flat().length, 34);
+  assert.equal(m.KEY_GROUPS.flat().length, 35);
   assert.ok(m.KEY_GROUPS.flat().includes('orderbook:futu:US.SMH'));
+  assert.ok(m.KEY_GROUPS.flat().includes('orderbook:futu:US.EWY'));
+  const ew=m.quoteFromEntry({key:'orderbook:futu:US.EWY',fields:{bids:'155,10',asks:'156,8',bids_receive_ts_ms:String(Date.now()),asks_receive_ts_ms:String(Date.now())}});
+  assert.equal(ew.symbol,'US.EWY');assert.equal(ew.bid,155);assert.equal(ew.ask,156);
   const smhNow=Date.now();
   const smh=m.quoteFromEntry({key:'orderbook:futu:US.SMH',fields:{bids:'540,10',asks:'541,8',bids_receive_ts_ms:String(smhNow),asks_receive_ts_ms:String(smhNow)}});
   assert.equal(smh.symbol,'US.SMH');assert.equal(smh.bid,540);assert.equal(smh.ask,541);assert.equal(smh.marketTimestamp,smhNow);

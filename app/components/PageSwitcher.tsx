@@ -53,7 +53,7 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
           <small>Dividends + US, Japan &amp; Korea earnings</small>
         </Link>
         <Link href="/smic-opening" aria-current={active === "smic" ? "page" : undefined}>
-          <span>SMIC opening outlook · 00981.HK</span>
+          <span>Opening outlook · SMIC / DOOSENER</span>
           <small>Live SMH return → next HK open &amp; probabilities</small>
         </Link>
       </nav>
