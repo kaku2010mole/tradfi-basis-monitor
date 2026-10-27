@@ -64,9 +64,13 @@ export function nextSmicWindow(now:number):SmicWindow|null {
 }
 export function alignedSmicRows(hk:SmicBar[],us:SmicBar[],now:number):SmicRow[] {
   const h=[...hk].sort((a,b)=>a.date.localeCompare(b.date));const u=[...us].sort((a,b)=>a.date.localeCompare(b.date));const rows:SmicRow[]=[];
+  // Resolve DST once per US bar, not once for every HK/US pair. History refresh
+  // shares the live quote process and must not block it on millions of Intl calls.
+  const timed=u.map((b,j)=>({b,j,openAt:usOpen(b.date),closeAt:usClose(b.date)}));
   for(let i=1;i<h.length;i++) {
     const current=h[i],prev=h[i-1];if(!prev.complete || hkOpen(current.date)>now || !(current.open>0 && prev.close>0))continue;
-    const matches=u.map((b,j)=>({b,j})).filter(({b})=>b.complete && usOpen(b.date)>hkClose(prev.date) && usClose(b.date)<hkOpen(current.date));
+    const start=hkClose(prev.date),end=hkOpen(current.date);
+    const matches=timed.filter(({b,openAt,closeAt})=>b.complete && openAt>start && closeAt<end);
     if(matches.length!==1 || matches[0].j===0)continue;
     const {b,j}=matches[0];const previousUs=u[j-1];if(!(previousUs.complete && b.close>0 && previousUs.close>0))continue;
     // A missing daily candle must not silently become a multi-day return.
