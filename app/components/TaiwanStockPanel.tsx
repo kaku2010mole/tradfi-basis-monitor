@@ -9,6 +9,7 @@ import TaiwanAdrOutlook from "./TaiwanAdrOutlook";
 import TaiwanCashCard from "./TaiwanCashCard";
 import TaiwanTwdPanel from "./TaiwanTwdPanel";
 import { taiwanLiveComparison } from "../lib/taiwanLiveBasis";
+import { mergeTaiwanFeed } from "../lib/taiwanFeedState";
 import styles from "./KoreanPerpMonitor.module.css";
 import tabs from "./TaiwanStockPanel.module.css";
 
@@ -28,7 +29,7 @@ const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: 
     if (!visible) return;
     let stopped = false, inFlight = false;
     let controller: AbortController | null = null;
-    const load = async () => {
+    const load = async (resumed: boolean) => {
       if (inFlight) return;
       inFlight = true;
       controller = new AbortController();
@@ -36,21 +37,19 @@ const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: 
       try {
         // Normal views skip model/index/ADR history. The optional historical
         // study reuses this poll, never a second request loop.
-        const response = await fetch(studyOpen ? "/api/stock-basis/taiwan" : "/api/stock-basis/taiwan?view=prices", { cache: "no-store", signal: controller.signal });
+        const endpoint = studyOpen ? "/api/stock-basis/taiwan?view=full" : "/api/stock-basis/taiwan?view=prices";
+        const response = await fetch(`${endpoint}${resumed ? "&refresh=resume" : ""}`, { cache: "no-store", signal: controller.signal });
         const next = await response.json() as TaiwanPayload;
         if (!response.ok || !Array.isArray(next.rows)) throw new Error(next.error || "Taiwan feed unavailable");
         if (!stopped) {
-          setPayload((prior) => ({ ...next, rows: next.rows.map((row) => {
-            const old = prior?.rows.find((item) => item.symbol === row.symbol);
-            const useful = row.book.bid !== null || row.book.ask !== null || row.book.last !== null;
-            return old && (!useful || (old.book.timestamp ?? 0) > (row.book.timestamp ?? 0)) ? { ...row, book: old.book } : row;
-          }) }));
+          setPayload(prior => mergeTaiwanFeed(prior, next));
+          setClock(Date.now());
           setError(next.error || "");
         }
       } catch (reason) { if (!stopped) setError(reason instanceof Error ? reason.message : "Taiwan feed reconnecting"); }
       finally { clearTimeout(timeout); inFlight = false; }
     };
-    const stopPolling = visiblePolling(() => { setClock(Date.now()); void load(); }, 2_000);
+    const stopPolling = visiblePolling(resumed => { setClock(Date.now()); void load(resumed); }, 2_000);
     return () => { stopped = true; stopPolling(); controller?.abort(); };
   }, [visible, studyOpen]);
 
@@ -75,12 +74,14 @@ const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: 
     <div className={styles.rows}>{(payload?.rows ?? emptyRows).map((row) => {
       const cash = payload?.cash?.quotes[row.code];
       const live = taiwanLiveComparison(cash, row.book, payload?.fx?.quote, clock);
+      const refreshing = !live.currentCash && payload?.cash?.refreshing ? "Refreshing cash quote…"
+        : !live.currentFx && payload?.fx?.refreshing ? "Refreshing USD/TWD…" : null;
       const magnitude = Math.abs(live.deviation ?? 0);
       const tone = magnitude >= 1 ? styles.spreadHigh : magnitude >= 0.5 ? styles.spreadMedium : styles.spreadQuiet;
       return <details key={`${mode}:${row.symbol}`} className={`${styles.assetRow} ${styles.taiwanRow} ${magnitude >= 1 ? styles.highSpreadRow : magnitude >= 0.5 ? styles.mediumSpreadRow : ""}`}>
         <summary className={styles.assetSummary}>
           <span className={styles.summaryIdentity}><small>TWSE {row.code} · BITGET</small><strong>{row.name}</strong><small>{row.chineseName} · {row.symbol}</small><em>{fmt(row.book.bid)} / {fmt(row.book.ask)} USDT</em></span>
-          <span className={styles.summarySignals}><span className={`${styles.perpSignal} ${tone}`}><small>PERP VS {live.kind} · INDICATIVE</small><strong>{pct(live.deviation)}</strong><em>{live.direction} · {live.isTrial ? "Trial" : "Cash"} NT$ {fmt(live.cashPrice)} · {stamp(live.cashTimestamp)} HKT{live.reason ? ` · ${live.reason}` : ""}</em></span></span>
+          <span className={styles.summarySignals}><span className={`${styles.perpSignal} ${tone}`}><small>PERP VS {live.kind} · INDICATIVE</small><strong>{pct(live.deviation)}</strong><em>{refreshing ?? live.direction} · {live.isTrial ? "Trial" : "Cash"} NT$ {fmt(live.cashPrice)} · {stamp(live.cashTimestamp)} HKT{live.reason && !refreshing ? ` · ${live.reason}` : ""}</em></span></span>
           <span className={styles.summaryToggle}>Details <b>⌄</b></span>
         </summary>
         <div className={styles.assetDetails}>

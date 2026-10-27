@@ -11,6 +11,7 @@ export type TaiwanCashQuote = {
 export type TaiwanCashFeed = {
   configured: boolean; quotes: Record<string, TaiwanCashQuote>;
   errors: Record<string, string>; checkedAt: number | null; refreshMs: number;
+  refreshing?: boolean; nextRefreshAt?: number;
 };
 const positive = (x: unknown) => typeof x === "number" && Number.isFinite(x) && x > 0 ? x : null;
 const quantity = (x: unknown) => typeof x === "number" && Number.isFinite(x) && x >= 0 ? x : null;

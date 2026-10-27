@@ -6,9 +6,11 @@ import test from "node:test";
 const moduleUrl = text => "data:text/javascript;base64," + Buffer.from(stripTypeScriptTypes(text)).toString("base64");
 const cashUrl = moduleUrl(await readFile(new URL("../app/lib/taiwanCash.ts", import.meta.url), "utf8"));
 const basisUrl = moduleUrl(await readFile(new URL("../app/lib/taiwanStockBasis.ts", import.meta.url), "utf8"));
+const refreshUrl = moduleUrl(await readFile(new URL("../app/lib/marketCacheRefresh.ts", import.meta.url), "utf8"));
 const model = await import(cashUrl);
 const server = (await readFile(new URL("../app/lib/fugleTaiwanMarket.ts", import.meta.url), "utf8"))
-  .replace('"./taiwanCash"', JSON.stringify(cashUrl)).replace('"./taiwanStockBasis"', JSON.stringify(basisUrl));
+  .replace('"./taiwanCash"', JSON.stringify(cashUrl)).replace('"./taiwanStockBasis"', JSON.stringify(basisUrl))
+  .replace('from "./marketCacheRefresh"', `from ${JSON.stringify(refreshUrl)}`);
 const { createTaiwanCashClient } = await import(moduleUrl(server));
 const at = text => Date.parse(text + "+08:00");
 const now = at("2026-10-20T08:45:00");
@@ -108,6 +110,18 @@ test("missing credentials make zero calls; auth and quota errors back off withou
   }
 });
 
+test("returning after an idle gap waits for refreshed cash without duplicate upstream requests", async () => {
+  let t = now, count = 0;
+  const get = createTaiwanCashClient({ getKey: () => "test", clock: () => t, fetcher: async address => {
+    count++; return Response.json(raw(address.split("/").pop(), t));
+  } });
+  await get(); t += 600_000;
+  const results = await Promise.all(Array.from({ length: 20 }, () => get({ waitForRefresh: true })));
+  assert.equal(count, 16);
+  assert.equal(results[0].quotes["2330"].timestamp, t);
+  assert.equal(results[0].refreshing, false);
+});
+
 test("UI replaces the model with close returns, keeps live/trial and loads the separate study on demand", async () => {
   const panel = await readFile(new URL("../app/components/TaiwanStockPanel.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(panel, /taiwanComparison\(|taiwanAdrReference\(|"model"/);
@@ -121,5 +135,8 @@ test("UI replaces the model with close returns, keeps live/trial and loads the s
   assert.match(panel, /Math.abs\(live.deviation/);
   assert.doesNotMatch(panel, /taiwanAuctionComparison/);
   assert.match(panel, /perp 2s \/ cash 60s/);
+  assert.match(panel, /resumed \? "&refresh=resume"/);
+  assert.match(panel, /void load\(resumed\).*2_000/);
+  assert.match(panel, /setClock\(Date.now\(\)\)/);
   assert.doesNotMatch(panel, /FUGLE_API_KEY|fugleTaiwanMarket/);
 });

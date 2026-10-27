@@ -142,15 +142,15 @@ async function adrReference(symbol: string, target: number, now: number, cutoffT
 let lastBooks: { data: Awaited<ReturnType<typeof bitgetBooks>>; receivedAt: number } | null = null;
 const taiwanSymbols = new Set<string>(TAIWAN_STOCKS.map((stock) => stock.symbol));
 
-export async function taiwanSnapshot(now = Date.now(), view: "full" | "prices" = "full"): Promise<TaiwanPayload> {
+export async function taiwanSnapshot(now = Date.now(), view: "full" | "prices" = "full", waitForRefresh = false): Promise<TaiwanPayload> {
   const today = new Date(now + TAIPEI_OFFSET_MS);
   const years = [...new Set([today.getUTCFullYear(), new Date(today.getTime() - 40 * DAY_MS).getUTCFullYear(), new Date(today.getTime() + 40 * DAY_MS).getUTCFullYear()])];
   const [calendarResults, tickerResult, cash, fx] = await Promise.all([
     Promise.all(years.map(calendar)),
     bitgetBooks().then((all) => { const data = all.filter((book) => book.symbol && taiwanSymbols.has(book.symbol)); lastBooks = { data, receivedAt: Date.now() }; return { data, error: null }; })
       .catch((reason) => ({ data: lastBooks && now - lastBooks.receivedAt <= 7 * DAY_MS ? lastBooks.data : [], error: reason instanceof Error ? reason.message : "Bitget feed unavailable" })),
-    taiwanCashSnapshot(),
-    taiwanFxSnapshot(),
+    taiwanCashSnapshot({ waitForRefresh }),
+    taiwanFxSnapshot({ waitForRefresh }),
   ]);
   const calendars = calendarResults.filter((item): item is Calendar => item !== null);
   const priorAnchor = previousTaiwanAnchor(now, calendars);

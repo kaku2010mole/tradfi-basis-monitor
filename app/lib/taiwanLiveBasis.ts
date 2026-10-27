@@ -3,14 +3,16 @@ import { taiwanCashView } from "./taiwanCash";
 import type { TaiwanBook } from "./taiwanStockBasis";
 
 export type TaiwanFx = { price: number; timestamp: number; fetchedAt: number; source: string };
-export type TaiwanFxFeed = { quote: TaiwanFx | null; error: string | null };
+export type TaiwanFxFeed = { quote: TaiwanFx | null; error: string | null; refreshing?: boolean; nextRefreshAt?: number };
 const positive = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n > 0;
 const recent = (t: number | null | undefined, now: number, age: number) => t != null && t > 0 && now - t <= age && t - now <= 5_000;
 
 export function parseTaiwanFx(data: unknown, now: number): TaiwanFx | null {
   const result = (data as { chart?: { result?: Array<{ meta?: Record<string, unknown> }> } })?.chart?.result?.[0];
   const meta = result?.meta;
-  if (meta?.symbol !== "TWD=X" || meta.currency !== "TWD" || meta.instrumentType !== "CURRENCY"
+  // Yahoo can canonicalize TWD=X to USDTWD=X. Both mean USD base / TWD quote;
+  // never accept an inverse pair or a different quote currency.
+  if (!["TWD=X", "USDTWD=X"].includes(String(meta?.symbol)) || meta?.currency !== "TWD" || meta.instrumentType !== "CURRENCY"
     || !positive(meta.regularMarketPrice) || !positive(meta.regularMarketTime)) return null;
   const timestamp = meta.regularMarketTime * 1000;
   if (!recent(timestamp, now, 7 * 86_400_000)) return null;
