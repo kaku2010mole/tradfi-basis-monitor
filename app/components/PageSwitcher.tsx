@@ -4,7 +4,7 @@ import Link from "next/link";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
-  active: "jlp" | "basis" | "oracle" | "blog" | "skhynix" | "samsung" | "stock-basis" | "polymarket" | "auction" | "dividends";
+  active: "jlp" | "basis" | "oracle" | "blog" | "skhynix" | "samsung" | "stock-basis" | "polymarket" | "auction" | "dividends" | "smic";
 };
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
@@ -51,6 +51,10 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         <Link href="/dividends" aria-current={active === "dividends" ? "page" : undefined}>
           <span>Dividend calendar</span>
           <small>Dividends + US, Japan &amp; Korea earnings</small>
+        </Link>
+        <Link href="/smic-opening" aria-current={active === "smic" ? "page" : undefined}>
+          <span>SMIC opening outlook · 00981.HK</span>
+          <small>Live SMH return → next HK open &amp; probabilities</small>
         </Link>
       </nav>
     </details>

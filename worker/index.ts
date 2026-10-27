@@ -160,7 +160,7 @@ async function handleFutuIngest(request: Request, configuredToken?: string, site
     !Array.isArray(payload.quotes) || payload.quotes.length > 64 ||
     (payload.umcAdrAnchors !== undefined && !validFutuAdrAnchors(payload.umcAdrAnchors, now)) ||
     (payload.quotes.length === 0 && !validFutuAdrAnchors(payload.umcAdrAnchors, now)) ||
-    payload.quotes.some((quote) => typeof quote?.symbol !== "string" || !/^(?:FX\.(?:USDKRW|USDJPY)|HK\.(?:\d{5}|800000|HSImain)|KRX\.(?:034020|035420|042700|066570|454910|0158S0|207940|000270|373220|035720|105560)|TSE\.(?:285A|5802|6758|6857|6920|6976|6981|7203|8035|8306|9983|9984)|US\.(?:TCEHY|XIACY|KSHTY|MPNGY|PMRTY|MMXGY|LNVGY|BYDDY|LITE|NVDA|SONY|TM|MUFG|Z[TFNB]main))$/.test(quote.symbol)) ||
+    payload.quotes.some((quote) => typeof quote?.symbol !== "string" || !/^(?:FX\.(?:USDKRW|USDJPY)|HK\.(?:\d{5}|800000|HSImain)|KRX\.(?:034020|035420|042700|066570|454910|0158S0|207940|000270|373220|035720|105560)|TSE\.(?:285A|5802|6758|6857|6920|6976|6981|7203|8035|8306|9983|9984)|US\.(?:TCEHY|XIACY|KSHTY|MPNGY|PMRTY|MMXGY|LNVGY|BYDDY|LITE|NVDA|SMH|SONY|TM|MUFG|Z[TFNB]main))$/.test(quote.symbol)) ||
     (payload.orderbooks !== undefined && (!Array.isArray(payload.orderbooks) || payload.orderbooks.length > 64)) ||
     (payload.history !== undefined && (
       !payload.history || typeof payload.history !== "object" ||
