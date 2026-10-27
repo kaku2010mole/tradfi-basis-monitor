@@ -7,6 +7,9 @@ const PUSH_URL = process.env.FUTU_PUSH_URL || "https://tradfi-basis-monitor.onre
 const TOKEN_FILE = process.env.FUTU_PUSH_TOKEN_FILE;
 const SYMBOLS = ["TCEHY", "XIACY", "KSHTY", "MPNGY", "PMRTY", "MMXGY", "LNVGY", "BYDDY"];
 const KEYS = SYMBOLS.map((symbol) => `orderbook:ibkr:STK:${symbol}:SMART:USD`);
+// Discovered on the office directory: actual ETF, never an SMH perpetual proxy.
+const SMH_ETF_KEY = "orderbook:futu:US.SMH";
+KEYS.push(SMH_ETF_KEY);
 const KOREAN_CODES = ["034020", "035420", "042700", "066570", "454910", "0158S0"];
 const KOREAN_KEYS = KOREAN_CODES.map((code) => `orderbook:ibkr:STK:${code}:KRX:KRW`);
 const FUTU_KOREAN_CODES = ["207940", "000270", "373220", "035720", "105560"];
@@ -20,6 +23,7 @@ KEYS.push(FX_KEY, FX_JPY_KEY, FX_HL_KEY, ...KOREAN_KEYS, ...JAPANESE_KEYS, ...FU
 // The office relay accepts at most 25 keys per WebSocket connection.
 const KEY_GROUPS = [KEYS.slice(0, 20), KEYS.slice(20)];
 const allowedKeys = new Map([
+  [SMH_ETF_KEY, "US.SMH"],
   ...SYMBOLS.map((symbol) => [`orderbook:ibkr:STK:${symbol}:SMART:USD`, `US.${symbol}`]),
   [FX_KEY, "FX.USDKRW"], [FX_JPY_KEY, "FX.USDJPY"], [FX_HL_KEY, "FX.USDKRW"],
   ...KOREAN_CODES.map((code) => [`orderbook:ibkr:STK:${code}:KRX:KRW`, `KRX.${code}`]),

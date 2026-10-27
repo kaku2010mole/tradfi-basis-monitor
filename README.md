@@ -217,5 +217,45 @@ so the HK pre-open session can compare against the prior US close.
 
 ## Learn More
 
+## SMIC opening outlook
+
+`/smic-opening` is a standalone SMIC (00981.HK, 中芯国际) dashboard. It polls
+`/api/smic-opening` every two seconds while visible. The input is the actual
+`orderbook:futu:US.SMH` ETF bid/ask midpoint from the existing office pusher,
+not an SMH perpetual and not a delayed Yahoo quote. Add the updated
+`services/futu-pusher/posley-adr-pusher.mjs` to the existing Mac relay after
+deploying the server ingest allowlist; no new credential or subscription is needed.
+
+The price return is measured against the official regular-session close before
+the U.S. session paired with the **next** Hong Kong opening. That anchor stays
+fixed through the U.S. close and after-hours; it changes when the target Hong
+Kong opening rolls. Live quotes older than 30 seconds retain their actual time
+and are marked stale. Before, during and after the U.S. session, the UI shows a
+provisional estimate; historical performance uses completed SMH daily returns
+and does not validate intraday prediction accuracy.
+
+A one-calendar-year OLS predicts the opening gap; fixed 1-percentage-point
+cohorts provide empirical higher/lower/unchanged proportions, Wilson intervals,
+sample counts and the historical middle 80% outcome range. These empirical
+proportions are not a separately calibrated live probability model. Raw SMH
+price returns match the live price/previous-close definition. The dated bundled
+research sample provides a transparent fallback; Yahoo daily history refreshes
+server-side, coalesced for all viewers, at most every 30 minutes. A history failure
+does not relabel old observations as new or break the live ETF connection.
+
+The verified HKEX/NYSE 2026–2027 calendars handle holidays, early closes and
+U.S. daylight saving. Zero or multiple U.S. sessions across the target HK window
+suspend the automatic single-session estimate. Unverified calendar years suspend
+it too. The manual scenario calculator remains explicitly labelled. An unfinished
+HK daily close cannot become the reference for an implied HK opening price.
+
+Historical source: Yahoo Finance 0981.HK and SMH daily OHLC, with initial paired
+research through 2026-10-26. Calendar sources: HKEX circular CT/075/25 (2026),
+CT/077/26 (2027), and https://www.nyse.com/trade/hours-calendars.
+
+Focused checks: `node --test tests/smic-opening.test.mjs
+tests/smic-opening-api.test.mjs tests/posley-stock-additions.test.mjs`
+(run the build before the API checks).
+
 - [vinext Documentation](https://github.com/cloudflare/vinext)
 - [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)

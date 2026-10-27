@@ -73,7 +73,11 @@ test('office pusher maps the actual sources and does not refresh closed Japanese
     .replace('const TOKEN_FILE = process.env.FUTU_PUSH_TOKEN_FILE;', 'const TOKEN_FILE = "test-only";');
   const m = await import('data:text/javascript;base64,' + Buffer.from(decoder + '\nexport { quoteFromEntry, KEY_GROUPS };').toString('base64'));
   assert.ok(m.KEY_GROUPS.every(group => group.length <= 25));
-  assert.equal(m.KEY_GROUPS.flat().length, 33);
+  assert.equal(m.KEY_GROUPS.flat().length, 34);
+  assert.ok(m.KEY_GROUPS.flat().includes('orderbook:futu:US.SMH'));
+  const smhNow=Date.now();
+  const smh=m.quoteFromEntry({key:'orderbook:futu:US.SMH',fields:{bids:'540,10',asks:'541,8',bids_receive_ts_ms:String(smhNow),asks_receive_ts_ms:String(smhNow)}});
+  assert.equal(smh.symbol,'US.SMH');assert.equal(smh.bid,540);assert.equal(smh.ask,541);assert.equal(smh.marketTimestamp,smhNow);
   const old = Date.now() - 3600000, now = Date.now();
   for (const code of korean) {
     const key = `orderbook:futu:web_api:KR.${code}`;
