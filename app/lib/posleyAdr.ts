@@ -14,6 +14,7 @@ export type PosleyAdrBook = {
   ask: number | null;
   last: number | null;
   previousClose?: number | null;
+  marketState?: string | null;
   bidSize: number | null;
   askSize: number | null;
   timestamp: number;
@@ -94,6 +95,11 @@ const symbolForStream = (streamKey: string, symbols: Set<string>) => {
   return [...symbols].find((symbol) => codeParts.includes(symbol) || code === symbol || code === `US.${symbol}` || code.endsWith(`.${symbol}`)) ?? null;
 };
 
+// Directory order is arbitrary. Prefer the verified Korean Futu BBO feed,
+// which carries after-hours books, over the regular-session IBKR stream.
+const streamPriority = (key: string) => key === "orderbook:ibkr:FX:USD:KRW" ? 2
+  : /^orderbook:futu:web_api:KR\.\d{6}$/.test(key) ? 1 : 0;
+
 const jwtExpiry = (token: string) => {
   try {
     const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
@@ -155,14 +161,18 @@ function acceptBook(state: SharedState, streamKey: string, data: Record<string, 
   const bids = parseLevels(data.bids);
   const asks = parseLevels(data.asks);
   const last = positive(data.last_price);
+  let details: Record<string, unknown> = {};
+  try { details = JSON.parse(data.specific_data || "{}") ?? {}; } catch { /* optional metadata */ }
+  const stale = details.stale === true || details.stale === "true";
   if (!bids.length && !asks.length && last === null) return;
   state.books.set(symbol, {
     symbol,
     streamKey,
-    bid: bids[0]?.price ?? null,
-    ask: asks[0]?.price ?? null,
+    bid: (!stale || symbol === "0158S0") && (bids[0]?.size ?? 0) > 0 ? bids[0].price : null,
+    ask: (!stale || symbol === "0158S0") && (asks[0]?.size ?? 0) > 0 ? asks[0].price : null,
     last,
     previousClose: positive(data.previous_close ?? data.prev_close),
+    marketState: details.session === "after_hours" ? "AFTER-HOURS" : null,
     bidSize: bids[0]?.size ?? null,
     askSize: asks[0]?.size ?? null,
     timestamp: marketTimestamp(data),
@@ -178,7 +188,7 @@ async function connect(state: SharedState) {
   const keys = await streamDirectory(token);
   const wanted = new Set(state.wanted);
   state.streamBySymbol.clear();
-  for (const key of keys.sort((left, right) => Number(right === "orderbook:ibkr:FX:USD:KRW") - Number(left === "orderbook:ibkr:FX:USD:KRW"))) {
+  for (const key of keys.sort((left, right) => streamPriority(right) - streamPriority(left))) {
     const symbol = symbolForStream(key, wanted);
     if (symbol && !state.streamBySymbol.has(symbol)) state.streamBySymbol.set(symbol, key);
   }

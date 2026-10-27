@@ -14,7 +14,9 @@ const OPENING_STOCK_KEYS = ["LITE", "MU"].map(symbol => `orderbook:futu:US.${sym
 KEYS.push(SMH_ETF_KEY, EWY_ETF_KEY, ...OPENING_STOCK_KEYS);
 const KOREAN_CODES = ["034020", "035420", "042700", "066570", "454910", "0158S0"];
 const KOREAN_KEYS = KOREAN_CODES.map((code) => `orderbook:ibkr:STK:${code}:KRX:KRW`);
-const FUTU_KOREAN_CODES = ["207940", "000270", "373220", "035720", "105560"];
+// Verified office streams include after-hours BBOs for the original five names.
+// Keep IBKR subscribed as a fallback; never let its old heartbeat replace them.
+const FUTU_KOREAN_CODES = ["207940", "000270", "373220", "035720", "105560", "034020", "035420", "042700", "066570", "454910"];
 const FUTU_KOREAN_KEYS = FUTU_KOREAN_CODES.map((code) => `orderbook:futu:web_api:KR.${code}`);
 const JAPANESE_CODES = ["285A", "5802", "6758", "6857", "6920", "6976", "6981", "7203", "8035", "8306", "9984"];
 const JAPANESE_KEYS = JAPANESE_CODES.map((code) => `orderbook:ibkr:STK:${code}:TSEJ:JPY`);
@@ -99,8 +101,10 @@ const quoteFromEntry = (message) => {
   const retainBook = !stale || symbol === "KRX.0158S0";
   return {
     symbol,
+    streamKey: message.key,
     name: symbol,
-    marketState: isFx ? "FX_REFERENCE" : symbol.startsWith("KRX.") ? "KRX_REFERENCE" : symbol.startsWith("TSE.") ? "TSE_REFERENCE" : "US_REFERENCE",
+    marketState: symbol.startsWith("KRX.") && details?.session === "after_hours" ? "AFTER-HOURS"
+      : isFx ? "FX_REFERENCE" : symbol.startsWith("KRX.") ? "KRX_REFERENCE" : symbol.startsWith("TSE.") ? "TSE_REFERENCE" : "US_REFERENCE",
     auctionPrice: null,
     last,
     previousClose: positive(fields.previous_close ?? fields.prev_close),
@@ -115,6 +119,17 @@ const quoteFromEntry = (message) => {
         : candidates.length ? Math.max(...candidates) : Date.now(),
     source: message.key === FX_HL_KEY ? "Posley Hyperliquid KRW index" : isFx ? "Posley IBKR FX" : message.key.startsWith("orderbook:futu:web_api:") ? "Posley Futu Web API" : "Posley office relay",
   };
+};
+
+// A symbol may arrive from both IBKR and Futu. Select an entire observation:
+// no cross-source bid/ask mixing and no refreshing old books with emit time.
+const selectKoreanQuote = (existing, incoming, now = Date.now()) => {
+  if (!existing) return incoming;
+  if (existing.marketTimestamp > incoming.marketTimestamp) return existing;
+  const complete = (q) => q.bid > 0 && q.ask >= q.bid && q.bidSize > 0 && q.askSize > 0;
+  const fresh = existing.marketTimestamp > 0 && now - existing.marketTimestamp <= 60_000 && existing.marketTimestamp <= now + 5_000;
+  if (existing.streamKey !== incoming.streamKey && fresh && complete(existing) && !complete(incoming)) return existing;
+  return incoming;
 };
 
 let pushing = false;
@@ -158,8 +173,8 @@ const connectGroup = (keys, groupIndex) => {
         const quote = quoteFromEntry(message);
         if (quote) {
           const existing = latest.get(quote.symbol);
-          if (quote.symbol === "KRX.0158S0" && existing?.marketTimestamp > quote.marketTimestamp) return;
-          if (message.key !== FX_HL_KEY || !existing?.bid || !existing?.ask) latest.set(quote.symbol, quote);
+          if (quote.symbol.startsWith("KRX.")) latest.set(quote.symbol, selectKoreanQuote(existing, quote));
+          else if (message.key !== FX_HL_KEY || !existing?.bid || !existing?.ask) latest.set(quote.symbol, quote);
           if (quote.symbol === "FX.USDKRW") {
             const price = quote.bid && quote.ask ? (quote.bid + quote.ask) / 2 : quote.last;
             if (price && quote.marketTimestamp) {

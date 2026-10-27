@@ -214,6 +214,7 @@ export async function GET(request: Request) {
       return {
         code: stock.code, name: stock.name, chineseName: "chineseName" in stock ? stock.chineseName : null,
         cashSource,
+        cashFeedSession: cash?.marketState ?? null,
         previousClose: koreanLatestClose(stock.code, now),
         market: "KRX", session: sessions.KRX, currency: "KRW", sharesPerPerp: 1, venues, strictCashBook,
         mappingNote: stock.code === "0158S0" ? "Elice · KOSDAQ 0158S0 · Posley IBKR orderbook. Missing bid/ask sides stay unavailable; last trades never substitute for a missing side. Cash/perp unit assumes one ordinary share."
