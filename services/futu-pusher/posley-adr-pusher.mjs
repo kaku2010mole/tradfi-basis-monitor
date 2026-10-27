@@ -10,7 +10,8 @@ const KEYS = SYMBOLS.map((symbol) => `orderbook:ibkr:STK:${symbol}:SMART:USD`);
 // Discovered on the office directory: actual ETF, never an SMH perpetual proxy.
 const SMH_ETF_KEY = "orderbook:futu:US.SMH";
 const EWY_ETF_KEY = "orderbook:futu:US.EWY";
-KEYS.push(SMH_ETF_KEY, EWY_ETF_KEY);
+const OPENING_STOCK_KEYS = ["LITE", "MU"].map(symbol => `orderbook:futu:US.${symbol}`);
+KEYS.push(SMH_ETF_KEY, EWY_ETF_KEY, ...OPENING_STOCK_KEYS);
 const KOREAN_CODES = ["034020", "035420", "042700", "066570", "454910", "0158S0"];
 const KOREAN_KEYS = KOREAN_CODES.map((code) => `orderbook:ibkr:STK:${code}:KRX:KRW`);
 const FUTU_KOREAN_CODES = ["207940", "000270", "373220", "035720", "105560"];
@@ -26,6 +27,7 @@ const KEY_GROUPS = [KEYS.slice(0, 20), KEYS.slice(20)];
 const allowedKeys = new Map([
   [SMH_ETF_KEY, "US.SMH"],
   [EWY_ETF_KEY, "US.EWY"],
+  ...["LITE", "MU"].map(symbol => [`orderbook:futu:US.${symbol}`, `US.${symbol}`]),
   ...SYMBOLS.map((symbol) => [`orderbook:ibkr:STK:${symbol}:SMART:USD`, `US.${symbol}`]),
   [FX_KEY, "FX.USDKRW"], [FX_JPY_KEY, "FX.USDJPY"], [FX_HL_KEY, "FX.USDKRW"],
   ...KOREAN_CODES.map((code) => [`orderbook:ibkr:STK:${code}:KRX:KRW`, `KRX.${code}`]),
