@@ -8,6 +8,8 @@ import type { TaiwanPayload, TaiwanRow } from "../lib/taiwanStockBasis";
 import TaiwanAdrOutlook from "./TaiwanAdrOutlook";
 import TaiwanCashCard from "./TaiwanCashCard";
 import TaiwanTwdPanel from "./TaiwanTwdPanel";
+import HonHaiGdrCard from "./HonHaiGdrCard";
+import { honHaiGdrComparison } from "../lib/honHaiGdr";
 import { taiwanLiveComparison } from "../lib/taiwanLiveBasis";
 import { mergeTaiwanFeed } from "../lib/taiwanFeedState";
 import styles from "./KoreanPerpMonitor.module.css";
@@ -78,15 +80,20 @@ const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: 
         : !live.currentFx && payload?.fx?.refreshing ? "Refreshing USD/TWD…" : null;
       const magnitude = Math.abs(live.deviation ?? 0);
       const tone = magnitude >= 1 ? styles.spreadHigh : magnitude >= 0.5 ? styles.spreadMedium : styles.spreadQuiet;
+      const gdr = honHaiGdrComparison(row.symbol, row.book, payload?.honHaiGdr?.quote, clock);
+      const gdrMagnitude = gdr?.currentBooks ? Math.abs(gdr.deviation ?? 0) : 0;
+      const gdrTone = gdrMagnitude >= 1 ? styles.spreadHigh : gdrMagnitude >= 0.5 ? styles.spreadMedium : styles.spreadQuiet;
       return <details key={`${mode}:${row.symbol}`} className={`${styles.assetRow} ${styles.taiwanRow} ${magnitude >= 1 ? styles.highSpreadRow : magnitude >= 0.5 ? styles.mediumSpreadRow : ""}`}>
         <summary className={styles.assetSummary}>
           <span className={styles.summaryIdentity}><small>TWSE {row.code} · BITGET</small><strong>{row.name}</strong><small>{row.chineseName} · {row.symbol}</small><em>{fmt(row.book.bid)} / {fmt(row.book.ask)} USDT</em></span>
-          <span className={styles.summarySignals}><span className={`${styles.perpSignal} ${tone}`}><small>PERP VS {live.kind} · INDICATIVE</small><strong>{pct(live.deviation)}</strong><em>{refreshing ?? live.direction} · {live.isTrial ? "Trial" : "Cash"} NT$ {fmt(live.cashPrice)} · {stamp(live.cashTimestamp)} HKT{live.reason && !refreshing ? ` · ${live.reason}` : ""}</em></span></span>
+          <span className={styles.summarySignals}><span className={`${styles.perpSignal} ${tone}`}><small>PERP VS {live.kind} · INDICATIVE</small><strong>{pct(live.deviation)}</strong><em>{refreshing ?? live.direction} · {live.isTrial ? "Trial" : "Cash"} NT$ {fmt(live.cashPrice)} · {stamp(live.cashTimestamp)} HKT{live.reason && !refreshing ? ` · ${live.reason}` : ""}</em></span>
+            {gdr && <span className={`${styles.adrSignal} ${gdrTone}`}><small>HNHPF · GDR · {gdr.status}</small><strong>{pct(gdr.deviation)}</strong><em>Implied bid / ask {fmt(gdr.impliedBid)} / {fmt(gdr.impliedAsk)} USD</em><em>{gdr.direction} · Reference {fmt(gdr.reference)} · {stamp(payload?.honHaiGdr?.quote?.timestamp)} HKT</em></span>}
+          </span>
           <span className={styles.summaryToggle}>Details <b>⌄</b></span>
         </summary>
         <div className={styles.assetDetails}>
           <div className={styles.identity}><small>TWSE {row.code} · {row.chineseName}</small><strong>{row.name}</strong><span className={styles.cashPrice}>{row.symbol}</span><span className={styles.sessionLabel}>Bitget quote: {stamp(row.book.timestamp)} HKT</span><span className={styles.sessionLabel}>LIVE / PRE-OPEN COMPARISON</span></div>
-          <div className={styles.references}><TaiwanCashCard quote={cash} now={clock} error={payload?.cash?.errors[row.code]} configured={payload?.cash?.configured} comparison={live} book={row.book} fx={payload?.fx?.quote} /></div>
+          <div className={styles.references}><TaiwanCashCard quote={cash} now={clock} error={payload?.cash?.errors[row.code]} configured={payload?.cash?.configured} comparison={live} book={row.book} fx={payload?.fx?.quote} />{gdr && <HonHaiGdrCard book={row.book} feed={payload?.honHaiGdr} now={clock} />}</div>
         </div>
       </details>;
     })}</div>

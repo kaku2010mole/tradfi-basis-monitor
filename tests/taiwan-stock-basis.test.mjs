@@ -13,10 +13,11 @@ const baseRow = { ...model.TAIWAN_STOCKS[1], adrSymbol: null, anchor: ref(100, t
   book: { bid: 109, ask: 111, last: 999, index: 108, timestamp: now } };
 const tsm = { anchor: ref(200, target), current: ref(220, now - 60_000), error: null };
 
-test("all eight Taiwan contracts map to distinct correct TWSE companies", () => {
+test("all ten Taiwan contracts map to distinct correct TWSE companies", () => {
   assert.deepEqual(model.TAIWAN_STOCKS.map((s) => [s.symbol, s.code]), [
     ["TWTSMUSDT", "2330"], ["TWDELTAUSDT", "2308"], ["TWASXUSDT", "3711"], ["TWUMCUSDT", "2303"],
     ["NANYAUSDT", "2408"], ["WINBONDUSDT", "2344"], ["YAGEOUSDT", "2327"], ["WALSINUSDT", "2492"],
+    ["HONHAIUSDT", "2317"], ["MEDIATEKUSDT", "2454"],
   ]);
   assert.deepEqual(model.TAIWAN_STOCKS.filter((s) => s.adrSymbol).map((s) => [s.symbol, s.adrSymbol]), [
     ["TWTSMUSDT", "TSM"], ["TWUMCUSDT", "UMC"],
@@ -156,7 +157,7 @@ test("Taiwan is independently refreshed, foldable, filterable and outside the ex
   assert.match(parent, /excluded from the live quote radar/);
 });
 
-test("rendered Taiwan API returns eight rows, isolates missing anchors and uses actual ADR data", async () => {
+test("rendered Taiwan API returns ten rows, isolates missing anchors and uses actual ADR data", async () => {
   const { default: worker } = await import("../dist/server/index.js");
   const env = { ASSETS: { fetch: async () => new Response("missing", { status: 404 }) } };
   const ctx = { waitUntil() {}, passThroughOnException() {} };
@@ -187,7 +188,7 @@ test("rendered Taiwan API returns eight rows, isolates missing anchors and uses 
     const response = await worker.fetch(new Request("http://localhost/api/stock-basis/taiwan"), env, ctx);
     assert.equal(response.status, 200);
     const data = await response.json();
-    assert.equal(data.rows.length, 8);
+    assert.equal(data.rows.length, 10);
     assert.equal(data.fx.quote.price, 32.5);
     assert.equal(data.anchorTimestamp, target);
     assert.ok(data.rows[0].anchor, data.rows[0].anchorError);

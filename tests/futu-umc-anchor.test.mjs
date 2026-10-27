@@ -29,7 +29,8 @@ test("UMC 17:00 Futu baseline is separate from latest ADR, retains provenance an
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
     .replace('import { taiwanLatestCloses } from "./taiwanLatestClose";', "const taiwanLatestCloses = () => ({});")
-    .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;");
+    .replace('import { taiwanFxSnapshot } from "./taiwanFxMarket";', "const taiwanFxSnapshot = async () => undefined;")
+    .replace('import { honHaiGdrSnapshot } from "./honHaiGdrMarket";', "const honHaiGdrSnapshot = () => ({ quote: null, error: null });");
   const { taiwanSnapshot } = await import(moduleUrl(source));
   const originalFetch = globalThis.fetch, originalNow = Date.now, originalPush = globalThis.__FUTU_PUSH_SNAPSHOT__;
   let now = timestamp + 20 * 60_000, offline = false;

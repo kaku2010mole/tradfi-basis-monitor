@@ -6,7 +6,7 @@ import type { MarketRefreshOptions } from "./marketCacheRefresh";
 
 const REFRESH_MS = 60_000;
 // One cache and one in-flight batch per server, shared by every browser. The
-// free plan allows 60 intraday requests/minute; this uses eight, without WS churn.
+// free plan allows 60 intraday requests/minute; this uses ten, without WS churn.
 export function createTaiwanCashClient(options: {
   getKey: () => string | undefined; fetcher?: typeof fetch; clock?: () => number;
 }) {

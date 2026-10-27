@@ -149,7 +149,7 @@ test('TWD panel labels latest close, pending date, precision and 0.5% color thre
   assert.doesNotMatch(raw, /fetch\(|useEffect|setInterval|taiwanComparison/);
 });
 
-test('lightweight Taiwan API retains all eight pairs and cash/FX, with no oracle/ADR history calls', async () => {
+test('lightweight Taiwan API retains all ten pairs and cash/FX, with no oracle/ADR history calls', async () => {
   const { default: worker } = await import('../dist/server/index.js');
   const ctx = { waitUntil() {}, passThroughOnException() {} };
   await worker.fetch(new Request('http://localhost/stock-basis'), {}, ctx);
@@ -161,6 +161,7 @@ test('lightweight Taiwan API retains all eight pairs and cash/FX, with no oracle
     if (url.includes('holidaySchedule')) return Response.json({ stat: 'ok', queryYear: 2026, data: TWSE_2026.holidays.map(d => [d, '休市']) });
     if (url.includes('/tickers')) return Response.json({ code: '00000', data: [{ symbol: 'TWTSMUSDT', bidPr: '70', askPr: '71', ts: String(Date.now()) }] });
     if (url.includes('STOCK_DAY_ALL')) return Response.json([{ Code: '2330', Date: '1151023', ClosingPrice: '2400' }]);
+    if (url.includes('chart/HNHPF')) return Response.json({ chart: { result: [{ meta: { symbol: 'HNHPF', currency: 'USD', instrumentType: 'EQUITY', regularMarketPrice: 15, regularMarketTime: Date.now() / 1000 } }] } });
     if (url.includes('TWD')) return Response.json({ chart: { result: [{ meta: { symbol: 'TWD=X', currency: 'TWD', instrumentType: 'CURRENCY', regularMarketPrice: 32.5, regularMarketTime: Date.now() / 1000 } }] } });
     throw Error('Unexpected request ' + url);
   };
@@ -169,8 +170,11 @@ test('lightweight Taiwan API retains all eight pairs and cash/FX, with no oracle
     await new Promise(resolve => setImmediate(resolve));
     response = await worker.fetch(new Request('http://localhost/api/stock-basis/taiwan?view=prices'), {}, ctx);
     const payload = await response.json();
-    assert.equal(payload.rows.length, 8); assert.equal(payload.view, 'prices'); assert.equal(payload.fx.quote.price, 32.5);
+    assert.equal(payload.rows.length, 10); assert.equal(payload.view, 'prices'); assert.equal(payload.fx.quote.price, 32.5);
     assert.equal(payload.latestCloseDate, '2026-10-23'); assert.equal(payload.closes['2330'].price, 2400);
+    assert.equal(payload.honHaiGdr.quote.last, 15);
+    assert.equal(payload.honHaiGdr.quote.bid, null, 'last trade is never invented as a BBO');
+    assert.deepEqual(payload.rows.slice(-2).map(r => [r.symbol, r.code]), [['HONHAIUSDT', '2317'], ['MEDIATEKUSDT', '2454']]);
     assert.equal(payload.anchorTimestamp, null); assert.ok(payload.rows.every(r => r.anchor === null));
     assert.ok(!urls.some(u => /history-index|chart\/TSM|chart\/UMC/.test(u)));
   } finally { globalThis.fetch = originalFetch; Date.now = originalNow; }
