@@ -73,7 +73,7 @@ test('office pusher maps the actual sources and does not refresh closed Japanese
     .replace('const TOKEN_FILE = process.env.FUTU_PUSH_TOKEN_FILE;', 'const TOKEN_FILE = "test-only";');
   const m = await import('data:text/javascript;base64,' + Buffer.from(decoder + '\nexport { quoteFromEntry, KEY_GROUPS };').toString('base64'));
   assert.ok(m.KEY_GROUPS.every(group => group.length <= 25));
-  assert.equal(m.KEY_GROUPS.flat().length, 37);
+  assert.equal(m.KEY_GROUPS.flat().length, 42);
   assert.ok(m.KEY_GROUPS.flat().includes('orderbook:futu:US.SMH'));
   assert.ok(m.KEY_GROUPS.flat().includes('orderbook:futu:US.EWY'));
   for (const symbol of ['LITE','MU']) {

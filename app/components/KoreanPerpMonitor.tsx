@@ -16,7 +16,7 @@ const COGNITO_DOMAIN = process.env.NEXT_PUBLIC_COGNITO_DOMAIN ?? "posley.auth.us
 type VenueQuote = { venue: string; symbol: string; sharesPerPerp?: number; bid: number | null; ask: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null; buyKoreaSellPerp: number | null; buyPerpSellKorea: number | null };
 type Session = "PRE-MARKET" | "OPENING AUCTION" | "REGULAR" | "AFTER-HOURS OPENING" | "AFTER-HOURS" | "LUNCH" | "CLOSED";
 type AdrQuote = { symbol: string; sharesPerAdr: number; source: string; ratioSource?: string | null; ratioSourceUrl?: string | null; ratioVerifiedOn?: string | null; marketState: string | null; bid: number | null; ask: number | null; last: number | null; bidQty: number | null; askQty: number | null; updatedAt: number | null };
-type Row = { previousClose?: KoreanCloseReference | null; strictCashBook?: boolean; code: string; name: string; chineseName?: string | null; cashSource?: string; showPerpQuote?: boolean; market: "KRX" | "TSE"; session: Session; currency: "KRW" | "JPY"; sharesPerPerp: number; cashBidKrw: number | null; cashAskKrw: number | null; cashLast: number | null; cashBidQty: number | null; cashAskQty: number | null; cashUpdatedAt: number | null; cashBidUsd: number | null; cashAskUsd: number | null; venues: VenueQuote[]; adr?: AdrQuote | null; perpPair?: { leftSymbol: string; rightSymbol: string } | null; mappingNote: string | null };
+type Row = { cashFeedSession?: string | null; previousClose?: KoreanCloseReference | null; strictCashBook?: boolean; code: string; name: string; chineseName?: string | null; cashSource?: string; showPerpQuote?: boolean; market: "KRX" | "TSE"; session: Session; currency: "KRW" | "JPY"; sharesPerPerp: number; cashBidKrw: number | null; cashAskKrw: number | null; cashLast: number | null; cashBidQty: number | null; cashAskQty: number | null; cashUpdatedAt: number | null; cashBidUsd: number | null; cashAskUsd: number | null; venues: VenueQuote[]; adr?: AdrQuote | null; perpPair?: { leftSymbol: string; rightSymbol: string } | null; mappingNote: string | null };
 type FxBook = { source: string; bid: number | null; ask: number | null; last: number | null; updatedAt: number | null };
 type BitgetOnlyKorean = { code: string; name: string; chineseName: string; symbol: string; bid: number | null; ask: number | null; last: number | null; updatedAt: number | null; impliedBidKrw: number | null; impliedAskKrw: number | null; impliedLastKrw: number | null };
 type KrwConversion = { rate: number | null; source: string; date: string | null; updatedAt: number | null; live: boolean };
@@ -68,6 +68,8 @@ function mergeRows(previous: Row[] = [], incoming: Row[] = []) {
     const priorVenues = new Map(prior.venues.map((quote) => [quoteKey(quote), quote]));
     return {
       ...row,
+      cashSource: cash.cashSource,
+      cashFeedSession: cash.cashFeedSession,
       cashBidKrw: cash.cashBidKrw, cashAskKrw: cash.cashAskKrw,
       cashLast: cash.cashLast,
       cashBidQty: cash.cashBidQty, cashAskQty: cash.cashAskQty,
@@ -281,7 +283,7 @@ export default function KoreanPerpMonitor() {
         <span className={styles.summarySignals}>
           {row.showPerpQuote && row.venues.map((quote) => <span className={styles.perpSignal} key={quoteKey(quote)}><small>{quote.venue.toUpperCase()} PERP · {isFresh(quote.updatedAt, clock) && quote.bid != null && quote.ask != null ? "LIVE BBO" : "STALE / INCOMPLETE"}</small><strong>{fmt(quote.bid)} / {fmt(quote.ask)} USDT</strong><em>{quote.symbol} · bid / ask · not cash</em></span>)}
           {pair && <span className={`${styles.perpSignal} ${toneClass(perpTone)}`}><small>BITGET PERP / PERP · {pair.live ? "LIVE" : "INDICATIVE"}</small><strong>{pct(pair.headline?.value ?? null)}</strong><em>{pair.headline?.direction ?? `${pair.left.symbol} / ${pair.right.symbol} · waiting for BBO`}</em></span>}
-          <span className={`${styles.cashSignal} ${toneClass(cashTone)}`}><small>{row.market} CASH · {cashSummaryLive ? "BBO" : "INDICATIVE"}</small><strong>{pct(cashHeadline?.value ?? null)}</strong><em>{cashHeadline?.direction ?? "No comparable cash quote"}</em></span>
+          <span className={`${styles.cashSignal} ${toneClass(cashTone)}`}><small>{row.market} CASH · {cashSummaryLive ? row.session === "AFTER-HOURS" ? "AFTER-HOURS BBO" : "BBO" : "INDICATIVE"}</small><strong>{pct(cashHeadline?.value ?? null)}</strong><em>{cashHeadline?.direction ?? "No comparable cash quote"}</em></span>
           {adr && <span className={`${styles.adrSignal} ${!adrHeadline ? styles.impliedAdrSignal : ""} ${toneClass(adrTone)}`}><small>{adrHeadline ? `U.S. ADR ${adr.symbol} · LIVE` : `${adr.symbol} · IMPLIED BID / ASK (USD)`}</small><strong>{adrHeadline ? pct(adrHeadline.value) : `${fmt(impliedHeadline?.bid ?? null, 3)} / ${fmt(impliedHeadline?.ask ?? null, 3)}`}</strong>{adrHeadline && <em>{adrHeadline.direction}</em>}</span>}
         </span><span className={styles.summaryToggle}>Details <b>⌄</b></span>
       </summary>
