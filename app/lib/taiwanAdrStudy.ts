@@ -1,7 +1,7 @@
 export type AdrDirection = "up" | "down" | "either";
 export type AdrStudy = {
   asOf: string; start: string; dates: string[]; adrReturns: number[];
-  returns0930: Record<string, number[]>;
+  returns0930: Record<string, (number | null)[]>;
 };
 
 export function adrCohort(study: AdrStudy, direction: AdrDirection | null, threshold: number) {
@@ -14,20 +14,28 @@ export function adrCohort(study: AdrStudy, direction: AdrDirection | null, thres
 
 export function adrStudyStats(study: AdrStudy, code: string, indices: number[]) {
   const values = study.returns0930[code];
-  const valid = indices.filter((i) => Number.isFinite(values?.[i]) && Number.isFinite(study.adrReturns[i]));
+  const valid = indices.flatMap((i) => {
+    const value = values?.[i], adr = study.adrReturns[i];
+    return typeof value === "number" && Number.isFinite(value) && Number.isFinite(adr) ? [{ value, adr }] : [];
+  });
   const n = valid.length;
   if (!n) return { n: 0, hits: 0, flat: 0, meanPct: null, hitPct: null, interval: null };
-  const hits = valid.filter((i) => Math.abs(values[i]) > 1e-12 && values[i] * study.adrReturns[i] > 0).length;
-  const flat = valid.filter((i) => Math.abs(values[i]) <= 1e-12).length;
+  const hits = valid.filter(({ value, adr }) => Math.abs(value) > 1e-12 && value * adr > 0).length;
+  const flat = valid.filter(({ value }) => Math.abs(value) <= 1e-12).length;
   const p = hits / n, z = 1.96, divisor = 1 + z * z / n;
   const center = (p + z * z / (2 * n)) / divisor;
   const radius = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / divisor;
   return {
     n, hits, flat,
-    meanPct: valid.reduce((sum, i) => sum + values[i], 0) / n * 100,
+    meanPct: valid.reduce((sum, { value }) => sum + value, 0) / n * 100,
     hitPct: p * 100,
     interval: [(center - radius) * 100, (center + radius) * 100],
   };
+}
+
+export function adrStudyCoverage(study: AdrStudy, code: string) {
+  const dates = study.dates.filter((_, i) => Number.isFinite(study.returns0930[code]?.[i]));
+  return { n: dates.length, total: study.dates.length, start: dates[0] ?? null, end: dates.at(-1) ?? null };
 }
 
 type Observation = { price: number; timestamp: number };
