@@ -163,7 +163,7 @@ test("keeps exact Korean and Japanese stock comparisons on the standalone stock 
   for (const symbol of ["TAIYOYUDENUSDT", "MURATAUSDT", "TOYOTAUSDT", "TMUSDT", "FASTRETAILINGUSDT"]) assert.match(route, new RegExp(symbol));
   assert.match(component, /row\.showPerpQuote && row\.venues\.map/);
   assert.match(component, /bid \/ ask · not cash/);
-  for (const [code, jpSymbol, adrSymbol] of [["6758", "JPSONYUSDT", "SONYUSDT"], ["8306", "JPMUFGUSDT", "MUFGUSDT"]]) {
+  for (const [code, jpSymbol, adrSymbol] of [["6758", "JPSONYUSDT", "SONYUSDT"], ["8306", "JPMUFGUSDT", "MUFGUSDT"], ["7203", "TOYOTAUSDT", "TMUSDT"]]) {
     assert.match(route, new RegExp(`code: "${code}"[^\\n]*bitgetSymbol: "${jpSymbol}"[^\\n]*additionalBitgetSymbol: "${adrSymbol}"[^\\n]*comparePerps: true`));
   }
   assert.match(component, /BITGET PERP \/ PERP/);

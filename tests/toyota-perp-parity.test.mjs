@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { stripTypeScriptTypes, createRequire } from 'node:module';
+import { build } from 'esbuild';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import test from 'node:test';
+const source=await readFile(new URL('../app/lib/equityBasis.ts',import.meta.url),'utf8');
+const {perpetualPairBasis}=await import('data:text/javascript;base64,'+Buffer.from(stripTypeScriptTypes(source)).toString('base64'));
+const now=Date.parse('2026-10-28T17:00:00+08:00');
+const left={venue:'Bitget',symbol:'TOYOTAUSDT',bid:19.407,ask:19.43,bidQty:221.25,askQty:416.34,sharesPerPerp:1,updatedAt:now};
+const right={venue:'Bitget',symbol:'TMUSDT',bid:195.41,ask:196.19,bidQty:.05,askQty:.05,sharesPerPerp:10,updatedAt:now};
+test('Toyota parity normalizes 10 ordinary-share units to one TM unit and keeps bid/ask direction',()=>{
+  const result=perpetualPairBasis(left,right,now);
+  assert.equal(result.live,true);
+  assert.ok(Math.abs(result.buyLeftSellRight-(195.41/(19.43*10)-1)*100)<1e-10);
+  assert.ok(Math.abs(result.buyRightSellLeft-(19.407*10/196.19-1)*100)<1e-10);
+  assert.ok(Math.abs(result.buyLeftSellRight)<1,'not the false ~900% raw-price gap');
+  for(const changes of[{updatedAt:now-61000},{bidQty:0},{ask:null},{bid:200,ask:190},{updatedAt:now+6000}]) assert.equal(perpetualPairBasis(left,{...right,...changes},now).live,false);
+});
+test('Toyota displays the perp pair and live radar even when Japan and U.S. cash markets are closed',async()=>{
+  const row={code:'7203',name:'Toyota Motor',market:'TSE',session:'CLOSED',currency:'JPY',sharesPerPerp:1,cashBidKrw:null,cashAskKrw:null,cashLast:null,cashBidQty:null,cashAskQty:null,cashUpdatedAt:null,cashBidUsd:null,cashAskUsd:null,adr:null,mappingNote:'Fixture mapping: 10 TOYOTAUSDT per TMUSDT',perpPair:{leftSymbol:left.symbol,rightSymbol:right.symbol},venues:[left,right]};
+  let index=0;
+  const payload={rows:[row],sessions:{KRX:'CLOSED',TSE:'CLOSED',US:'CLOSED'}};
+  const wrapped={...React,useState(initial){const i=index++;return React.useState(i===0?payload:i===1?now:initial);}};
+  const bundle=await build({entryPoints:[new URL('../app/components/KoreanPerpMonitor.tsx',import.meta.url).pathname],bundle:true,write:false,platform:'node',format:'cjs',jsx:'automatic',external:['react','react/jsx-runtime','next/link'],plugins:[{name:'css',setup(b){b.onLoad({filter:/\.css$/},()=>({contents:'export default {};',loader:'js'}));}}],logLevel:'silent'});
+  const module={exports:{}},require=createRequire(import.meta.url);
+  new Function('require','module','exports',bundle.outputFiles[0].text)(id=>id==='react'?wrapped:id==='next/link'?({children,...props})=>React.createElement('a',props,children):require(id),module,module.exports);
+  const html=renderToStaticMarkup(React.createElement(module.exports.default)).replaceAll(/<!--.*?-->/g,'');
+  for(const text of['TOYOTAUSDT / TMUSDT','BITGET PERP / PERP · LIVE','LIVE PERP BBO','Buy TOYOTAUSDT · sell TMUSDT','0.100 TMUSDT','+0.571%','1 positive edge']) assert.ok(html.includes(text),text);
+});

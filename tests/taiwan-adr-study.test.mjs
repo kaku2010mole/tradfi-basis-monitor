@@ -5,7 +5,9 @@ import test from "node:test";
 
 const source = await readFile(new URL("../app/lib/taiwanAdrStudy.ts", import.meta.url), "utf8");
 const model = await import("data:text/javascript;base64," + Buffer.from(stripTypeScriptTypes(source)).toString("base64"));
-const sample = JSON.parse(await readFile(new URL("../app/data/taiwanAdrStudy.json", import.meta.url), "utf8"));
+const current = JSON.parse(await readFile(new URL("../app/data/taiwanAdrStudy.json", import.meta.url), "utf8"));
+// Keep the original 57-date regression frozen while the current snapshot grows.
+const sample = { ...current, dates:current.dates.slice(0,57), adrReturns:current.adrReturns.slice(0,57), returns0930:Object.fromEntries(Object.entries(current.returns0930).map(([code,values])=>[code,values.slice(0,57)])) };
 const codes = ["2330", "2308", "3711", "2303", "2408", "2344", "2327", "2492"];
 
 test("audited snapshot is aligned across 57 common dates, and cohort counts/hits match raw study", () => {

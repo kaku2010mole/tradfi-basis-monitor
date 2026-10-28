@@ -9,7 +9,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { alignCashReturns, parseChart } from '../scripts/extend-taiwan-adr-study.mjs';
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8');
-const sample = JSON.parse(await read('../app/data/taiwanAdrStudy.json'));
+const current = JSON.parse(await read('../app/data/taiwanAdrStudy.json'));
+const sample = { ...current, dates:current.dates.slice(0,57), adrReturns:current.adrReturns.slice(0,57), returns0930:Object.fromEntries(Object.entries(current.returns0930).map(([code,values])=>[code,values.slice(0,57)])) };
 const audit = JSON.parse(await read('./fixtures/taiwan-adr-extension-audit.json'));
 const model = await import('data:text/javascript;base64,' + Buffer.from(stripTypeScriptTypes(await read('../app/lib/taiwanAdrStudy.ts'))).toString('base64'));
 
@@ -73,6 +74,11 @@ test('rendered historical table includes both new stocks, explicit partial cover
   const module = { exports: {} };
   new Function('require', 'module', 'exports', bundle.outputFiles[0].text)(createRequire(import.meta.url), module, module.exports);
   const html = renderToStaticMarkup(React.createElement(module.exports.default, { tsm: {}, anchorTimestamp: null, now: Date.parse('2026-10-28T08:00:00+08:00') })).replaceAll(/<!--.*?-->/g, '');
-  for (const text of ['Hon Hai Precision','MediaTek','2317','2454','52/57','2026-07-31','55.6%','66.7%','77.8%','+0.586%','+3.464%','10 Taiwan stocks','valid n per stock below','conditioned on TSM ADR']) assert.ok(html.includes(text), text);
+  for (const text of ['Hon Hai Precision','MediaTek','2317','2454','57/62','2026-07-31','2026-10-28','10 Taiwan stocks','valid n per stock below','conditioned on TSM ADR','Latest refresh exclusions:','2026-10-23: No verified cash half-hour bars']) assert.ok(html.includes(text), text);
+  for (const code of ['2317','2454']) for (const threshold of [.01,.02]) {
+    const stats = model.adrStudyStats(current,code,model.adrCohort(current,'up',threshold));
+    assert.ok(html.includes(`${stats.hitPct.toFixed(1)}%`));
+    assert.ok(html.includes(`${stats.meanPct >= 0 ? '+' : ''}${stats.meanPct.toFixed(3)}%`));
+  }
   assert.ok(!html.includes('across all eight stocks'));
 });
