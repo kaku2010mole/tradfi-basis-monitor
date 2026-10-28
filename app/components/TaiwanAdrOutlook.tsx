@@ -2,7 +2,7 @@
 
 import { memo, useState } from "react";
 import sample from "../data/taiwanAdrStudy.json";
-import { adrCohort, adrReturn, adrStudyStats, matchesAdrThreshold, matchingAdrDirection } from "../lib/taiwanAdrStudy";
+import { adrCohort, adrReturn, adrStudyStats, adrStudyCoverage, matchesAdrThreshold, matchingAdrDirection } from "../lib/taiwanAdrStudy";
 import type { AdrDirection } from "../lib/taiwanAdrStudy";
 import { fresh, TAIWAN_STOCKS } from "../lib/taiwanStockBasis";
 import type { TsmReference } from "../lib/taiwanStockBasis";
@@ -14,6 +14,7 @@ const signed = (n: number | null) => n === null || !Number.isFinite(n) ? "—" :
 const price = (n: number | undefined) => n && Number.isFinite(n) ? `$${n.toFixed(3)}` : "—";
 const tone = (n: number | null) => n === null || n === 0 ? "" : n > 0 ? styles.positive : styles.negative;
 const thresholdLabel = (direction: AdrDirection, threshold: number) => `${direction === "up" ? "ADR up" : direction === "down" ? "ADR down" : "ADR move"} ≥${threshold}%`;
+const COVERAGE = Object.fromEntries(TAIWAN_STOCKS.map(stock => [stock.code, adrStudyCoverage(sample, stock.code)]));
 
 // Immutable research snapshot: compute all six cohorts once, not on every 2s quote.
 const COHORTS = Object.fromEntries((["up", "down", "either"] as const).map((direction) => [direction, [1, 2].map((threshold) => {
@@ -27,10 +28,10 @@ const HistoryTable = memo(function HistoryTable({ direction }: { direction: AdrD
   return <div className={styles.table} role="table" aria-label="Taiwan 09:30 conditional historical returns">
     <div className={styles.tableHead} role="row">
       <div role="columnheader">TAIWAN STOCK<small>09:30 vs prior close</small></div>
-      {cohorts.map((cohort) => <div key={cohort.threshold} role="columnheader">{thresholdLabel(direction, cohort.threshold)}<small>{cohort.n} historical days</small></div>)}
+      {cohorts.map((cohort) => <div key={cohort.threshold} role="columnheader">{thresholdLabel(direction, cohort.threshold)}<small>{cohort.n} reference days · valid n per stock below</small></div>)}
     </div>
     {TAIWAN_STOCKS.map((stock) => <div key={stock.code} className={styles.tableRow} role="row">
-      <div role="rowheader" className={styles.stock}><strong>{stock.name}</strong><small>{stock.code} · {stock.chineseName}</small></div>
+      <div role="rowheader" className={styles.stock}><strong>{stock.name}</strong><small>{stock.code} · {stock.chineseName}</small>{COVERAGE[stock.code].n < sample.dates.length && <small>{COVERAGE[stock.code].n}/{sample.dates.length} days covered<br />{COVERAGE[stock.code].start ?? "No valid historical bars"}{COVERAGE[stock.code].end ? ` – ${COVERAGE[stock.code].end}` : ""}</small>}</div>
       {cohorts.map((cohort) => {
         const stats = cohort.stocks[stock.code];
         return <div key={cohort.threshold} role="cell" className={styles.result}>
@@ -55,7 +56,7 @@ export default function TaiwanAdrOutlook({ tsm, anchorTimestamp, now }: { tsm: T
   const locked = cutoff !== null && now >= cutoff;
   const quoteLabel = tsm.current?.source.includes("Yahoo") ? "INDICATIVE BAR" : fresh(tsm.current?.timestamp, now) ? "LIVE QUOTE" : "LAST OBSERVED";
   return <section className={styles.outlook} aria-label="TSM ADR opening outlook">
-    <div className={styles.heading}><div><span>OVERNIGHT STUDY · 09:30 HKT / TAIPEI</span><h4>TSM ADR → Taiwan opening outlook</h4><p>Historical cash returns versus the previous close. Not a buy-at-open trading win rate.</p></div><span className={styles.researchBadge}>HISTORICAL SAMPLE<br /> {sample.dates.length} common days · through {sample.asOf}</span></div>
+    <div className={styles.heading}><div><span>OVERNIGHT STUDY · 09:30 HKT / TAIPEI</span><h4>TSM ADR → Taiwan opening outlook</h4><p>Historical cash returns versus the previous close. Not a buy-at-open trading win rate.</p></div><span className={styles.researchBadge}>HISTORICAL SAMPLE<br /> {sample.dates.length} reference days · through {sample.asOf}</span></div>
     <div className={styles.overview}>
       <div className={styles.liveCard}>
         <div className={styles.liveLabel}><span>CURRENT TSM ADR CHANGE</span><small>{quoteLabel}</small></div>
@@ -83,7 +84,8 @@ export default function TaiwanAdrOutlook({ tsm, anchorTimestamp, now }: { tsm: T
     </div>
     <HistoryTable direction={direction} />
     <details className={styles.method}><summary>Method, sample dates &amp; interpretation</summary><div>
-      <p><b>{sample.start} – {sample.asOf}</b> · {sample.dates.length} matched trading dates across all eight stocks. This is a dated research snapshot, not an automatically rolling backtest.</p>
+      <p><b>{sample.start} – {sample.asOf}</b> · {sample.dates.length} reference trading dates, {TAIWAN_STOCKS.length} Taiwan stocks. This is a dated research snapshot, not an automatically rolling backtest. The original eight stocks retain their common-date sample; Hon Hai and MediaTek use the available verified half-hour bars on the same date grid. Their shorter coverage is shown beside each stock.</p>
+      <p><b>Sample counts:</b> missing or rejected bars are excluded, never counted as zero or as misses. Each stock’s hits/n uses only its valid observations for the selected ADR threshold. The occurrence cards use the full ADR reference sample, so their counts can exceed a stock’s valid n. Hon Hai and MediaTek are conditioned on TSM ADR, not on their own depositary receipts.</p>
       <p><b>Average move:</b> mean of all qualifying 09:30 cash returns versus the previous daily close, including losing and flat days. The 09:00–09:30 bar close approximates the 09:30 price.</p>
       <p><b>Direction hit:</b> ADR up and stock above prior close, or ADR down and stock below prior close. Flat stock returns are misses. This is not the return from buying at 09:00. Small samples and 100% hit rates do not establish a reliable future probability.</p>
       <p><b>ADR input:</b> last available observation before 09:00 divided by the last observation at or before the prior Taiwan trading date at 14:00. The input is frozen at 09:00; the separate current ADR quote may continue changing. Unavailable quotes are never treated as zero.</p>
