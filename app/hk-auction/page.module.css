@@ -216,6 +216,18 @@
 .hyperliquidVenue { color:#087d65; border-bottom-color:#50d2b2!important; }
 .signalMetrics dt.hyperliquidMetric { color:#087d65; }
 
+/* Cards can be half the desktop viewport. Size their details against the
+   actual card, rather than squeezing three sections into one narrow row. */
+.card { container-type:inline-size; }
+@container (max-width:800px) {
+  .hkSignal,.adrSignal { grid-template-columns:minmax(140px,.8fr) minmax(0,1.4fr); }
+  .signalMetrics,.adrSignal .signalMetrics { grid-column:1/-1; border-top:1px solid #dfe5e0; }
+  .signalDirection { border-right:0; }
+  .signalBasis>strong { font-size:clamp(28px,5cqw,36px); }
+  .directionLeg { display:grid; gap:3px; }
+  .signalMetrics>div { padding:9px 10px; }
+}
+
 @media(max-width:720px){
   .boardActions{justify-content:flex-start}
   .boardActions p{flex-basis:100%}
@@ -226,4 +238,10 @@
   .summaryRow{grid-template-columns:minmax(0,1fr) auto;gap:3px 8px}
   .summaryDirection{grid-column:1/-1}
   .summaryToggle{padding-top:3px}
+}
+
+@container (max-width:480px) {
+  .hkSignal,.adrSignal { grid-template-columns:1fr; }
+  .signalBasis,.signalDirection { border-right:0; border-bottom:1px solid #dfe5e0; }
+  .signalMetrics,.adrSignal .signalMetrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }

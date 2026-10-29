@@ -23,7 +23,10 @@ test('Quanto prices stay in HKD points while hedge shares follow FX; ordinary un
   }
   assert.equal(pricing.isBitgetHkdQuanto({...quanto,perpVenue:'binance'}),false);
   assert.equal(pricing.hkPerpFairPrice(200,{perpVenue:'binance',perpSymbol:'HK0700USDT',sharesPerContract:7.84},7.84),200);
-  for (const invalid of [0,-1,NaN,Infinity]) assert.equal(pricing.hkPerpFairPrice(200,quanto,invalid),null);
+  for (const invalid of [0,-1,NaN,Infinity]) {
+    assert.equal(pricing.hkPerpFairPrice(200,quanto,invalid),null);
+    assert.ok(Number.isNaN(pricing.hkPerpHedgeShares(quanto,invalid)), 'incomplete FX input must not create a zero hedge or a -100% ADR signal');
+  }
   assert.equal(pricing.hkPerpFairPrice(null,quanto,7.84),null);
   const pairs=pricing.BITGET_HK_COMPARISON_PAIRS;
   assert.equal(pairs.filter(pricing.isBitgetHkdQuanto).length,7);

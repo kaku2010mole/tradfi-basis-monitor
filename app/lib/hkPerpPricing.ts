@@ -19,8 +19,10 @@ export const isBitgetHkdQuanto = (pair: Pick<HkPerp, "perpVenue" | "perpSymbol">
 // Quanto P&L is one USDT per HKD price point. The local stock-price unit
 // remains one share, but its delta hedge is USD/HKD cash shares per perp.
 // Do not encode FX in the user's shares-per-price-unit setting.
-export const hkPerpHedgeShares = (pair: HkPerp, usdHkd: number) =>
-  pair.sharesPerContract * (isBitgetHkdQuanto(pair) ? usdHkd : 1);
+export const hkPerpHedgeShares = (pair: HkPerp, usdHkd: number) => {
+  if (![pair.sharesPerContract, usdHkd].every((v) => Number.isFinite(v) && v > 0)) return Number.NaN;
+  return pair.sharesPerContract * (isBitgetHkdQuanto(pair) ? usdHkd : 1);
+};
 
 export function hkPerpFairPrice(stockHkd: number | null, pair: HkPerp, usdHkd: number) {
   if (stockHkd === null || ![stockHkd, pair.sharesPerContract, usdHkd].every((v) => Number.isFinite(v) && v > 0)) return null;
