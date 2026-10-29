@@ -1,3 +1,5 @@
+import { hkPerpFairPrice } from "../../../lib/hkPerpPricing";
+
 const BINANCE_FUTURES_APIS = [
   "https://fapi.binance.com",
   "https://fapi1.binance.com",
@@ -124,7 +126,8 @@ export async function GET(request: Request) {
     const points = stockHistory.flatMap(([timestamp, stockCloseHkd]) => {
       const perpClose = perpByMinute.get(timestamp);
       if (perpClose === undefined) return [];
-      const fairUsdt = stockCloseHkd * sharesPerContract / usdHkd;
+      const fairUsdt = hkPerpFairPrice(stockCloseHkd, { perpSymbol, perpVenue: venue, sharesPerContract }, usdHkd);
+      if (fairUsdt === null) return [];
       return [{
         t: timestamp,
         value: (perpClose / fairUsdt - 1) * 100,

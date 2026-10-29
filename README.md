@@ -136,6 +136,18 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 
 ## Optional Futu OpenD relay
 
+HK Auction Basis includes Bitget's HKD Quanto contracts for MiniMax, Tencent,
+Xiaomi, Zhipu, Lenovo, CSOP SK Hynix 2x (07709) and CSOP Samsung 2x (07747),
+alongside ordinary MiniMax USDT futures. Existing v9 browser preferences migrate
+to v10 with these comparisons added; later removals stay removed. SHEIN is not
+mapped to an unverified HK cash listing.
+
+Quanto prices use HKD price points, with one USDT of P&L per point. Their basis
+compares the native quote directly with the HKD cash price, without another FX
+conversion. Delta hedge capacity and ADR conversion use `shares × USD/HKD`
+cash shares per Quanto contract, updating with the page's FX setting. This keeps
+pricing units separate from hedge units; it does not create an executable FX quote.
+
 The HK auction API (`/api/hk-auction/quotes`) reads Binance Futures directly. Futu
 OpenAPI connects through a running OpenD instance, so a public deployment must set
 `FUTU_RELAY_URL` to a small HTTPS relay beside OpenD. `FUTU_RELAY_TOKEN` is optional
