@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { stripTypeScriptTypes } from "node:module";
 
+const hkPricingUrl = "data:text/javascript;base64," + Buffer.from(stripTypeScriptTypes(await readFile(new URL("../app/lib/hkPerpPricing.ts", import.meta.url), "utf8"))).toString("base64");
+const withHkPricing = (source) => source.replace('"../../../lib/hkPerpPricing"', JSON.stringify(hkPricingUrl));
+
 async function render(pathname = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
@@ -587,7 +590,8 @@ test("normalizes Futu OpenD US references for HK auction basis", async () => {
   assert.match(auction, /withoutRemovedPairs/);
   assert.doesNotMatch(auction, /className=\{styles\.tradeSignal\}/);
   assert.match(auction, /SHORT \$\{pair\.adrSymbol\} → LONG \$\{pair\.perpSymbol\}/);
-  assert.ok(auction.includes("const perpsPerAdr = adrRatio !== null ? adrRatio / pair.sharesPerContract : null;"));
+  assert.ok(auction.includes("const perpsPerAdr = adrRatio !== null ? adrRatio / hedgeShares : null;"));
+  assert.match(auction, /hkPerpHedgeShares\(pair, Number\(usdHkd\)\)/);
   assert.doesNotMatch(auction, /SHORT \$\{pair\.adrSymbol\} \/ LONG FUTU/);
   assert.match(auction, /ADR_BENCHMARK_MAX_AGE_MS/);
   assert.match(auction, /HK\.03308.*ZHONGJIUSDT/);
@@ -975,7 +979,7 @@ test("compares JP and ADR-linked perps using normalized BBO, independent of cash
 
 test("routes Tencent aliases to Hyperliquid and computes HK auction and historical basis", async () => {
   const importRoute = async (path) => {
-    const source = stripTypeScriptTypes(await readFile(new URL(path, import.meta.url), "utf8"));
+    const source = withHkPricing(stripTypeScriptTypes(await readFile(new URL(path, import.meta.url), "utf8")));
     return import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
   };
   const quotes = await importRoute("../app/api/hk-auction/quotes/route.ts");
@@ -1045,7 +1049,7 @@ test("routes Tencent aliases to Hyperliquid and computes HK auction and historic
 });
 
 test("keeps same-symbol Bitget and Bybit SMIC separate and converts MEXC depth contracts", async () => {
-  const source = stripTypeScriptTypes(await readFile(new URL("../app/api/hk-auction/quotes/route.ts", import.meta.url), "utf8"));
+  const source = withHkPricing(stripTypeScriptTypes(await readFile(new URL("../app/api/hk-auction/quotes/route.ts", import.meta.url), "utf8")));
   const { GET } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
   const now = Date.now();
   const originalFetch = globalThis.fetch;

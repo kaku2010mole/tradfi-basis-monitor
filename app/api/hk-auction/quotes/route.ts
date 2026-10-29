@@ -1,3 +1,5 @@
+import { BITGET_HK_COMPARISON_PAIRS, hkPerpFairPrice, hkPerpHedgeShares, isBitgetHkdQuanto } from "../../../lib/hkPerpPricing";
+
 const BINANCE_FUTURES_APIS = [
   "https://fapi.binance.com",
   "https://fapi1.binance.com",
@@ -105,6 +107,7 @@ type MexcContract = { symbol?: string; state?: number; contractSize?: number };
 type MexcDepth = { bids?: number[][]; asks?: number[][]; timestamp?: number };
 
 const DEFAULT_PAIRS: PairConfig[] = [
+  ...BITGET_HK_COMPARISON_PAIRS,
   { stockSymbol: "HK.00700", perpSymbol: "io:TCNT", sharesPerContract: 1, perpVenue: "hyperliquid" },
   { stockSymbol: "HK.00700", perpSymbol: "TENCENTUSDT", sharesPerContract: 1, perpVenue: "binance" },
   { stockSymbol: "HK.01024", perpSymbol: "KUAISHOUUSDT", sharesPerContract: 1, perpVenue: "binance" },
@@ -669,10 +672,10 @@ async function getMexcQuotes(symbols: string[]) {
 const midpoint = (bid: number | null, ask: number | null) =>
   bid !== null && ask !== null ? (bid + ask) / 2 : null;
 
-const basis = (perpPrice: number | null, stockPriceHkd: number | null, shares: number, usdHkd: number) => {
+const basis = (perpPrice: number | null, stockPriceHkd: number | null, pair: PairConfig, usdHkd: number) => {
   if (perpPrice === null || stockPriceHkd === null) return null;
-  const fair = stockPriceHkd * shares / usdHkd;
-  return fair > 0 ? (perpPrice / fair - 1) * 100 : null;
+  const fair = hkPerpFairPrice(stockPriceHkd, pair, usdHkd);
+  return fair !== null && fair > 0 ? (perpPrice / fair - 1) * 100 : null;
 };
 
 const capacity = (
@@ -782,9 +785,8 @@ export async function GET(request: Request) {
       : activeFutu?.auctionPrice !== null && activeFutu?.auctionPrice !== undefined
         ? "auction-price"
         : stockReferenceHkd !== null ? "book-mid" : null;
-    const fairUsdt = stockReferenceHkd === null
-      ? null
-      : stockReferenceHkd * pair.sharesPerContract / usdHkd;
+    const fairUsdt = hkPerpFairPrice(stockReferenceHkd, pair, usdHkd);
+    const hedgeSharesPerContract = hkPerpHedgeShares(pair, usdHkd);
     const binanceMid = activeBinance?.mid ?? null;
     const midBasisPct = fairUsdt !== null && binanceMid !== null
       ? (binanceMid / fairUsdt - 1) * 100
@@ -793,13 +795,13 @@ export async function GET(request: Request) {
       activeBinance?.bid ?? null,
       activeBinance?.bidSize ?? null,
       activeFutu?.askSize ?? null,
-      pair.sharesPerContract,
+      hedgeSharesPerContract,
     );
     const buyCapacity = capacity(
       activeBinance?.ask ?? null,
       activeBinance?.askSize ?? null,
       activeFutu?.bidSize ?? null,
-      pair.sharesPerContract,
+      hedgeSharesPerContract,
     );
 
     return {
@@ -809,6 +811,8 @@ export async function GET(request: Request) {
       futu,
       binance,
       metrics: {
+        pricing: isBitgetHkdQuanto(pair) ? "hkd-quanto" : "usdt",
+        hedgeSharesPerContract,
         stockReferenceHkd,
         stockReferenceSource,
         fairUsdt,
@@ -825,11 +829,11 @@ export async function GET(request: Request) {
             ? activeBinance.ask * activeBinance.askSize : null,
         },
         sellPerpBuyStock: {
-          basisPct: basis(activeBinance?.bid ?? null, activeFutu?.ask ?? null, pair.sharesPerContract, usdHkd),
+          basisPct: basis(activeBinance?.bid ?? null, activeFutu?.ask ?? null, pair, usdHkd),
           ...sellCapacity,
         },
         buyPerpSellStock: {
-          basisPct: basis(activeBinance?.ask ?? null, activeFutu?.bid ?? null, pair.sharesPerContract, usdHkd),
+          basisPct: basis(activeBinance?.ask ?? null, activeFutu?.bid ?? null, pair, usdHkd),
           ...buyCapacity,
         },
       },
