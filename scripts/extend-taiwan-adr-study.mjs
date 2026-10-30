@@ -9,12 +9,14 @@ const time = t => new Date(t * 1000 + 8 * 3600000).toISOString().slice(11, 16);
 const positive = n => Number.isFinite(n) && n > 0;
 const mismatch = (a, b) => Math.abs(a / b - 1) > 0.0001;
 
-export function parseChart(payload, symbol) {
+export function parseChart(payload, symbol, { tradedOnly = false } = {}) {
   const result = payload.chart?.result?.[0];
   if (payload.chart?.error || result?.meta?.symbol !== symbol || result.meta.currency !== 'TWD') throw Error(`Invalid chart identity for ${symbol}`);
   const q = result.indicators?.quote?.[0];
   if (!q || !result.timestamp?.length) throw Error(`No bars for ${symbol}`);
-  const bars = result.timestamp.flatMap((t, i) => positive(q.open?.[i]) && positive(q.close?.[i])
+  // Daily holiday placeholders may repeat the prior OHLC with zero volume.
+  // They must not become a "previous trading day" for the overnight predictor.
+  const bars = result.timestamp.flatMap((t, i) => positive(q.open?.[i]) && positive(q.close?.[i]) && (!tradedOnly || positive(q.volume?.[i]))
     ? [{ t, open: q.open[i], close: q.close[i] }] : []);
   return { bars, eventDates: Object.values(result.events ?? {}).flatMap(category => Object.values(category).map(event => day(event.date))) };
 }
@@ -46,7 +48,7 @@ async function fetchChart(symbol, interval) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=${interval}&range=${interval === '30m' ? '60d' : '1y'}&includePrePost=true&events=div%2Csplits`;
   const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(30000) });
   if (!response.ok) throw Error(`${symbol} ${interval}: HTTP ${response.status}`);
-  const chart = parseChart(await response.json(), symbol);
+  const chart = parseChart(await response.json(), symbol, { tradedOnly: interval === '1d' });
   return { ...chart, url, fetchedAt: new Date().toISOString() };
 }
 

@@ -4,12 +4,16 @@ import { stripTypeScriptTypes } from 'node:module';
 import test from 'node:test';
 import { appendStudy, adrInput, completedAdrPoints } from '../scripts/refresh-taiwan-adr-study.mjs';
 const read = path => readFile(new URL(path, import.meta.url),'utf8');
-const sample = JSON.parse(await read('../app/data/taiwanAdrStudy.json'));
+const current = JSON.parse(await read('../app/data/taiwanAdrStudy.json'));
 const audit = JSON.parse(await read('./fixtures/taiwan-adr-refresh-2026-10-28.json'));
+// Freeze the original Oct 28 audit (including its subsequently repaired ADR
+// anchor) so later refreshes retain this historical regression test.
+const sample = { ...current, asOf:'2026-10-28', dates:current.dates.slice(0,62), adrReturns:current.adrReturns.slice(0,62), returns0930:Object.fromEntries(Object.entries(current.returns0930).map(([code,values])=>[code,values.slice(0,62)])), refresh:{excluded:[{date:'2026-10-23',reason:'No verified cash half-hour bars'}]} };
+for (const row of audit.adrRows) { const i = sample.dates.indexOf(row.date); if (i >= 0) sample.adrReturns[i] = row.adrReturn; }
 const model = await import('data:text/javascript;base64,' + Buffer.from(stripTypeScriptTypes(await read('../app/lib/taiwanAdrStudy.ts'))).toString('base64'));
 const calendar = await import('data:text/javascript;base64,' + Buffer.from(stripTypeScriptTypes(await read('../app/lib/taiwanStockBasis.ts'))).toString('base64'));
 
-test('latest snapshot is through the completed Oct 28 session, retaining the original prefix',()=>{
+test('original Oct 28 snapshot remains reproducible from its frozen audit',()=>{
   assert.equal(sample.asOf,'2026-10-28'); assert.equal(sample.dates.length,62);
   assert.deepEqual(sample.dates.slice(57),['2026-10-20','2026-10-21','2026-10-22','2026-10-27','2026-10-28']);
   assert.equal(new Set(sample.dates).size,62);

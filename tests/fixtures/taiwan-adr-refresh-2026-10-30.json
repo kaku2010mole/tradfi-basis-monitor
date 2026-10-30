@@ -1,0 +1,4105 @@
+{
+  "updatedAt": "2026-10-30T03:02:56.674Z",
+  "from": "2026-10-28",
+  "through": "2026-10-30",
+  "priorDateCount": 62,
+  "method": "Append verified Taiwan 09:30 observations after 10:30 publication buffer. Preserve historical cash outcomes; audit ADR anchor repairs against actual traded days, excluding zero-volume daily placeholders. TSM completed extended-hours hourly bars at/before prior TW trading date 14:00 and current TW date 09:00. Cash 09:00–09:30 close / previous traded daily close - 1. Corporate-action/mismatched/missing data excluded, never zero-filled.",
+  "corrections": [
+    {
+      "date": "2026-10-27",
+      "previousDate": "2026-10-22",
+      "oldAdrReturn": 0.0413618183591844,
+      "adrReturn": 0.0011723329425556983,
+      "reason": "Revalidated against previous actual traded Taiwan daily bar"
+    }
+  ],
+  "sources": [
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2303.TW?interval=1d&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.235Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2303.TW?interval=60m&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.235Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2303.TW?interval=30m&range=60d&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.236Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2308.TW?interval=1d&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.420Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2308.TW?interval=60m&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.387Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2308.TW?interval=30m&range=60d&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.391Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2317.TW?interval=1d&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.592Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2317.TW?interval=60m&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.588Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2317.TW?interval=30m&range=60d&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.577Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2327.TW?interval=1d&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.766Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2327.TW?interval=60m&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.760Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2327.TW?interval=30m&range=60d&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.761Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2330.TW?interval=1d&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.941Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2330.TW?interval=60m&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.938Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2330.TW?interval=30m&range=60d&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:57.939Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2344.TW?interval=1d&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:58.106Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2344.TW?interval=60m&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:58.090Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2344.TW?interval=30m&range=60d&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:58.102Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2408.TW?interval=1d&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:58.271Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2408.TW?interval=60m&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:58.260Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2408.TW?interval=30m&range=60d&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:58.261Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2454.TW?interval=1d&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:58.453Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2454.TW?interval=60m&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:58.421Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2454.TW?interval=30m&range=60d&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:58.613Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2492.TW?interval=1d&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:58.932Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2492.TW?interval=60m&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:58.761Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/2492.TW?interval=30m&range=60d&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:58.774Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/3711.TW?interval=1d&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:59.095Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/3711.TW?interval=60m&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:59.095Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/3711.TW?interval=30m&range=60d&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:59.099Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/TSM?interval=60m&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:59.291Z"
+    },
+    {
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/TSM?interval=1d&range=1mo&includePrePost=true&events=div%2Csplits",
+      "fetchedAt": "2026-10-30T03:02:59.290Z"
+    }
+  ],
+  "adrRows": [
+    {
+      "date": "2026-10-01",
+      "previousDate": "2026-09-30",
+      "excluded": "missing_ADR_history"
+    },
+    {
+      "date": "2026-10-02",
+      "previousDate": "2026-10-01",
+      "anchorTarget": 1790834400,
+      "cutoff": 1790902800,
+      "anchor": {
+        "timestamp": 1790812800,
+        "price": 457.42
+      },
+      "preOpen": {
+        "timestamp": 1790899200,
+        "price": 459.1999
+      },
+      "adrReturn": 0.003891172226837547
+    },
+    {
+      "date": "2026-10-05",
+      "previousDate": "2026-10-02",
+      "anchorTarget": 1790920800,
+      "cutoff": 1791162000,
+      "anchor": {
+        "timestamp": 1790899200,
+        "price": 459.1999
+      },
+      "preOpen": {
+        "timestamp": 1790985600,
+        "price": 473.06
+      },
+      "adrReturn": 0.03018315117228898
+    },
+    {
+      "date": "2026-10-06",
+      "previousDate": "2026-10-05",
+      "anchorTarget": 1791180000,
+      "cutoff": 1791248400,
+      "anchor": {
+        "timestamp": 1790985600,
+        "price": 473.06
+      },
+      "preOpen": {
+        "timestamp": 1791244800,
+        "price": 486.8761
+      },
+      "adrReturn": 0.02920580898828895
+    },
+    {
+      "date": "2026-10-07",
+      "previousDate": "2026-10-06",
+      "anchorTarget": 1791266400,
+      "cutoff": 1791334800,
+      "anchor": {
+        "timestamp": 1791244800,
+        "price": 486.8761
+      },
+      "preOpen": {
+        "timestamp": 1791331200,
+        "price": 483.9555
+      },
+      "adrReturn": -0.0059986514022767334
+    },
+    {
+      "date": "2026-10-08",
+      "previousDate": "2026-10-07",
+      "anchorTarget": 1791352800,
+      "cutoff": 1791421200,
+      "anchor": {
+        "timestamp": 1791331200,
+        "price": 483.9555
+      },
+      "preOpen": {
+        "timestamp": 1791417600,
+        "price": 474
+      },
+      "adrReturn": -0.020571106227741942
+    },
+    {
+      "date": "2026-10-12",
+      "previousDate": "2026-10-08",
+      "anchorTarget": 1791439200,
+      "cutoff": 1791766800,
+      "anchor": {
+        "timestamp": 1791417600,
+        "price": 474
+      },
+      "preOpen": {
+        "timestamp": 1791590400,
+        "price": 453.295
+      },
+      "adrReturn": -0.04368143459915608
+    },
+    {
+      "date": "2026-10-13",
+      "previousDate": "2026-10-12",
+      "anchorTarget": 1791784800,
+      "cutoff": 1791853200,
+      "anchor": {
+        "timestamp": 1791590400,
+        "price": 453.295
+      },
+      "preOpen": {
+        "timestamp": 1791849600,
+        "price": 443.8345
+      },
+      "adrReturn": -0.020870514786176853
+    },
+    {
+      "date": "2026-10-14",
+      "previousDate": "2026-10-13",
+      "anchorTarget": 1791871200,
+      "cutoff": 1791939600,
+      "anchor": {
+        "timestamp": 1791849600,
+        "price": 443.8345
+      },
+      "preOpen": {
+        "timestamp": 1791936000,
+        "price": 445.65
+      },
+      "adrReturn": 0.0040904886844082
+    },
+    {
+      "date": "2026-10-15",
+      "previousDate": "2026-10-14",
+      "anchorTarget": 1791957600,
+      "cutoff": 1792026000,
+      "anchor": {
+        "timestamp": 1791936000,
+        "price": 445.65
+      },
+      "preOpen": {
+        "timestamp": 1792022400,
+        "price": 422.5537
+      },
+      "adrReturn": -0.051826096712666914
+    },
+    {
+      "date": "2026-10-16",
+      "previousDate": "2026-10-15",
+      "anchorTarget": 1792044000,
+      "cutoff": 1792112400,
+      "anchor": {
+        "timestamp": 1792022400,
+        "price": 422.5537
+      },
+      "preOpen": {
+        "timestamp": 1792108800,
+        "price": 422.83
+      },
+      "adrReturn": 0.0006538813883301131
+    },
+    {
+      "date": "2026-10-19",
+      "previousDate": "2026-10-16",
+      "anchorTarget": 1792130400,
+      "cutoff": 1792371600,
+      "anchor": {
+        "timestamp": 1792108800,
+        "price": 422.83
+      },
+      "preOpen": {
+        "timestamp": 1792195200,
+        "price": 412.247
+      },
+      "adrReturn": -0.02502897145424865
+    },
+    {
+      "date": "2026-10-20",
+      "previousDate": "2026-10-19",
+      "anchorTarget": 1792389600,
+      "cutoff": 1792458000,
+      "anchor": {
+        "timestamp": 1792195200,
+        "price": 412.247
+      },
+      "preOpen": {
+        "timestamp": 1792454400,
+        "price": 420.88
+      },
+      "adrReturn": 0.02094132886352118
+    },
+    {
+      "date": "2026-10-21",
+      "previousDate": "2026-10-20",
+      "anchorTarget": 1792476000,
+      "cutoff": 1792544400,
+      "anchor": {
+        "timestamp": 1792454400,
+        "price": 420.88
+      },
+      "preOpen": {
+        "timestamp": 1792540800,
+        "price": 431.75
+      },
+      "adrReturn": 0.02582683900399174
+    },
+    {
+      "date": "2026-10-22",
+      "previousDate": "2026-10-21",
+      "anchorTarget": 1792562400,
+      "cutoff": 1792630800,
+      "anchor": {
+        "timestamp": 1792540800,
+        "price": 431.75
+      },
+      "preOpen": {
+        "timestamp": 1792627200,
+        "price": 426.5
+      },
+      "adrReturn": -0.012159814707585426
+    },
+    {
+      "date": "2026-10-27",
+      "previousDate": "2026-10-22",
+      "anchorTarget": 1792648800,
+      "cutoff": 1793062800,
+      "anchor": {
+        "timestamp": 1792627200,
+        "price": 426.5
+      },
+      "preOpen": {
+        "timestamp": 1793059200,
+        "price": 427
+      },
+      "adrReturn": 0.0011723329425556983
+    },
+    {
+      "date": "2026-10-28",
+      "previousDate": "2026-10-27",
+      "anchorTarget": 1793080800,
+      "cutoff": 1793149200,
+      "anchor": {
+        "timestamp": 1793059200,
+        "price": 427
+      },
+      "preOpen": {
+        "timestamp": 1793145600,
+        "price": 437.8394
+      },
+      "adrReturn": 0.025385011709601946
+    },
+    {
+      "date": "2026-10-29",
+      "previousDate": "2026-10-28",
+      "anchorTarget": 1793167200,
+      "cutoff": 1793235600,
+      "anchor": {
+        "timestamp": 1793145600,
+        "price": 437.8394
+      },
+      "preOpen": {
+        "timestamp": 1793232000,
+        "price": 431.09
+      },
+      "adrReturn": -0.015415241296237947
+    },
+    {
+      "date": "2026-10-30",
+      "previousDate": "2026-10-29",
+      "anchorTarget": 1793253600,
+      "cutoff": 1793322000,
+      "anchor": {
+        "timestamp": 1793232000,
+        "price": 431.09
+      },
+      "preOpen": {
+        "timestamp": 1793318400,
+        "price": 419.5
+      },
+      "adrReturn": -0.026885337168572665
+    }
+  ],
+  "cash": {
+    "2303": [
+      {
+        "date": "2026-09-30",
+        "excluded": "missing_daily_previous_close",
+        "return0930": null
+      },
+      {
+        "date": "2026-10-01",
+        "previousDate": "2026-09-30",
+        "previousClose": 154.5,
+        "dailyOpen": 156,
+        "hourlyOpen": 156,
+        "hourlyClose": 157,
+        "firstBar": {
+          "t": 1790816400,
+          "open": 156,
+          "close": 158
+        },
+        "secondBar": {
+          "t": 1790818200,
+          "open": 157.5,
+          "close": 157
+        },
+        "return0930": 0.02265372168284796
+      },
+      {
+        "date": "2026-10-02",
+        "previousDate": "2026-10-01",
+        "previousClose": 161.5,
+        "dailyOpen": 159,
+        "hourlyOpen": 159,
+        "hourlyClose": 159.5,
+        "firstBar": {
+          "t": 1790902800,
+          "open": 159,
+          "close": 158.5
+        },
+        "secondBar": {
+          "t": 1790904600,
+          "open": 159,
+          "close": 159.5
+        },
+        "return0930": -0.018575851393188847
+      },
+      {
+        "date": "2026-10-05",
+        "previousDate": "2026-10-02",
+        "previousClose": 161.5,
+        "dailyOpen": 164.5,
+        "hourlyOpen": 164.5,
+        "hourlyClose": 156,
+        "firstBar": {
+          "t": 1791162000,
+          "open": 164.5,
+          "close": 157.5
+        },
+        "secondBar": {
+          "t": 1791163800,
+          "open": 157.5,
+          "close": 156
+        },
+        "return0930": -0.024767801857585092
+      },
+      {
+        "date": "2026-10-06",
+        "previousDate": "2026-10-05",
+        "previousClose": 152.5,
+        "dailyOpen": 149,
+        "hourlyOpen": 149,
+        "hourlyClose": 149.5,
+        "firstBar": {
+          "t": 1791248400,
+          "open": 149,
+          "close": 148
+        },
+        "secondBar": {
+          "t": 1791250200,
+          "open": 148,
+          "close": 149.5
+        },
+        "return0930": -0.02950819672131144
+      },
+      {
+        "date": "2026-10-07",
+        "previousDate": "2026-10-06",
+        "previousClose": 147.5,
+        "dailyOpen": 148.5,
+        "hourlyOpen": 148.5,
+        "hourlyClose": 146.5,
+        "firstBar": {
+          "t": 1791334800,
+          "open": 148.5,
+          "close": 148.5
+        },
+        "secondBar": {
+          "t": 1791336600,
+          "open": 148,
+          "close": 146.5
+        },
+        "return0930": 0.006779661016949046
+      },
+      {
+        "date": "2026-10-08",
+        "previousDate": "2026-10-07",
+        "previousClose": 148.5,
+        "dailyOpen": 147.5,
+        "hourlyOpen": 147.5,
+        "hourlyClose": 148,
+        "firstBar": {
+          "t": 1791421200,
+          "open": 147.5,
+          "close": 148
+        },
+        "secondBar": {
+          "t": 1791423000,
+          "open": 148,
+          "close": 148
+        },
+        "return0930": -0.0033670033670033517
+      },
+      {
+        "date": "2026-10-12",
+        "previousDate": "2026-10-08",
+        "previousClose": 147.5,
+        "dailyOpen": 146.5,
+        "hourlyOpen": 146.5,
+        "hourlyClose": 145.5,
+        "firstBar": {
+          "t": 1791766800,
+          "open": 146.5,
+          "close": 145.5
+        },
+        "secondBar": {
+          "t": 1791768600,
+          "open": 145.5,
+          "close": 145.5
+        },
+        "return0930": -0.013559322033898313
+      },
+      {
+        "date": "2026-10-13",
+        "previousDate": "2026-10-12",
+        "previousClose": 145.5,
+        "dailyOpen": 142.5,
+        "hourlyOpen": 142.5,
+        "hourlyClose": 139,
+        "firstBar": {
+          "t": 1791853200,
+          "open": 142.5,
+          "close": 141
+        },
+        "secondBar": {
+          "t": 1791855000,
+          "open": 141,
+          "close": 139
+        },
+        "return0930": -0.030927835051546393
+      },
+      {
+        "date": "2026-10-14",
+        "previousDate": "2026-10-13",
+        "previousClose": 141.5,
+        "dailyOpen": 143,
+        "hourlyOpen": 143,
+        "hourlyClose": 141,
+        "firstBar": {
+          "t": 1791939600,
+          "open": 143,
+          "close": 141
+        },
+        "secondBar": {
+          "t": 1791941400,
+          "open": 141,
+          "close": 141
+        },
+        "return0930": -0.0035335689045936647
+      },
+      {
+        "date": "2026-10-15",
+        "previousDate": "2026-10-14",
+        "previousClose": 142,
+        "dailyOpen": 136.5,
+        "hourlyOpen": 136.5,
+        "hourlyClose": 134,
+        "firstBar": {
+          "t": 1792026000,
+          "open": 136.5,
+          "close": 135.5
+        },
+        "secondBar": {
+          "t": 1792027800,
+          "open": 135.5,
+          "close": 134
+        },
+        "return0930": -0.045774647887323994
+      },
+      {
+        "date": "2026-10-16",
+        "previousDate": "2026-10-15",
+        "previousClose": 133.5,
+        "dailyOpen": 134,
+        "hourlyOpen": 134,
+        "hourlyClose": 134.5,
+        "firstBar": {
+          "t": 1792112400,
+          "open": 134,
+          "close": 135
+        },
+        "secondBar": {
+          "t": 1792114200,
+          "open": 135,
+          "close": 134.5
+        },
+        "return0930": 0.011235955056179803
+      },
+      {
+        "date": "2026-10-19",
+        "previousDate": "2026-10-16",
+        "previousClose": 133,
+        "dailyOpen": 127,
+        "hourlyOpen": 127,
+        "hourlyClose": 126.5,
+        "firstBar": {
+          "t": 1792371600,
+          "open": 127,
+          "close": 127
+        },
+        "secondBar": {
+          "t": 1792373400,
+          "open": 127,
+          "close": 126.5
+        },
+        "return0930": -0.045112781954887216
+      },
+      {
+        "date": "2026-10-20",
+        "previousDate": "2026-10-19",
+        "previousClose": 131.5,
+        "dailyOpen": 129.5,
+        "hourlyOpen": 129.5,
+        "hourlyClose": 130,
+        "firstBar": {
+          "t": 1792458000,
+          "open": 129.5,
+          "close": 130.5
+        },
+        "secondBar": {
+          "t": 1792459800,
+          "open": 130.5,
+          "close": 130
+        },
+        "return0930": -0.0076045627376425395
+      },
+      {
+        "date": "2026-10-21",
+        "previousDate": "2026-10-20",
+        "previousClose": 127,
+        "dailyOpen": 129.5,
+        "hourlyOpen": 129.5,
+        "hourlyClose": 130.5,
+        "firstBar": {
+          "t": 1792544400,
+          "open": 129.5,
+          "close": 129
+        },
+        "secondBar": {
+          "t": 1792546200,
+          "open": 129.5,
+          "close": 130.5
+        },
+        "return0930": 0.015748031496062964
+      },
+      {
+        "date": "2026-10-22",
+        "previousDate": "2026-10-21",
+        "previousClose": 128,
+        "dailyOpen": 129,
+        "hourlyOpen": 129,
+        "hourlyClose": 128.5,
+        "firstBar": {
+          "t": 1792630800,
+          "open": 129,
+          "close": 127.5
+        },
+        "secondBar": {
+          "t": 1792632600,
+          "open": 127.5,
+          "close": 128.5
+        },
+        "return0930": -0.00390625
+      },
+      {
+        "date": "2026-10-27",
+        "previousDate": "2026-10-22",
+        "previousClose": 125.5,
+        "dailyOpen": 127,
+        "hourlyOpen": 127,
+        "hourlyClose": 123.5,
+        "firstBar": {
+          "t": 1793062800,
+          "open": 127,
+          "close": 124.5
+        },
+        "secondBar": {
+          "t": 1793064600,
+          "open": 124.5,
+          "close": 123.5
+        },
+        "return0930": -0.007968127490039834
+      },
+      {
+        "date": "2026-10-28",
+        "previousDate": "2026-10-27",
+        "previousClose": 122.5,
+        "dailyOpen": 127,
+        "hourlyOpen": 127,
+        "hourlyClose": 126.5,
+        "firstBar": {
+          "t": 1793149200,
+          "open": 127,
+          "close": 126.5
+        },
+        "secondBar": {
+          "t": 1793151000,
+          "open": 126.5,
+          "close": 126.5
+        },
+        "return0930": 0.03265306122448974
+      },
+      {
+        "date": "2026-10-29",
+        "previousDate": "2026-10-28",
+        "previousClose": 128,
+        "dailyOpen": 122,
+        "hourlyOpen": 122,
+        "hourlyClose": 116.5,
+        "firstBar": {
+          "t": 1793235600,
+          "open": 122,
+          "close": 117
+        },
+        "secondBar": {
+          "t": 1793237400,
+          "open": 117,
+          "close": 116.5
+        },
+        "return0930": -0.0859375
+      },
+      {
+        "date": "2026-10-30",
+        "previousDate": "2026-10-29",
+        "previousClose": 115.5,
+        "dailyOpen": 110,
+        "hourlyOpen": 110,
+        "hourlyClose": 109.5,
+        "firstBar": {
+          "t": 1793322000,
+          "open": 110,
+          "close": 109
+        },
+        "secondBar": {
+          "t": 1793323800,
+          "open": 109.5,
+          "close": 109.5
+        },
+        "return0930": -0.05627705627705626
+      }
+    ],
+    "2308": [
+      {
+        "date": "2026-09-30",
+        "excluded": "missing_daily_previous_close",
+        "return0930": null
+      },
+      {
+        "date": "2026-10-01",
+        "previousDate": "2026-09-30",
+        "previousClose": 1890,
+        "dailyOpen": 1925,
+        "hourlyOpen": 1925,
+        "hourlyClose": 1895,
+        "firstBar": {
+          "t": 1790816400,
+          "open": 1925,
+          "close": 1895
+        },
+        "secondBar": {
+          "t": 1790818200,
+          "open": 1890,
+          "close": 1895
+        },
+        "return0930": 0.002645502645502562
+      },
+      {
+        "date": "2026-10-02",
+        "previousDate": "2026-10-01",
+        "previousClose": 1905,
+        "dailyOpen": 1895,
+        "hourlyOpen": 1895,
+        "hourlyClose": 1890,
+        "firstBar": {
+          "t": 1790902800,
+          "open": 1895,
+          "close": 1895
+        },
+        "secondBar": {
+          "t": 1790904600,
+          "open": 1900,
+          "close": 1890
+        },
+        "return0930": -0.005249343832021025
+      },
+      {
+        "date": "2026-10-05",
+        "previousDate": "2026-10-02",
+        "previousClose": 1885,
+        "dailyOpen": 1920,
+        "hourlyOpen": 1920,
+        "hourlyClose": 1980,
+        "firstBar": {
+          "t": 1791162000,
+          "open": 1920,
+          "close": 1960
+        },
+        "secondBar": {
+          "t": 1791163800,
+          "open": 1960,
+          "close": 1980
+        },
+        "return0930": 0.039787798408488007
+      },
+      {
+        "date": "2026-10-06",
+        "previousDate": "2026-10-05",
+        "previousClose": 2005,
+        "dailyOpen": 2045,
+        "hourlyOpen": 2045,
+        "hourlyClose": 2040,
+        "firstBar": {
+          "t": 1791248400,
+          "open": 2045,
+          "close": 2025
+        },
+        "secondBar": {
+          "t": 1791250200,
+          "open": 2025,
+          "close": 2040
+        },
+        "return0930": 0.009975062344139696
+      },
+      {
+        "date": "2026-10-07",
+        "previousDate": "2026-10-06",
+        "previousClose": 2050,
+        "dailyOpen": 2025,
+        "hourlyOpen": 2025,
+        "hourlyClose": 1990,
+        "firstBar": {
+          "t": 1791334800,
+          "open": 2025,
+          "close": 1990
+        },
+        "secondBar": {
+          "t": 1791336600,
+          "open": 1990,
+          "close": 1990
+        },
+        "return0930": -0.029268292682926855
+      },
+      {
+        "date": "2026-10-08",
+        "previousDate": "2026-10-07",
+        "previousClose": 1990,
+        "dailyOpen": 1980,
+        "hourlyOpen": 1980,
+        "hourlyClose": 1975,
+        "firstBar": {
+          "t": 1791421200,
+          "open": 1980,
+          "close": 1955
+        },
+        "secondBar": {
+          "t": 1791423000,
+          "open": 1960,
+          "close": 1975
+        },
+        "return0930": -0.017587939698492483
+      },
+      {
+        "date": "2026-10-12",
+        "previousDate": "2026-10-08",
+        "previousClose": 1965,
+        "dailyOpen": 1940,
+        "hourlyOpen": 1940,
+        "hourlyClose": 1885,
+        "firstBar": {
+          "t": 1791766800,
+          "open": 1940,
+          "close": 1895
+        },
+        "secondBar": {
+          "t": 1791768600,
+          "open": 1900,
+          "close": 1885
+        },
+        "return0930": -0.03562340966921118
+      },
+      {
+        "date": "2026-10-13",
+        "previousDate": "2026-10-12",
+        "previousClose": 1900,
+        "dailyOpen": 1830,
+        "hourlyOpen": 1830,
+        "hourlyClose": 1795,
+        "firstBar": {
+          "t": 1791853200,
+          "open": 1830,
+          "close": 1825
+        },
+        "secondBar": {
+          "t": 1791855000,
+          "open": 1825,
+          "close": 1795
+        },
+        "return0930": -0.03947368421052633
+      },
+      {
+        "date": "2026-10-14",
+        "previousDate": "2026-10-13",
+        "previousClose": 1775,
+        "dailyOpen": 1790,
+        "hourlyOpen": 1790,
+        "hourlyClose": 1810,
+        "firstBar": {
+          "t": 1791939600,
+          "open": 1790,
+          "close": 1805
+        },
+        "secondBar": {
+          "t": 1791941400,
+          "open": 1800,
+          "close": 1810
+        },
+        "return0930": 0.016901408450704203
+      },
+      {
+        "date": "2026-10-15",
+        "previousDate": "2026-10-14",
+        "previousClose": 1785,
+        "dailyOpen": 1690,
+        "hourlyOpen": 1690,
+        "hourlyClose": 1665,
+        "firstBar": {
+          "t": 1792026000,
+          "open": 1690,
+          "close": 1665
+        },
+        "secondBar": {
+          "t": 1792027800,
+          "open": 1665,
+          "close": 1665
+        },
+        "return0930": -0.0672268907563025
+      },
+      {
+        "date": "2026-10-16",
+        "previousDate": "2026-10-15",
+        "previousClose": 1630,
+        "dailyOpen": 1650,
+        "hourlyOpen": 1650,
+        "hourlyClose": 1645,
+        "firstBar": {
+          "t": 1792112400,
+          "open": 1650,
+          "close": 1645
+        },
+        "secondBar": {
+          "t": 1792114200,
+          "open": 1650,
+          "close": 1645
+        },
+        "return0930": 0.009202453987730008
+      },
+      {
+        "date": "2026-10-19",
+        "previousDate": "2026-10-16",
+        "previousClose": 1635,
+        "dailyOpen": 1600,
+        "hourlyOpen": 1600,
+        "hourlyClose": 1610,
+        "firstBar": {
+          "t": 1792371600,
+          "open": 1600,
+          "close": 1625
+        },
+        "secondBar": {
+          "t": 1792373400,
+          "open": 1625,
+          "close": 1610
+        },
+        "return0930": -0.006116207951070374
+      },
+      {
+        "date": "2026-10-20",
+        "previousDate": "2026-10-19",
+        "previousClose": 1640,
+        "dailyOpen": 1635,
+        "hourlyOpen": 1635,
+        "hourlyClose": 1630,
+        "firstBar": {
+          "t": 1792458000,
+          "open": 1635,
+          "close": 1630
+        },
+        "secondBar": {
+          "t": 1792459800,
+          "open": 1630,
+          "close": 1630
+        },
+        "return0930": -0.0060975609756097615
+      },
+      {
+        "date": "2026-10-21",
+        "previousDate": "2026-10-20",
+        "previousClose": 1605,
+        "dailyOpen": 1625,
+        "hourlyOpen": 1625,
+        "hourlyClose": 1650,
+        "firstBar": {
+          "t": 1792544400,
+          "open": 1625,
+          "close": 1640
+        },
+        "secondBar": {
+          "t": 1792546200,
+          "open": 1640,
+          "close": 1650
+        },
+        "return0930": 0.02180685358255441
+      },
+      {
+        "date": "2026-10-22",
+        "previousDate": "2026-10-21",
+        "previousClose": 1625,
+        "dailyOpen": 1640,
+        "hourlyOpen": 1640,
+        "hourlyClose": 1615,
+        "firstBar": {
+          "t": 1792630800,
+          "open": 1640,
+          "close": 1620
+        },
+        "secondBar": {
+          "t": 1792632600,
+          "open": 1620,
+          "close": 1615
+        },
+        "return0930": -0.003076923076923088
+      },
+      {
+        "date": "2026-10-27",
+        "previousDate": "2026-10-22",
+        "previousClose": 1560,
+        "dailyOpen": 1535,
+        "hourlyOpen": 1535,
+        "hourlyClose": 1525,
+        "firstBar": {
+          "t": 1793062800,
+          "open": 1535,
+          "close": 1515
+        },
+        "secondBar": {
+          "t": 1793064600,
+          "open": 1520,
+          "close": 1525
+        },
+        "return0930": -0.028846153846153855
+      },
+      {
+        "date": "2026-10-28",
+        "previousDate": "2026-10-27",
+        "previousClose": 1510,
+        "dailyOpen": 1565,
+        "hourlyOpen": 1565,
+        "hourlyClose": 1545,
+        "firstBar": {
+          "t": 1793149200,
+          "open": 1565,
+          "close": 1545
+        },
+        "secondBar": {
+          "t": 1793151000,
+          "open": 1550,
+          "close": 1545
+        },
+        "return0930": 0.023178807947019875
+      },
+      {
+        "date": "2026-10-29",
+        "previousDate": "2026-10-28",
+        "previousClose": 1550,
+        "dailyOpen": 1525,
+        "hourlyOpen": 1525,
+        "hourlyClose": 1455,
+        "firstBar": {
+          "t": 1793235600,
+          "open": 1525,
+          "close": 1475
+        },
+        "secondBar": {
+          "t": 1793237400,
+          "open": 1480,
+          "close": 1455
+        },
+        "return0930": -0.048387096774193505
+      },
+      {
+        "date": "2026-10-30",
+        "previousDate": "2026-10-29",
+        "previousClose": 1480,
+        "dailyOpen": 1365,
+        "hourlyOpen": 1365,
+        "hourlyClose": 1340,
+        "firstBar": {
+          "t": 1793322000,
+          "open": 1365,
+          "close": 1340
+        },
+        "secondBar": {
+          "t": 1793323800,
+          "open": 1345,
+          "close": 1340
+        },
+        "return0930": -0.09459459459459463
+      }
+    ],
+    "2317": [
+      {
+        "date": "2026-09-30",
+        "excluded": "missing_daily_previous_close",
+        "return0930": null
+      },
+      {
+        "date": "2026-10-01",
+        "previousDate": "2026-09-30",
+        "previousClose": 251.5,
+        "dailyOpen": 253,
+        "hourlyOpen": 253,
+        "hourlyClose": 251,
+        "firstBar": {
+          "t": 1790816400,
+          "open": 253,
+          "close": 252
+        },
+        "secondBar": {
+          "t": 1790818200,
+          "open": 252,
+          "close": 251
+        },
+        "return0930": 0.001988071570576455
+      },
+      {
+        "date": "2026-10-02",
+        "previousDate": "2026-10-01",
+        "previousClose": 254,
+        "dailyOpen": 253,
+        "hourlyOpen": 253,
+        "hourlyClose": 251,
+        "firstBar": {
+          "t": 1790902800,
+          "open": 253,
+          "close": 251.5
+        },
+        "secondBar": {
+          "t": 1790904600,
+          "open": 251,
+          "close": 251
+        },
+        "return0930": -0.009842519685039353
+      },
+      {
+        "date": "2026-10-05",
+        "previousDate": "2026-10-02",
+        "previousClose": 251,
+        "dailyOpen": 254,
+        "hourlyOpen": 254,
+        "hourlyClose": 255,
+        "firstBar": {
+          "t": 1791162000,
+          "open": 254,
+          "close": 254
+        },
+        "secondBar": {
+          "t": 1791163800,
+          "open": 254,
+          "close": 255
+        },
+        "return0930": 0.01195219123505975
+      },
+      {
+        "date": "2026-10-06",
+        "previousDate": "2026-10-05",
+        "previousClose": 254,
+        "dailyOpen": 263,
+        "hourlyOpen": 263,
+        "hourlyClose": 256,
+        "firstBar": {
+          "t": 1791248400,
+          "open": 263,
+          "close": 258
+        },
+        "secondBar": {
+          "t": 1791250200,
+          "open": 258,
+          "close": 256
+        },
+        "return0930": 0.015748031496062964
+      },
+      {
+        "date": "2026-10-07",
+        "previousDate": "2026-10-06",
+        "previousClose": 256,
+        "dailyOpen": 254,
+        "hourlyOpen": 254,
+        "hourlyClose": 252.5,
+        "firstBar": {
+          "t": 1791334800,
+          "open": 254,
+          "close": 253
+        },
+        "secondBar": {
+          "t": 1791336600,
+          "open": 253.5,
+          "close": 252.5
+        },
+        "return0930": -0.01171875
+      },
+      {
+        "date": "2026-10-08",
+        "previousDate": "2026-10-07",
+        "previousClose": 252,
+        "dailyOpen": 251,
+        "hourlyOpen": 251,
+        "hourlyClose": 251,
+        "firstBar": {
+          "t": 1791421200,
+          "open": 251,
+          "close": 250
+        },
+        "secondBar": {
+          "t": 1791423000,
+          "open": 250.5,
+          "close": 251
+        },
+        "return0930": -0.007936507936507908
+      },
+      {
+        "date": "2026-10-12",
+        "previousDate": "2026-10-08",
+        "previousClose": 249,
+        "dailyOpen": 245,
+        "hourlyOpen": 245,
+        "hourlyClose": 245,
+        "firstBar": {
+          "t": 1791766800,
+          "open": 245,
+          "close": 244
+        },
+        "secondBar": {
+          "t": 1791768600,
+          "open": 244.5,
+          "close": 245
+        },
+        "return0930": -0.02008032128514059
+      },
+      {
+        "date": "2026-10-13",
+        "previousDate": "2026-10-12",
+        "previousClose": 244.5,
+        "dailyOpen": 243.5,
+        "hourlyOpen": 243.5,
+        "hourlyClose": 239,
+        "firstBar": {
+          "t": 1791853200,
+          "open": 243.5,
+          "close": 242
+        },
+        "secondBar": {
+          "t": 1791855000,
+          "open": 242.5,
+          "close": 239
+        },
+        "return0930": -0.010224948875255602
+      },
+      {
+        "date": "2026-10-14",
+        "previousDate": "2026-10-13",
+        "previousClose": 240,
+        "dailyOpen": 241.5,
+        "hourlyOpen": 241.5,
+        "hourlyClose": 244.5,
+        "firstBar": {
+          "t": 1791939600,
+          "open": 241.5,
+          "close": 245
+        },
+        "secondBar": {
+          "t": 1791941400,
+          "open": 245,
+          "close": 244.5
+        },
+        "return0930": 0.02083333333333326
+      },
+      {
+        "date": "2026-10-15",
+        "previousDate": "2026-10-14",
+        "previousClose": 243,
+        "dailyOpen": 240,
+        "hourlyOpen": 240,
+        "hourlyClose": 238.5,
+        "firstBar": {
+          "t": 1792026000,
+          "open": 240,
+          "close": 239
+        },
+        "secondBar": {
+          "t": 1792027800,
+          "open": 239,
+          "close": 238.5
+        },
+        "return0930": -0.016460905349794275
+      },
+      {
+        "date": "2026-10-16",
+        "previousDate": "2026-10-15",
+        "previousClose": 239.5,
+        "dailyOpen": 241.5,
+        "hourlyOpen": 241.5,
+        "hourlyClose": 244.5,
+        "firstBar": {
+          "t": 1792112400,
+          "open": 241.5,
+          "close": 245
+        },
+        "secondBar": {
+          "t": 1792114200,
+          "open": 245.5,
+          "close": 244.5
+        },
+        "return0930": 0.022964509394572064
+      },
+      {
+        "date": "2026-10-19",
+        "previousDate": "2026-10-16",
+        "previousClose": 244,
+        "dailyOpen": 242,
+        "hourlyOpen": 242,
+        "hourlyClose": 239,
+        "firstBar": {
+          "t": 1792371600,
+          "open": 242,
+          "close": 240
+        },
+        "secondBar": {
+          "t": 1792373400,
+          "open": 240,
+          "close": 239
+        },
+        "return0930": -0.016393442622950838
+      },
+      {
+        "date": "2026-10-20",
+        "previousDate": "2026-10-19",
+        "previousClose": 239.5,
+        "dailyOpen": 238,
+        "hourlyOpen": 238,
+        "hourlyClose": 241,
+        "firstBar": {
+          "t": 1792458000,
+          "open": 238,
+          "close": 240.5
+        },
+        "secondBar": {
+          "t": 1792459800,
+          "open": 240,
+          "close": 241
+        },
+        "return0930": 0.0041753653444676075
+      },
+      {
+        "date": "2026-10-21",
+        "previousDate": "2026-10-20",
+        "previousClose": 241.5,
+        "dailyOpen": 244.5,
+        "hourlyOpen": 244.5,
+        "hourlyClose": 247,
+        "firstBar": {
+          "t": 1792544400,
+          "open": 244.5,
+          "close": 245
+        },
+        "secondBar": {
+          "t": 1792546200,
+          "open": 245.5,
+          "close": 247
+        },
+        "return0930": 0.01449275362318847
+      },
+      {
+        "date": "2026-10-22",
+        "previousDate": "2026-10-21",
+        "previousClose": 250,
+        "dailyOpen": 249.5,
+        "hourlyOpen": 249.5,
+        "hourlyClose": 250,
+        "firstBar": {
+          "t": 1792630800,
+          "open": 249.5,
+          "close": 249
+        },
+        "secondBar": {
+          "t": 1792632600,
+          "open": 249.5,
+          "close": 250
+        },
+        "return0930": -0.0040000000000000036
+      },
+      {
+        "date": "2026-10-27",
+        "previousDate": "2026-10-22",
+        "previousClose": 245,
+        "dailyOpen": 246.5,
+        "hourlyOpen": 246.5,
+        "hourlyClose": 246,
+        "firstBar": {
+          "t": 1793062800,
+          "open": 246.5,
+          "close": 248
+        },
+        "secondBar": {
+          "t": 1793064600,
+          "open": 248,
+          "close": 246
+        },
+        "return0930": 0.012244897959183598
+      },
+      {
+        "date": "2026-10-28",
+        "previousDate": "2026-10-27",
+        "previousClose": 247.5,
+        "dailyOpen": 248,
+        "hourlyOpen": 248,
+        "hourlyClose": 248.5,
+        "firstBar": {
+          "t": 1793149200,
+          "open": 248,
+          "close": 248.5
+        },
+        "secondBar": {
+          "t": 1793151000,
+          "open": 248.5,
+          "close": 248.5
+        },
+        "return0930": 0.004040404040404066
+      },
+      {
+        "date": "2026-10-29",
+        "previousDate": "2026-10-28",
+        "previousClose": 251.5,
+        "dailyOpen": 250,
+        "hourlyOpen": 250,
+        "hourlyClose": 249.5,
+        "firstBar": {
+          "t": 1793235600,
+          "open": 250,
+          "close": 249.5
+        },
+        "secondBar": {
+          "t": 1793237400,
+          "open": 250,
+          "close": 249.5
+        },
+        "return0930": -0.007952286282306154
+      },
+      {
+        "date": "2026-10-30",
+        "previousDate": "2026-10-29",
+        "previousClose": 248,
+        "dailyOpen": 245,
+        "hourlyOpen": 245,
+        "hourlyClose": 242,
+        "firstBar": {
+          "t": 1793322000,
+          "open": 245,
+          "close": 242
+        },
+        "secondBar": {
+          "t": 1793323800,
+          "open": 242,
+          "close": 242
+        },
+        "return0930": -0.024193548387096753
+      }
+    ],
+    "2327": [
+      {
+        "date": "2026-09-30",
+        "excluded": "missing_daily_previous_close",
+        "return0930": null
+      },
+      {
+        "date": "2026-10-01",
+        "previousDate": "2026-09-30",
+        "previousClose": 548,
+        "dailyOpen": 560,
+        "hourlyOpen": 560,
+        "hourlyClose": 590,
+        "firstBar": {
+          "t": 1790816400,
+          "open": 560,
+          "close": 582
+        },
+        "secondBar": {
+          "t": 1790818200,
+          "open": 581,
+          "close": 590
+        },
+        "return0930": 0.06204379562043805
+      },
+      {
+        "date": "2026-10-02",
+        "previousDate": "2026-10-01",
+        "previousClose": 602,
+        "dailyOpen": 604,
+        "hourlyOpen": 604,
+        "hourlyClose": 636,
+        "firstBar": {
+          "t": 1790902800,
+          "open": 604,
+          "close": 636
+        },
+        "secondBar": {
+          "t": 1790904600,
+          "open": 636,
+          "close": 636
+        },
+        "return0930": 0.056478405315614655
+      },
+      {
+        "date": "2026-10-05",
+        "previousDate": "2026-10-02",
+        "previousClose": 626,
+        "dailyOpen": 649,
+        "hourlyOpen": 649,
+        "hourlyClose": 639,
+        "firstBar": {
+          "t": 1791162000,
+          "open": 649,
+          "close": 650
+        },
+        "secondBar": {
+          "t": 1791163800,
+          "open": 650,
+          "close": 639
+        },
+        "return0930": 0.03833865814696491
+      },
+      {
+        "date": "2026-10-06",
+        "previousDate": "2026-10-05",
+        "previousClose": 626,
+        "dailyOpen": 630,
+        "hourlyOpen": 630,
+        "hourlyClose": 625,
+        "firstBar": {
+          "t": 1791248400,
+          "open": 630,
+          "close": 626
+        },
+        "secondBar": {
+          "t": 1791250200,
+          "open": 626,
+          "close": 625
+        },
+        "return0930": 0
+      },
+      {
+        "date": "2026-10-07",
+        "previousDate": "2026-10-06",
+        "previousClose": 625,
+        "dailyOpen": 630,
+        "hourlyOpen": 630,
+        "hourlyClose": 674,
+        "firstBar": {
+          "t": 1791334800,
+          "open": 630,
+          "close": 681
+        },
+        "secondBar": {
+          "t": 1791336600,
+          "open": 680,
+          "close": 674
+        },
+        "return0930": 0.0895999999999999
+      },
+      {
+        "date": "2026-10-08",
+        "previousDate": "2026-10-07",
+        "previousClose": 647,
+        "dailyOpen": 640,
+        "hourlyOpen": 640,
+        "hourlyClose": 633,
+        "firstBar": {
+          "t": 1791421200,
+          "open": 640,
+          "close": 623
+        },
+        "secondBar": {
+          "t": 1791423000,
+          "open": 623,
+          "close": 633
+        },
+        "return0930": -0.037094281298299836
+      },
+      {
+        "date": "2026-10-12",
+        "previousDate": "2026-10-08",
+        "previousClose": 635,
+        "dailyOpen": 628,
+        "hourlyOpen": 628,
+        "hourlyClose": 633,
+        "firstBar": {
+          "t": 1791766800,
+          "open": 628,
+          "close": 628
+        },
+        "secondBar": {
+          "t": 1791768600,
+          "open": 627,
+          "close": 633
+        },
+        "return0930": -0.011023622047244053
+      },
+      {
+        "date": "2026-10-13",
+        "previousDate": "2026-10-12",
+        "previousClose": 636,
+        "dailyOpen": 619,
+        "hourlyOpen": 619,
+        "hourlyClose": 588,
+        "firstBar": {
+          "t": 1791853200,
+          "open": 619,
+          "close": 603
+        },
+        "secondBar": {
+          "t": 1791855000,
+          "open": 603,
+          "close": 588
+        },
+        "return0930": -0.05188679245283023
+      },
+      {
+        "date": "2026-10-14",
+        "previousDate": "2026-10-13",
+        "previousClose": 599,
+        "dailyOpen": 605,
+        "hourlyOpen": 605,
+        "hourlyClose": 627,
+        "firstBar": {
+          "t": 1791939600,
+          "open": 605,
+          "close": 605
+        },
+        "secondBar": {
+          "t": 1791941400,
+          "open": 606,
+          "close": 627
+        },
+        "return0930": 0.01001669449081799
+      },
+      {
+        "date": "2026-10-15",
+        "previousDate": "2026-10-14",
+        "previousClose": 627,
+        "dailyOpen": 590,
+        "hourlyOpen": 590,
+        "hourlyClose": 583,
+        "firstBar": {
+          "t": 1792026000,
+          "open": 590,
+          "close": 590
+        },
+        "secondBar": {
+          "t": 1792027800,
+          "open": 590,
+          "close": 583
+        },
+        "return0930": -0.05901116427432218
+      },
+      {
+        "date": "2026-10-16",
+        "previousDate": "2026-10-15",
+        "previousClose": 573,
+        "dailyOpen": 581,
+        "hourlyOpen": 581,
+        "hourlyClose": 588,
+        "firstBar": {
+          "t": 1792112400,
+          "open": 581,
+          "close": 584
+        },
+        "secondBar": {
+          "t": 1792114200,
+          "open": 584,
+          "close": 588
+        },
+        "return0930": 0.01919720767888311
+      },
+      {
+        "date": "2026-10-19",
+        "previousDate": "2026-10-16",
+        "previousClose": 567,
+        "dailyOpen": 536,
+        "hourlyOpen": 536,
+        "hourlyClose": 525,
+        "firstBar": {
+          "t": 1792371600,
+          "open": 536,
+          "close": 538
+        },
+        "secondBar": {
+          "t": 1792373400,
+          "open": 537,
+          "close": 525
+        },
+        "return0930": -0.051146384479717866
+      },
+      {
+        "date": "2026-10-20",
+        "previousDate": "2026-10-19",
+        "previousClose": 534,
+        "dailyOpen": 532,
+        "hourlyOpen": 532,
+        "hourlyClose": 540,
+        "firstBar": {
+          "t": 1792458000,
+          "open": 532,
+          "close": 546
+        },
+        "secondBar": {
+          "t": 1792459800,
+          "open": 545,
+          "close": 540
+        },
+        "return0930": 0.022471910112359605
+      },
+      {
+        "date": "2026-10-21",
+        "previousDate": "2026-10-20",
+        "previousClose": 523,
+        "dailyOpen": 543,
+        "hourlyOpen": 543,
+        "hourlyClose": 553,
+        "firstBar": {
+          "t": 1792544400,
+          "open": 543,
+          "close": 552
+        },
+        "secondBar": {
+          "t": 1792546200,
+          "open": 552,
+          "close": 553
+        },
+        "return0930": 0.055449330783938766
+      },
+      {
+        "date": "2026-10-22",
+        "previousDate": "2026-10-21",
+        "previousClose": 542,
+        "dailyOpen": 558,
+        "hourlyOpen": 558,
+        "hourlyClose": 533,
+        "firstBar": {
+          "t": 1792630800,
+          "open": 558,
+          "close": 534
+        },
+        "secondBar": {
+          "t": 1792632600,
+          "open": 533,
+          "close": 533
+        },
+        "return0930": -0.014760147601476037
+      },
+      {
+        "date": "2026-10-27",
+        "previousDate": "2026-10-22",
+        "previousClose": 507,
+        "dailyOpen": 515,
+        "hourlyOpen": 515,
+        "hourlyClose": 524,
+        "firstBar": {
+          "t": 1793062800,
+          "open": 515,
+          "close": 526
+        },
+        "secondBar": {
+          "t": 1793064600,
+          "open": 526,
+          "close": 524
+        },
+        "return0930": 0.03747534516765283
+      },
+      {
+        "date": "2026-10-28",
+        "previousDate": "2026-10-27",
+        "previousClose": 521,
+        "dailyOpen": 540,
+        "hourlyOpen": 540,
+        "hourlyClose": 543,
+        "firstBar": {
+          "t": 1793149200,
+          "open": 540,
+          "close": 540
+        },
+        "secondBar": {
+          "t": 1793151000,
+          "open": 540,
+          "close": 543
+        },
+        "return0930": 0.03646833013435691
+      },
+      {
+        "date": "2026-10-29",
+        "previousDate": "2026-10-28",
+        "previousClose": 547,
+        "dailyOpen": 544,
+        "hourlyOpen": 544,
+        "hourlyClose": 528,
+        "firstBar": {
+          "t": 1793235600,
+          "open": 544,
+          "close": 537
+        },
+        "secondBar": {
+          "t": 1793237400,
+          "open": 536,
+          "close": 528
+        },
+        "return0930": -0.018281535648994485
+      },
+      {
+        "date": "2026-10-30",
+        "previousDate": "2026-10-29",
+        "previousClose": 543,
+        "dailyOpen": 520,
+        "hourlyOpen": 520,
+        "hourlyClose": 501,
+        "firstBar": {
+          "t": 1793322000,
+          "open": 520,
+          "close": 505
+        },
+        "secondBar": {
+          "t": 1793323800,
+          "open": 504,
+          "close": 501
+        },
+        "return0930": -0.06998158379373853
+      }
+    ],
+    "2330": [
+      {
+        "date": "2026-09-30",
+        "excluded": "missing_daily_previous_close",
+        "return0930": null
+      },
+      {
+        "date": "2026-10-01",
+        "previousDate": "2026-09-30",
+        "previousClose": 2480,
+        "dailyOpen": 2490,
+        "hourlyOpen": 2490,
+        "hourlyClose": 2495,
+        "firstBar": {
+          "t": 1790816400,
+          "open": 2490,
+          "close": 2495
+        },
+        "secondBar": {
+          "t": 1790818200,
+          "open": 2500,
+          "close": 2495
+        },
+        "return0930": 0.006048387096774244
+      },
+      {
+        "date": "2026-10-02",
+        "previousDate": "2026-10-01",
+        "previousClose": 2510,
+        "dailyOpen": 2505,
+        "hourlyOpen": 2505,
+        "hourlyClose": 2500,
+        "firstBar": {
+          "t": 1790902800,
+          "open": 2505,
+          "close": 2505
+        },
+        "secondBar": {
+          "t": 1790904600,
+          "open": 2505,
+          "close": 2500
+        },
+        "return0930": -0.0019920318725099584
+      },
+      {
+        "date": "2026-10-05",
+        "previousDate": "2026-10-02",
+        "previousClose": 2500,
+        "dailyOpen": 2550,
+        "hourlyOpen": 2550,
+        "hourlyClose": 2575,
+        "firstBar": {
+          "t": 1791162000,
+          "open": 2550,
+          "close": 2570
+        },
+        "secondBar": {
+          "t": 1791163800,
+          "open": 2570,
+          "close": 2575
+        },
+        "return0930": 0.028000000000000025
+      },
+      {
+        "date": "2026-10-06",
+        "previousDate": "2026-10-05",
+        "previousClose": 2575,
+        "dailyOpen": 2575,
+        "hourlyOpen": 2575,
+        "hourlyClose": 2570,
+        "firstBar": {
+          "t": 1791248400,
+          "open": 2575,
+          "close": 2575
+        },
+        "secondBar": {
+          "t": 1791250200,
+          "open": 2580,
+          "close": 2570
+        },
+        "return0930": 0
+      },
+      {
+        "date": "2026-10-07",
+        "previousDate": "2026-10-06",
+        "previousClose": 2585,
+        "dailyOpen": 2565,
+        "hourlyOpen": 2565,
+        "hourlyClose": 2580,
+        "firstBar": {
+          "t": 1791334800,
+          "open": 2565,
+          "close": 2575
+        },
+        "secondBar": {
+          "t": 1791336600,
+          "open": 2580,
+          "close": 2580
+        },
+        "return0930": -0.003868471953578312
+      },
+      {
+        "date": "2026-10-08",
+        "previousDate": "2026-10-07",
+        "previousClose": 2585,
+        "dailyOpen": 2550,
+        "hourlyOpen": 2550,
+        "hourlyClose": 2575,
+        "firstBar": {
+          "t": 1791421200,
+          "open": 2550,
+          "close": 2555
+        },
+        "secondBar": {
+          "t": 1791423000,
+          "open": 2560,
+          "close": 2575
+        },
+        "return0930": -0.011605415860735047
+      },
+      {
+        "date": "2026-10-12",
+        "previousDate": "2026-10-08",
+        "previousClose": 2550,
+        "dailyOpen": 2510,
+        "hourlyOpen": 2510,
+        "hourlyClose": 2535,
+        "firstBar": {
+          "t": 1791766800,
+          "open": 2510,
+          "close": 2530
+        },
+        "secondBar": {
+          "t": 1791768600,
+          "open": 2530,
+          "close": 2535
+        },
+        "return0930": -0.007843137254901933
+      },
+      {
+        "date": "2026-10-13",
+        "previousDate": "2026-10-12",
+        "previousClose": 2540,
+        "dailyOpen": 2500,
+        "hourlyOpen": 2500,
+        "hourlyClose": 2495,
+        "firstBar": {
+          "t": 1791853200,
+          "open": 2500,
+          "close": 2505
+        },
+        "secondBar": {
+          "t": 1791855000,
+          "open": 2510,
+          "close": 2495
+        },
+        "return0930": -0.013779527559055094
+      },
+      {
+        "date": "2026-10-14",
+        "previousDate": "2026-10-13",
+        "previousClose": 2490,
+        "dailyOpen": 2505,
+        "hourlyOpen": 2505,
+        "hourlyClose": 2515,
+        "firstBar": {
+          "t": 1791939600,
+          "open": 2505,
+          "close": 2530
+        },
+        "secondBar": {
+          "t": 1791941400,
+          "open": 2535,
+          "close": 2515
+        },
+        "return0930": 0.016064257028112428
+      },
+      {
+        "date": "2026-10-15",
+        "previousDate": "2026-10-14",
+        "previousClose": 2490,
+        "dailyOpen": 2420,
+        "hourlyOpen": 2420,
+        "hourlyClose": 2445,
+        "firstBar": {
+          "t": 1792026000,
+          "open": 2420,
+          "close": 2445
+        },
+        "secondBar": {
+          "t": 1792027800,
+          "open": 2445,
+          "close": 2445
+        },
+        "return0930": -0.01807228915662651
+      },
+      {
+        "date": "2026-10-16",
+        "previousDate": "2026-10-15",
+        "previousClose": 2440,
+        "dailyOpen": 2430,
+        "hourlyOpen": 2430,
+        "hourlyClose": 2430,
+        "firstBar": {
+          "t": 1792112400,
+          "open": 2430,
+          "close": 2435
+        },
+        "secondBar": {
+          "t": 1792114200,
+          "open": 2435,
+          "close": 2430
+        },
+        "return0930": -0.002049180327868827
+      },
+      {
+        "date": "2026-10-19",
+        "previousDate": "2026-10-16",
+        "previousClose": 2420,
+        "dailyOpen": 2395,
+        "hourlyOpen": 2395,
+        "hourlyClose": 2395,
+        "firstBar": {
+          "t": 1792371600,
+          "open": 2395,
+          "close": 2400
+        },
+        "secondBar": {
+          "t": 1792373400,
+          "open": 2400,
+          "close": 2395
+        },
+        "return0930": -0.008264462809917328
+      },
+      {
+        "date": "2026-10-20",
+        "previousDate": "2026-10-19",
+        "previousClose": 2420,
+        "dailyOpen": 2400,
+        "hourlyOpen": 2400,
+        "hourlyClose": 2405,
+        "firstBar": {
+          "t": 1792458000,
+          "open": 2400,
+          "close": 2410
+        },
+        "secondBar": {
+          "t": 1792459800,
+          "open": 2410,
+          "close": 2405
+        },
+        "return0930": -0.004132231404958664
+      },
+      {
+        "date": "2026-10-21",
+        "previousDate": "2026-10-20",
+        "previousClose": 2405,
+        "dailyOpen": 2425,
+        "hourlyOpen": 2425,
+        "hourlyClose": 2430,
+        "firstBar": {
+          "t": 1792544400,
+          "open": 2425,
+          "close": 2425
+        },
+        "secondBar": {
+          "t": 1792546200,
+          "open": 2430,
+          "close": 2430
+        },
+        "return0930": 0.008316008316008316
+      },
+      {
+        "date": "2026-10-22",
+        "previousDate": "2026-10-21",
+        "previousClose": 2420,
+        "dailyOpen": 2435,
+        "hourlyOpen": 2435,
+        "hourlyClose": 2410,
+        "firstBar": {
+          "t": 1792630800,
+          "open": 2435,
+          "close": 2415
+        },
+        "secondBar": {
+          "t": 1792632600,
+          "open": 2420,
+          "close": 2410
+        },
+        "return0930": -0.0020661157024793875
+      },
+      {
+        "date": "2026-10-27",
+        "previousDate": "2026-10-22",
+        "previousClose": 2385,
+        "dailyOpen": 2380,
+        "hourlyOpen": 2380,
+        "hourlyClose": 2400,
+        "firstBar": {
+          "t": 1793062800,
+          "open": 2380,
+          "close": 2400
+        },
+        "secondBar": {
+          "t": 1793064600,
+          "open": 2400,
+          "close": 2400
+        },
+        "return0930": 0.0062893081761006275
+      },
+      {
+        "date": "2026-10-28",
+        "previousDate": "2026-10-27",
+        "previousClose": 2400,
+        "dailyOpen": 2420,
+        "hourlyOpen": 2420,
+        "hourlyClose": 2420,
+        "firstBar": {
+          "t": 1793149200,
+          "open": 2420,
+          "close": 2420
+        },
+        "secondBar": {
+          "t": 1793151000,
+          "open": 2425,
+          "close": 2420
+        },
+        "return0930": 0.008333333333333304
+      },
+      {
+        "date": "2026-10-29",
+        "previousDate": "2026-10-28",
+        "previousClose": 2425,
+        "dailyOpen": 2420,
+        "hourlyOpen": 2420,
+        "hourlyClose": 2405,
+        "firstBar": {
+          "t": 1793235600,
+          "open": 2420,
+          "close": 2415
+        },
+        "secondBar": {
+          "t": 1793237400,
+          "open": 2420,
+          "close": 2405
+        },
+        "return0930": -0.004123711340206171
+      },
+      {
+        "date": "2026-10-30",
+        "previousDate": "2026-10-29",
+        "previousClose": 2415,
+        "dailyOpen": 2380,
+        "hourlyOpen": 2380,
+        "hourlyClose": 2375,
+        "firstBar": {
+          "t": 1793322000,
+          "open": 2380,
+          "close": 2365
+        },
+        "secondBar": {
+          "t": 1793323800,
+          "open": 2365,
+          "close": 2375
+        },
+        "return0930": -0.020703933747411973
+      }
+    ],
+    "2344": [
+      {
+        "date": "2026-09-30",
+        "excluded": "missing_daily_previous_close",
+        "return0930": null
+      },
+      {
+        "date": "2026-10-01",
+        "previousDate": "2026-09-30",
+        "previousClose": 179.5,
+        "dailyOpen": 178,
+        "hourlyOpen": 178,
+        "hourlyClose": 177.5,
+        "firstBar": {
+          "t": 1790816400,
+          "open": 178,
+          "close": 178.5
+        },
+        "secondBar": {
+          "t": 1790818200,
+          "open": 178.5,
+          "close": 177.5
+        },
+        "return0930": -0.005571030640668551
+      },
+      {
+        "date": "2026-10-02",
+        "previousDate": "2026-10-01",
+        "previousClose": 180,
+        "dailyOpen": 182.5,
+        "hourlyOpen": 182.5,
+        "hourlyClose": 179,
+        "firstBar": {
+          "t": 1790902800,
+          "open": 182.5,
+          "close": 180.5
+        },
+        "secondBar": {
+          "t": 1790904600,
+          "open": 180.5,
+          "close": 179
+        },
+        "return0930": 0.002777777777777768
+      },
+      {
+        "date": "2026-10-05",
+        "previousDate": "2026-10-02",
+        "previousClose": 179,
+        "dailyOpen": 177.5,
+        "hourlyOpen": 177.5,
+        "hourlyClose": 179.5,
+        "firstBar": {
+          "t": 1791162000,
+          "open": 177.5,
+          "close": 175.5
+        },
+        "secondBar": {
+          "t": 1791163800,
+          "open": 176,
+          "close": 179.5
+        },
+        "return0930": -0.019553072625698276
+      },
+      {
+        "date": "2026-10-06",
+        "previousDate": "2026-10-05",
+        "previousClose": 181,
+        "dailyOpen": 181.5,
+        "hourlyOpen": 181.5,
+        "hourlyClose": 179.5,
+        "firstBar": {
+          "t": 1791248400,
+          "open": 181.5,
+          "close": 180
+        },
+        "secondBar": {
+          "t": 1791250200,
+          "open": 180.5,
+          "close": 179.5
+        },
+        "return0930": -0.0055248618784530246
+      },
+      {
+        "date": "2026-10-07",
+        "previousDate": "2026-10-06",
+        "previousClose": 177.5,
+        "dailyOpen": 178.5,
+        "hourlyOpen": 178.5,
+        "hourlyClose": 178,
+        "firstBar": {
+          "t": 1791334800,
+          "open": 178.5,
+          "close": 178
+        },
+        "secondBar": {
+          "t": 1791336600,
+          "open": 178,
+          "close": 178
+        },
+        "return0930": 0.0028169014084507005
+      },
+      {
+        "date": "2026-10-08",
+        "previousDate": "2026-10-07",
+        "previousClose": 179.5,
+        "dailyOpen": 181,
+        "hourlyOpen": 181,
+        "hourlyClose": 180,
+        "firstBar": {
+          "t": 1791421200,
+          "open": 181,
+          "close": 179
+        },
+        "secondBar": {
+          "t": 1791423000,
+          "open": 179,
+          "close": 180
+        },
+        "return0930": -0.0027855153203342198
+      },
+      {
+        "date": "2026-10-12",
+        "previousDate": "2026-10-08",
+        "previousClose": 177,
+        "dailyOpen": 173.5,
+        "hourlyOpen": 173.5,
+        "hourlyClose": 176.5,
+        "firstBar": {
+          "t": 1791766800,
+          "open": 173.5,
+          "close": 175.5
+        },
+        "secondBar": {
+          "t": 1791768600,
+          "open": 175,
+          "close": 176.5
+        },
+        "return0930": -0.008474576271186418
+      },
+      {
+        "date": "2026-10-13",
+        "previousDate": "2026-10-12",
+        "previousClose": 174,
+        "dailyOpen": 168.5,
+        "hourlyOpen": 168.5,
+        "hourlyClose": 159.5,
+        "firstBar": {
+          "t": 1791853200,
+          "open": 168.5,
+          "close": 164.5
+        },
+        "secondBar": {
+          "t": 1791855000,
+          "open": 164.5,
+          "close": 159.5
+        },
+        "return0930": -0.054597701149425304
+      },
+      {
+        "date": "2026-10-14",
+        "previousDate": "2026-10-13",
+        "previousClose": 161.5,
+        "dailyOpen": 162,
+        "hourlyOpen": 162,
+        "hourlyClose": 165,
+        "firstBar": {
+          "t": 1791939600,
+          "open": 162,
+          "close": 162.5
+        },
+        "secondBar": {
+          "t": 1791941400,
+          "open": 162.5,
+          "close": 165
+        },
+        "return0930": 0.006191950464396356
+      },
+      {
+        "date": "2026-10-15",
+        "previousDate": "2026-10-14",
+        "previousClose": 165,
+        "dailyOpen": 157,
+        "hourlyOpen": 157,
+        "hourlyClose": 156.5,
+        "firstBar": {
+          "t": 1792026000,
+          "open": 157,
+          "close": 158
+        },
+        "secondBar": {
+          "t": 1792027800,
+          "open": 157.5,
+          "close": 156.5
+        },
+        "return0930": -0.042424242424242475
+      },
+      {
+        "date": "2026-10-16",
+        "previousDate": "2026-10-15",
+        "previousClose": 155,
+        "dailyOpen": 157.5,
+        "hourlyOpen": 157.5,
+        "hourlyClose": 164,
+        "firstBar": {
+          "t": 1792112400,
+          "open": 157.5,
+          "close": 163
+        },
+        "secondBar": {
+          "t": 1792114200,
+          "open": 163,
+          "close": 164
+        },
+        "return0930": 0.05161290322580636
+      },
+      {
+        "date": "2026-10-19",
+        "previousDate": "2026-10-16",
+        "previousClose": 161.5,
+        "dailyOpen": 153,
+        "hourlyOpen": 153,
+        "hourlyClose": 151.5,
+        "firstBar": {
+          "t": 1792371600,
+          "open": 153,
+          "close": 152
+        },
+        "secondBar": {
+          "t": 1792373400,
+          "open": 152,
+          "close": 151.5
+        },
+        "return0930": -0.05882352941176472
+      },
+      {
+        "date": "2026-10-20",
+        "previousDate": "2026-10-19",
+        "previousClose": 155.5,
+        "dailyOpen": 153,
+        "hourlyOpen": 153,
+        "hourlyClose": 155.5,
+        "firstBar": {
+          "t": 1792458000,
+          "open": 153,
+          "close": 154.5
+        },
+        "secondBar": {
+          "t": 1792459800,
+          "open": 154.5,
+          "close": 155.5
+        },
+        "return0930": -0.006430868167202619
+      },
+      {
+        "date": "2026-10-21",
+        "previousDate": "2026-10-20",
+        "previousClose": 152.5,
+        "dailyOpen": 157.5,
+        "hourlyOpen": 157.5,
+        "hourlyClose": 160.5,
+        "firstBar": {
+          "t": 1792544400,
+          "open": 157.5,
+          "close": 157.5
+        },
+        "secondBar": {
+          "t": 1792546200,
+          "open": 157,
+          "close": 160.5
+        },
+        "return0930": 0.032786885245901676
+      },
+      {
+        "date": "2026-10-22",
+        "previousDate": "2026-10-21",
+        "previousClose": 159.5,
+        "dailyOpen": 160,
+        "hourlyOpen": 160,
+        "hourlyClose": 158,
+        "firstBar": {
+          "t": 1792630800,
+          "open": 160,
+          "close": 157.5
+        },
+        "secondBar": {
+          "t": 1792632600,
+          "open": 157.5,
+          "close": 158
+        },
+        "return0930": -0.01253918495297801
+      },
+      {
+        "date": "2026-10-27",
+        "previousDate": "2026-10-22",
+        "previousClose": 154.5,
+        "dailyOpen": 159,
+        "hourlyOpen": 159,
+        "hourlyClose": 163.5,
+        "firstBar": {
+          "t": 1793062800,
+          "open": 159,
+          "close": 160.5
+        },
+        "secondBar": {
+          "t": 1793064600,
+          "open": 160.5,
+          "close": 163.5
+        },
+        "return0930": 0.03883495145631066
+      },
+      {
+        "date": "2026-10-28",
+        "previousDate": "2026-10-27",
+        "previousClose": 163,
+        "dailyOpen": 168,
+        "hourlyOpen": 168,
+        "hourlyClose": 166,
+        "firstBar": {
+          "t": 1793149200,
+          "open": 168,
+          "close": 165.5
+        },
+        "secondBar": {
+          "t": 1793151000,
+          "open": 166,
+          "close": 166
+        },
+        "return0930": 0.015337423312883347
+      },
+      {
+        "date": "2026-10-29",
+        "previousDate": "2026-10-28",
+        "previousClose": 172,
+        "dailyOpen": 174.5,
+        "hourlyOpen": 174.5,
+        "hourlyClose": 170.5,
+        "firstBar": {
+          "t": 1793235600,
+          "open": 174.5,
+          "close": 172
+        },
+        "secondBar": {
+          "t": 1793237400,
+          "open": 172,
+          "close": 170.5
+        },
+        "return0930": 0
+      },
+      {
+        "date": "2026-10-30",
+        "previousDate": "2026-10-29",
+        "previousClose": 170.5,
+        "dailyOpen": 162,
+        "hourlyOpen": 162,
+        "hourlyClose": 164,
+        "firstBar": {
+          "t": 1793322000,
+          "open": 162,
+          "close": 162
+        },
+        "secondBar": {
+          "t": 1793323800,
+          "open": 162,
+          "close": 164
+        },
+        "return0930": -0.04985337243401755
+      }
+    ],
+    "2408": [
+      {
+        "date": "2026-09-30",
+        "excluded": "missing_daily_previous_close",
+        "return0930": null
+      },
+      {
+        "date": "2026-10-01",
+        "previousDate": "2026-09-30",
+        "previousClose": 519,
+        "dailyOpen": 515,
+        "hourlyOpen": 515,
+        "hourlyClose": 515,
+        "firstBar": {
+          "t": 1790816400,
+          "open": 515,
+          "close": 518
+        },
+        "secondBar": {
+          "t": 1790818200,
+          "open": 518,
+          "close": 515
+        },
+        "return0930": -0.0019267822736031004
+      },
+      {
+        "date": "2026-10-02",
+        "previousDate": "2026-10-01",
+        "previousClose": 519,
+        "dailyOpen": 532,
+        "hourlyOpen": 532,
+        "hourlyClose": 530,
+        "firstBar": {
+          "t": 1790902800,
+          "open": 532,
+          "close": 529
+        },
+        "secondBar": {
+          "t": 1790904600,
+          "open": 529,
+          "close": 530
+        },
+        "return0930": 0.019267822736030782
+      },
+      {
+        "date": "2026-10-05",
+        "previousDate": "2026-10-02",
+        "previousClose": 526,
+        "dailyOpen": 521,
+        "hourlyOpen": 521,
+        "hourlyClose": 525,
+        "firstBar": {
+          "t": 1791162000,
+          "open": 521,
+          "close": 520
+        },
+        "secondBar": {
+          "t": 1791163800,
+          "open": 519,
+          "close": 525
+        },
+        "return0930": -0.011406844106463865
+      },
+      {
+        "date": "2026-10-06",
+        "previousDate": "2026-10-05",
+        "previousClose": 530,
+        "dailyOpen": 530,
+        "hourlyOpen": 530,
+        "hourlyClose": 531,
+        "firstBar": {
+          "t": 1791248400,
+          "open": 530,
+          "close": 532
+        },
+        "secondBar": {
+          "t": 1791250200,
+          "open": 532,
+          "close": 531
+        },
+        "return0930": 0.0037735849056603765
+      },
+      {
+        "date": "2026-10-07",
+        "previousDate": "2026-10-06",
+        "previousClose": 525,
+        "dailyOpen": 525,
+        "hourlyOpen": 525,
+        "hourlyClose": 518,
+        "firstBar": {
+          "t": 1791334800,
+          "open": 525,
+          "close": 521
+        },
+        "secondBar": {
+          "t": 1791336600,
+          "open": 521,
+          "close": 518
+        },
+        "return0930": -0.007619047619047636
+      },
+      {
+        "date": "2026-10-08",
+        "previousDate": "2026-10-07",
+        "previousClose": 514,
+        "dailyOpen": 522,
+        "hourlyOpen": 522,
+        "hourlyClose": 532,
+        "firstBar": {
+          "t": 1791421200,
+          "open": 522,
+          "close": 530
+        },
+        "secondBar": {
+          "t": 1791423000,
+          "open": 530,
+          "close": 532
+        },
+        "return0930": 0.03112840466926059
+      },
+      {
+        "date": "2026-10-12",
+        "previousDate": "2026-10-08",
+        "previousClose": 532,
+        "dailyOpen": 526,
+        "hourlyOpen": 526,
+        "hourlyClose": 532,
+        "firstBar": {
+          "t": 1791766800,
+          "open": 526,
+          "close": 525
+        },
+        "secondBar": {
+          "t": 1791768600,
+          "open": 525,
+          "close": 532
+        },
+        "return0930": -0.013157894736842146
+      },
+      {
+        "date": "2026-10-13",
+        "previousDate": "2026-10-12",
+        "previousClose": 527,
+        "dailyOpen": 509,
+        "hourlyOpen": 509,
+        "hourlyClose": 485,
+        "firstBar": {
+          "t": 1791853200,
+          "open": 509,
+          "close": 496
+        },
+        "secondBar": {
+          "t": 1791855000,
+          "open": 495.5,
+          "close": 485
+        },
+        "return0930": -0.05882352941176472
+      },
+      {
+        "date": "2026-10-14",
+        "previousDate": "2026-10-13",
+        "previousClose": 488,
+        "dailyOpen": 488,
+        "hourlyOpen": 488,
+        "hourlyClose": 490,
+        "firstBar": {
+          "t": 1791939600,
+          "open": 488,
+          "close": 485.5
+        },
+        "secondBar": {
+          "t": 1791941400,
+          "open": 485.5,
+          "close": 490
+        },
+        "return0930": -0.0051229508196721785
+      },
+      {
+        "date": "2026-10-15",
+        "previousDate": "2026-10-14",
+        "previousClose": 480.5,
+        "dailyOpen": 445,
+        "hourlyOpen": 445,
+        "hourlyClose": 439,
+        "firstBar": {
+          "t": 1792026000,
+          "open": 445,
+          "close": 444.5
+        },
+        "secondBar": {
+          "t": 1792027800,
+          "open": 445,
+          "close": 439
+        },
+        "return0930": -0.07492195629552545
+      },
+      {
+        "date": "2026-10-16",
+        "previousDate": "2026-10-15",
+        "previousClose": 439.5,
+        "dailyOpen": 446,
+        "hourlyOpen": 446,
+        "hourlyClose": 456.5,
+        "firstBar": {
+          "t": 1792112400,
+          "open": 446,
+          "close": 454
+        },
+        "secondBar": {
+          "t": 1792114200,
+          "open": 453.5,
+          "close": 456.5
+        },
+        "return0930": 0.03299203640500559
+      },
+      {
+        "date": "2026-10-19",
+        "previousDate": "2026-10-16",
+        "previousClose": 447.5,
+        "dailyOpen": 419,
+        "hourlyOpen": 419,
+        "hourlyClose": 415.5,
+        "firstBar": {
+          "t": 1792371600,
+          "open": 419,
+          "close": 420.5
+        },
+        "secondBar": {
+          "t": 1792373400,
+          "open": 420.5,
+          "close": 415.5
+        },
+        "return0930": -0.060335195530726304
+      },
+      {
+        "date": "2026-10-20",
+        "previousDate": "2026-10-19",
+        "previousClose": 436,
+        "dailyOpen": 425,
+        "hourlyOpen": 425,
+        "hourlyClose": 428.5,
+        "firstBar": {
+          "t": 1792458000,
+          "open": 425,
+          "close": 427
+        },
+        "secondBar": {
+          "t": 1792459800,
+          "open": 427,
+          "close": 428.5
+        },
+        "return0930": -0.020642201834862428
+      },
+      {
+        "date": "2026-10-21",
+        "previousDate": "2026-10-20",
+        "previousClose": 422,
+        "dailyOpen": 439.5,
+        "hourlyOpen": 439.5,
+        "hourlyClose": 440.5,
+        "firstBar": {
+          "t": 1792544400,
+          "open": 439.5,
+          "close": 434
+        },
+        "secondBar": {
+          "t": 1792546200,
+          "open": 434.5,
+          "close": 440.5
+        },
+        "return0930": 0.028436018957346043
+      },
+      {
+        "date": "2026-10-22",
+        "previousDate": "2026-10-21",
+        "previousClose": 436.5,
+        "dailyOpen": 442.5,
+        "hourlyOpen": 442.5,
+        "hourlyClose": 432,
+        "firstBar": {
+          "t": 1792630800,
+          "open": 442.5,
+          "close": 431.5
+        },
+        "secondBar": {
+          "t": 1792632600,
+          "open": 431.5,
+          "close": 432
+        },
+        "return0930": -0.01145475372279492
+      },
+      {
+        "date": "2026-10-27",
+        "previousDate": "2026-10-22",
+        "previousClose": 414,
+        "dailyOpen": 431,
+        "hourlyOpen": 431,
+        "hourlyClose": 449,
+        "firstBar": {
+          "t": 1793062800,
+          "open": 431,
+          "close": 440.5
+        },
+        "secondBar": {
+          "t": 1793064600,
+          "open": 441,
+          "close": 449
+        },
+        "return0930": 0.06400966183574885
+      },
+      {
+        "date": "2026-10-28",
+        "previousDate": "2026-10-27",
+        "previousClose": 441,
+        "dailyOpen": 460.5,
+        "hourlyOpen": 460.5,
+        "hourlyClose": 457.5,
+        "firstBar": {
+          "t": 1793149200,
+          "open": 460.5,
+          "close": 453
+        },
+        "secondBar": {
+          "t": 1793151000,
+          "open": 453,
+          "close": 457.5
+        },
+        "return0930": 0.027210884353741527
+      },
+      {
+        "date": "2026-10-29",
+        "previousDate": "2026-10-28",
+        "previousClose": 477,
+        "dailyOpen": 482,
+        "hourlyOpen": 482,
+        "hourlyClose": 481,
+        "firstBar": {
+          "t": 1793235600,
+          "open": 482,
+          "close": 482
+        },
+        "secondBar": {
+          "t": 1793237400,
+          "open": 481.5,
+          "close": 481
+        },
+        "return0930": 0.01048218029350112
+      },
+      {
+        "date": "2026-10-30",
+        "previousDate": "2026-10-29",
+        "previousClose": 477,
+        "dailyOpen": 440,
+        "hourlyOpen": 440,
+        "hourlyClose": 454.5,
+        "firstBar": {
+          "t": 1793322000,
+          "open": 440,
+          "close": 445.5
+        },
+        "secondBar": {
+          "t": 1793323800,
+          "open": 445.5,
+          "close": 454.5
+        },
+        "return0930": -0.06603773584905659
+      }
+    ],
+    "2454": [
+      {
+        "date": "2026-09-30",
+        "excluded": "missing_daily_previous_close",
+        "return0930": null
+      },
+      {
+        "date": "2026-10-01",
+        "previousDate": "2026-09-30",
+        "previousClose": 4920,
+        "dailyOpen": 4875,
+        "hourlyOpen": 4875,
+        "hourlyClose": 4925,
+        "firstBar": {
+          "t": 1790816400,
+          "open": 4875,
+          "close": 4935
+        },
+        "secondBar": {
+          "t": 1790818200,
+          "open": 4940,
+          "close": 4925
+        },
+        "return0930": 0.0030487804878047697
+      },
+      {
+        "date": "2026-10-02",
+        "previousDate": "2026-10-01",
+        "previousClose": 4980,
+        "dailyOpen": 4950,
+        "hourlyOpen": 4950,
+        "hourlyClose": 4915,
+        "firstBar": {
+          "t": 1790902800,
+          "open": 4950,
+          "close": 4905
+        },
+        "secondBar": {
+          "t": 1790904600,
+          "open": 4900,
+          "close": 4915
+        },
+        "return0930": -0.015060240963855387
+      },
+      {
+        "date": "2026-10-05",
+        "previousDate": "2026-10-02",
+        "previousClose": 4950,
+        "dailyOpen": 4980,
+        "hourlyOpen": 4980,
+        "hourlyClose": 5070,
+        "firstBar": {
+          "t": 1791162000,
+          "open": 4980,
+          "close": 5065
+        },
+        "secondBar": {
+          "t": 1791163800,
+          "open": 5070,
+          "close": 5070
+        },
+        "return0930": 0.02323232323232327
+      },
+      {
+        "date": "2026-10-06",
+        "previousDate": "2026-10-05",
+        "previousClose": 5165,
+        "dailyOpen": 5080,
+        "hourlyOpen": 5080,
+        "hourlyClose": 4945,
+        "firstBar": {
+          "t": 1791248400,
+          "open": 5080,
+          "close": 4950
+        },
+        "secondBar": {
+          "t": 1791250200,
+          "open": 4950,
+          "close": 4945
+        },
+        "return0930": -0.04162633107454017
+      },
+      {
+        "date": "2026-10-07",
+        "previousDate": "2026-10-06",
+        "previousClose": 4920,
+        "dailyOpen": 4920,
+        "hourlyOpen": 4920,
+        "hourlyClose": 4885,
+        "firstBar": {
+          "t": 1791334800,
+          "open": 4920,
+          "close": 4900
+        },
+        "secondBar": {
+          "t": 1791336600,
+          "open": 4905,
+          "close": 4885
+        },
+        "return0930": -0.004065040650406471
+      },
+      {
+        "date": "2026-10-08",
+        "previousDate": "2026-10-07",
+        "previousClose": 4835,
+        "dailyOpen": 4800,
+        "hourlyOpen": 4800,
+        "hourlyClose": 4780,
+        "firstBar": {
+          "t": 1791421200,
+          "open": 4800,
+          "close": 4790
+        },
+        "secondBar": {
+          "t": 1791423000,
+          "open": 4795,
+          "close": 4780
+        },
+        "return0930": -0.009307135470527417
+      },
+      {
+        "date": "2026-10-12",
+        "previousDate": "2026-10-08",
+        "previousClose": 4690,
+        "dailyOpen": 4615,
+        "hourlyOpen": 4615,
+        "hourlyClose": 4590,
+        "firstBar": {
+          "t": 1791766800,
+          "open": 4615,
+          "close": 4575
+        },
+        "secondBar": {
+          "t": 1791768600,
+          "open": 4575,
+          "close": 4590
+        },
+        "return0930": -0.024520255863539453
+      },
+      {
+        "date": "2026-10-13",
+        "previousDate": "2026-10-12",
+        "previousClose": 4625,
+        "dailyOpen": 4485,
+        "hourlyOpen": 4485,
+        "hourlyClose": 4490,
+        "firstBar": {
+          "t": 1791853200,
+          "open": 4485,
+          "close": 4550
+        },
+        "secondBar": {
+          "t": 1791855000,
+          "open": 4550,
+          "close": 4490
+        },
+        "return0930": -0.01621621621621616
+      },
+      {
+        "date": "2026-10-14",
+        "previousDate": "2026-10-13",
+        "previousClose": 4525,
+        "dailyOpen": 4525,
+        "hourlyOpen": 4525,
+        "hourlyClose": 4520,
+        "firstBar": {
+          "t": 1791939600,
+          "open": 4525,
+          "close": 4525
+        },
+        "secondBar": {
+          "t": 1791941400,
+          "open": 4525,
+          "close": 4520
+        },
+        "return0930": 0
+      },
+      {
+        "date": "2026-10-15",
+        "previousDate": "2026-10-14",
+        "previousClose": 4475,
+        "dailyOpen": 4195,
+        "hourlyOpen": 4195,
+        "hourlyClose": 4240,
+        "firstBar": {
+          "t": 1792026000,
+          "open": 4195,
+          "close": 4265
+        },
+        "secondBar": {
+          "t": 1792027800,
+          "open": 4265,
+          "close": 4240
+        },
+        "return0930": -0.04692737430167593
+      },
+      {
+        "date": "2026-10-16",
+        "previousDate": "2026-10-15",
+        "previousClose": 4165,
+        "dailyOpen": 4275,
+        "hourlyOpen": 4275,
+        "hourlyClose": 4295,
+        "firstBar": {
+          "t": 1792112400,
+          "open": 4275,
+          "close": 4305
+        },
+        "secondBar": {
+          "t": 1792114200,
+          "open": 4305,
+          "close": 4295
+        },
+        "return0930": 0.03361344537815136
+      },
+      {
+        "date": "2026-10-19",
+        "previousDate": "2026-10-16",
+        "previousClose": 4250,
+        "dailyOpen": 4150,
+        "hourlyOpen": 4150,
+        "hourlyClose": 4165,
+        "firstBar": {
+          "t": 1792371600,
+          "open": 4150,
+          "close": 4180
+        },
+        "secondBar": {
+          "t": 1792373400,
+          "open": 4170,
+          "close": 4165
+        },
+        "return0930": -0.016470588235294126
+      },
+      {
+        "date": "2026-10-20",
+        "previousDate": "2026-10-19",
+        "previousClose": 4205,
+        "dailyOpen": 4260,
+        "hourlyOpen": 4260,
+        "hourlyClose": 4250,
+        "firstBar": {
+          "t": 1792458000,
+          "open": 4260,
+          "close": 4260
+        },
+        "secondBar": {
+          "t": 1792459800,
+          "open": 4260,
+          "close": 4250
+        },
+        "return0930": 0.013079667063020217
+      },
+      {
+        "date": "2026-10-21",
+        "previousDate": "2026-10-20",
+        "previousClose": 4150,
+        "dailyOpen": 4215,
+        "hourlyOpen": 4215,
+        "hourlyClose": 4250,
+        "firstBar": {
+          "t": 1792544400,
+          "open": 4215,
+          "close": 4280
+        },
+        "secondBar": {
+          "t": 1792546200,
+          "open": 4280,
+          "close": 4250
+        },
+        "return0930": 0.031325301204819356
+      },
+      {
+        "date": "2026-10-22",
+        "previousDate": "2026-10-21",
+        "previousClose": 4140,
+        "dailyOpen": 4230,
+        "hourlyOpen": 4230,
+        "hourlyClose": 4195,
+        "firstBar": {
+          "t": 1792630800,
+          "open": 4230,
+          "close": 4180
+        },
+        "secondBar": {
+          "t": 1792632600,
+          "open": 4180,
+          "close": 4195
+        },
+        "return0930": 0.009661835748792313
+      },
+      {
+        "date": "2026-10-27",
+        "previousDate": "2026-10-22",
+        "previousClose": 4010,
+        "dailyOpen": 4035,
+        "hourlyOpen": 4035,
+        "hourlyClose": 4050,
+        "firstBar": {
+          "t": 1793062800,
+          "open": 4035,
+          "close": 4030
+        },
+        "secondBar": {
+          "t": 1793064600,
+          "open": 4030,
+          "close": 4050
+        },
+        "return0930": 0.004987531172069737
+      },
+      {
+        "date": "2026-10-28",
+        "previousDate": "2026-10-27",
+        "previousClose": 3960,
+        "dailyOpen": 4040,
+        "hourlyOpen": 4040,
+        "hourlyClose": 4150,
+        "firstBar": {
+          "t": 1793149200,
+          "open": 4040,
+          "close": 4160
+        },
+        "secondBar": {
+          "t": 1793151000,
+          "open": 4165,
+          "close": 4150
+        },
+        "return0930": 0.05050505050505061
+      },
+      {
+        "date": "2026-10-29",
+        "previousDate": "2026-10-28",
+        "previousClose": 4235,
+        "dailyOpen": 4205,
+        "hourlyOpen": 4205,
+        "hourlyClose": 4120,
+        "firstBar": {
+          "t": 1793235600,
+          "open": 4205,
+          "close": 4135
+        },
+        "secondBar": {
+          "t": 1793237400,
+          "open": 4135,
+          "close": 4120
+        },
+        "return0930": -0.023612750885478206
+      },
+      {
+        "date": "2026-10-30",
+        "previousDate": "2026-10-29",
+        "previousClose": 4045,
+        "dailyOpen": 3820,
+        "hourlyOpen": 3820,
+        "hourlyClose": 3870,
+        "firstBar": {
+          "t": 1793322000,
+          "open": 3820,
+          "close": 3870
+        },
+        "secondBar": {
+          "t": 1793323800,
+          "open": 3870,
+          "close": 3870
+        },
+        "return0930": -0.04326328800988877
+      }
+    ],
+    "2492": [
+      {
+        "date": "2026-09-30",
+        "excluded": "missing_daily_previous_close",
+        "return0930": null
+      },
+      {
+        "date": "2026-10-01",
+        "previousDate": "2026-09-30",
+        "previousClose": 299.5,
+        "dailyOpen": 302.5,
+        "hourlyOpen": 302.5,
+        "hourlyClose": 318,
+        "firstBar": {
+          "t": 1790816400,
+          "open": 302.5,
+          "close": 313.5
+        },
+        "secondBar": {
+          "t": 1790818200,
+          "open": 313.5,
+          "close": 318
+        },
+        "return0930": 0.046744574290484175
+      },
+      {
+        "date": "2026-10-02",
+        "previousDate": "2026-10-01",
+        "previousClose": 329,
+        "dailyOpen": 335,
+        "hourlyOpen": 335,
+        "hourlyClose": 361.5,
+        "firstBar": {
+          "t": 1790902800,
+          "open": 335,
+          "close": 361.5
+        },
+        "secondBar": {
+          "t": 1790904600,
+          "open": 361.5,
+          "close": 361.5
+        },
+        "return0930": 0.09878419452887544
+      },
+      {
+        "date": "2026-10-05",
+        "previousDate": "2026-10-02",
+        "previousClose": 361.5,
+        "dailyOpen": 377.5,
+        "hourlyOpen": 377.5,
+        "hourlyClose": 377.5,
+        "firstBar": {
+          "t": 1791162000,
+          "open": 377.5,
+          "close": 388
+        },
+        "secondBar": {
+          "t": 1791163800,
+          "open": 388,
+          "close": 377.5
+        },
+        "return0930": 0.07330567081604422
+      },
+      {
+        "date": "2026-10-06",
+        "previousDate": "2026-10-05",
+        "previousClose": 368.5,
+        "dailyOpen": 370,
+        "hourlyOpen": 370,
+        "hourlyClose": 373,
+        "firstBar": {
+          "t": 1791248400,
+          "open": 370,
+          "close": 367
+        },
+        "secondBar": {
+          "t": 1791250200,
+          "open": 367.5,
+          "close": 373
+        },
+        "return0930": -0.004070556309362261
+      },
+      {
+        "date": "2026-10-07",
+        "previousDate": "2026-10-06",
+        "previousClose": 389.5,
+        "dailyOpen": 389,
+        "hourlyOpen": 389,
+        "hourlyClose": 428,
+        "firstBar": {
+          "t": 1791334800,
+          "open": 389,
+          "close": 428
+        },
+        "secondBar": {
+          "t": 1791336600,
+          "open": 428,
+          "close": 428
+        },
+        "return0930": 0.09884467265725294
+      },
+      {
+        "date": "2026-10-08",
+        "previousDate": "2026-10-07",
+        "previousClose": 428,
+        "dailyOpen": 431,
+        "hourlyOpen": 431,
+        "hourlyClose": 412,
+        "firstBar": {
+          "t": 1791421200,
+          "open": 431,
+          "close": 406
+        },
+        "secondBar": {
+          "t": 1791423000,
+          "open": 406,
+          "close": 412
+        },
+        "return0930": -0.051401869158878455
+      },
+      {
+        "date": "2026-10-12",
+        "previousDate": "2026-10-08",
+        "previousClose": 420,
+        "dailyOpen": 415,
+        "hourlyOpen": 415,
+        "hourlyClose": 416.5,
+        "firstBar": {
+          "t": 1791766800,
+          "open": 415,
+          "close": 416.5
+        },
+        "secondBar": {
+          "t": 1791768600,
+          "open": 416.5,
+          "close": 416.5
+        },
+        "return0930": -0.008333333333333304
+      },
+      {
+        "date": "2026-10-13",
+        "previousDate": "2026-10-12",
+        "previousClose": 418,
+        "dailyOpen": 400.5,
+        "hourlyOpen": 400.5,
+        "hourlyClose": 377,
+        "firstBar": {
+          "t": 1791853200,
+          "open": 400.5,
+          "close": 400
+        },
+        "secondBar": {
+          "t": 1791855000,
+          "open": 398.5,
+          "close": 377
+        },
+        "return0930": -0.0430622009569378
+      },
+      {
+        "date": "2026-10-14",
+        "previousDate": "2026-10-13",
+        "previousClose": 392,
+        "dailyOpen": 401,
+        "hourlyOpen": 401,
+        "hourlyClose": 422,
+        "firstBar": {
+          "t": 1791939600,
+          "open": 401,
+          "close": 408
+        },
+        "secondBar": {
+          "t": 1791941400,
+          "open": 407,
+          "close": 422
+        },
+        "return0930": 0.04081632653061229
+      },
+      {
+        "date": "2026-10-15",
+        "previousDate": "2026-10-14",
+        "previousClose": 426,
+        "dailyOpen": 404,
+        "hourlyOpen": 404,
+        "hourlyClose": 412,
+        "firstBar": {
+          "t": 1792026000,
+          "open": 404,
+          "close": 414.5
+        },
+        "secondBar": {
+          "t": 1792027800,
+          "open": 416,
+          "close": 412
+        },
+        "return0930": -0.02699530516431925
+      },
+      {
+        "date": "2026-10-16",
+        "previousDate": "2026-10-15",
+        "previousClose": 405.5,
+        "dailyOpen": 414,
+        "hourlyOpen": 414,
+        "hourlyClose": 413.5,
+        "firstBar": {
+          "t": 1792112400,
+          "open": 414,
+          "close": 410.5
+        },
+        "secondBar": {
+          "t": 1792114200,
+          "open": 409,
+          "close": 413.5
+        },
+        "return0930": 0.012330456226880449
+      },
+      {
+        "date": "2026-10-19",
+        "previousDate": "2026-10-16",
+        "previousClose": 395,
+        "dailyOpen": 370,
+        "hourlyOpen": 370,
+        "hourlyClose": 360,
+        "firstBar": {
+          "t": 1792371600,
+          "open": 370,
+          "close": 366
+        },
+        "secondBar": {
+          "t": 1792373400,
+          "open": 366.5,
+          "close": 360
+        },
+        "return0930": -0.07341772151898729
+      },
+      {
+        "date": "2026-10-20",
+        "previousDate": "2026-10-19",
+        "previousClose": 364,
+        "dailyOpen": 366,
+        "hourlyOpen": 366,
+        "hourlyClose": 383,
+        "firstBar": {
+          "t": 1792458000,
+          "open": 366,
+          "close": 387.5
+        },
+        "secondBar": {
+          "t": 1792459800,
+          "open": 387,
+          "close": 383
+        },
+        "return0930": 0.06456043956043955
+      },
+      {
+        "date": "2026-10-21",
+        "previousDate": "2026-10-20",
+        "previousClose": 369,
+        "dailyOpen": 387.5,
+        "hourlyOpen": 387.5,
+        "hourlyClose": 405.5,
+        "firstBar": {
+          "t": 1792544400,
+          "open": 387.5,
+          "close": 405.5
+        },
+        "secondBar": {
+          "t": 1792546200,
+          "open": 405.5,
+          "close": 405.5
+        },
+        "return0930": 0.09891598915989164
+      },
+      {
+        "date": "2026-10-22",
+        "previousDate": "2026-10-21",
+        "previousClose": 405.5,
+        "dailyOpen": 415,
+        "hourlyOpen": 415,
+        "hourlyClose": 393.5,
+        "firstBar": {
+          "t": 1792630800,
+          "open": 415,
+          "close": 394.5
+        },
+        "secondBar": {
+          "t": 1792632600,
+          "open": 394.5,
+          "close": 393.5
+        },
+        "return0930": -0.027127003699136898
+      },
+      {
+        "date": "2026-10-27",
+        "previousDate": "2026-10-22",
+        "previousClose": 368,
+        "dailyOpen": 388.5,
+        "hourlyOpen": 388.5,
+        "hourlyClose": 382.5,
+        "firstBar": {
+          "t": 1793062800,
+          "open": 388.5,
+          "close": 385
+        },
+        "secondBar": {
+          "t": 1793064600,
+          "open": 385,
+          "close": 382.5
+        },
+        "return0930": 0.04619565217391308
+      },
+      {
+        "date": "2026-10-28",
+        "previousDate": "2026-10-27",
+        "previousClose": 372.5,
+        "dailyOpen": 393,
+        "hourlyOpen": 393,
+        "hourlyClose": 394,
+        "firstBar": {
+          "t": 1793149200,
+          "open": 393,
+          "close": 396
+        },
+        "secondBar": {
+          "t": 1793151000,
+          "open": 395.5,
+          "close": 394
+        },
+        "return0930": 0.06308724832214763
+      },
+      {
+        "date": "2026-10-29",
+        "previousDate": "2026-10-28",
+        "previousClose": 398,
+        "dailyOpen": 396,
+        "hourlyOpen": 396,
+        "hourlyClose": 400.5,
+        "firstBar": {
+          "t": 1793235600,
+          "open": 396,
+          "close": 406
+        },
+        "secondBar": {
+          "t": 1793237400,
+          "open": 406,
+          "close": 400.5
+        },
+        "return0930": 0.0201005025125629
+      },
+      {
+        "date": "2026-10-30",
+        "previousDate": "2026-10-29",
+        "previousClose": 423,
+        "dailyOpen": 399,
+        "hourlyOpen": 399,
+        "hourlyClose": 388,
+        "firstBar": {
+          "t": 1793322000,
+          "open": 399,
+          "close": 390.5
+        },
+        "secondBar": {
+          "t": 1793323800,
+          "open": 390.5,
+          "close": 388
+        },
+        "return0930": -0.07683215130023646
+      }
+    ],
+    "3711": [
+      {
+        "date": "2026-09-30",
+        "excluded": "missing_daily_previous_close",
+        "return0930": null
+      },
+      {
+        "date": "2026-10-01",
+        "previousDate": "2026-09-30",
+        "previousClose": 703,
+        "dailyOpen": 700,
+        "hourlyOpen": 700,
+        "hourlyClose": 700,
+        "firstBar": {
+          "t": 1790816400,
+          "open": 700,
+          "close": 704
+        },
+        "secondBar": {
+          "t": 1790818200,
+          "open": 704,
+          "close": 700
+        },
+        "return0930": 0.0014224751066855834
+      },
+      {
+        "date": "2026-10-02",
+        "previousDate": "2026-10-01",
+        "previousClose": 710,
+        "dailyOpen": 711,
+        "hourlyOpen": 711,
+        "hourlyClose": 714,
+        "firstBar": {
+          "t": 1790902800,
+          "open": 711,
+          "close": 711
+        },
+        "secondBar": {
+          "t": 1790904600,
+          "open": 711,
+          "close": 714
+        },
+        "return0930": 0.0014084507042253502
+      },
+      {
+        "date": "2026-10-05",
+        "previousDate": "2026-10-02",
+        "previousClose": 713,
+        "dailyOpen": 747,
+        "hourlyOpen": 747,
+        "hourlyClose": 748,
+        "firstBar": {
+          "t": 1791162000,
+          "open": 747,
+          "close": 744
+        },
+        "secondBar": {
+          "t": 1791163800,
+          "open": 744,
+          "close": 748
+        },
+        "return0930": 0.04347826086956519
+      },
+      {
+        "date": "2026-10-06",
+        "previousDate": "2026-10-05",
+        "previousClose": 742,
+        "dailyOpen": 743,
+        "hourlyOpen": 743,
+        "hourlyClose": 734,
+        "firstBar": {
+          "t": 1791248400,
+          "open": 743,
+          "close": 739
+        },
+        "secondBar": {
+          "t": 1791250200,
+          "open": 739,
+          "close": 734
+        },
+        "return0930": -0.0040431266846361336
+      },
+      {
+        "date": "2026-10-07",
+        "previousDate": "2026-10-06",
+        "previousClose": 744,
+        "dailyOpen": 735,
+        "hourlyOpen": 735,
+        "hourlyClose": 742,
+        "firstBar": {
+          "t": 1791334800,
+          "open": 735,
+          "close": 747
+        },
+        "secondBar": {
+          "t": 1791336600,
+          "open": 747,
+          "close": 742
+        },
+        "return0930": 0.0040322580645162365
+      },
+      {
+        "date": "2026-10-08",
+        "previousDate": "2026-10-07",
+        "previousClose": 732,
+        "dailyOpen": 732,
+        "hourlyOpen": 732,
+        "hourlyClose": 731,
+        "firstBar": {
+          "t": 1791421200,
+          "open": 732,
+          "close": 718
+        },
+        "secondBar": {
+          "t": 1791423000,
+          "open": 718,
+          "close": 731
+        },
+        "return0930": -0.01912568306010931
+      },
+      {
+        "date": "2026-10-12",
+        "previousDate": "2026-10-08",
+        "previousClose": 744,
+        "dailyOpen": 745,
+        "hourlyOpen": 745,
+        "hourlyClose": 750,
+        "firstBar": {
+          "t": 1791766800,
+          "open": 745,
+          "close": 753
+        },
+        "secondBar": {
+          "t": 1791768600,
+          "open": 753,
+          "close": 750
+        },
+        "return0930": 0.012096774193548487
+      },
+      {
+        "date": "2026-10-13",
+        "previousDate": "2026-10-12",
+        "previousClose": 762,
+        "dailyOpen": 749,
+        "hourlyOpen": 749,
+        "hourlyClose": 736,
+        "firstBar": {
+          "t": 1791853200,
+          "open": 749,
+          "close": 747
+        },
+        "secondBar": {
+          "t": 1791855000,
+          "open": 747,
+          "close": 736
+        },
+        "return0930": -0.019685039370078705
+      },
+      {
+        "date": "2026-10-14",
+        "previousDate": "2026-10-13",
+        "previousClose": 740,
+        "dailyOpen": 755,
+        "hourlyOpen": 755,
+        "hourlyClose": 751,
+        "firstBar": {
+          "t": 1791939600,
+          "open": 755,
+          "close": 752
+        },
+        "secondBar": {
+          "t": 1791941400,
+          "open": 752,
+          "close": 751
+        },
+        "return0930": 0.016216216216216273
+      },
+      {
+        "date": "2026-10-15",
+        "previousDate": "2026-10-14",
+        "previousClose": 747,
+        "dailyOpen": 696,
+        "hourlyOpen": 696,
+        "hourlyClose": 674,
+        "firstBar": {
+          "t": 1792026000,
+          "open": 696,
+          "close": 694
+        },
+        "secondBar": {
+          "t": 1792027800,
+          "open": 694,
+          "close": 674
+        },
+        "return0930": -0.07095046854082998
+      },
+      {
+        "date": "2026-10-16",
+        "previousDate": "2026-10-15",
+        "previousClose": 673,
+        "dailyOpen": 652,
+        "hourlyOpen": 652,
+        "hourlyClose": 672,
+        "firstBar": {
+          "t": 1792112400,
+          "open": 652,
+          "close": 673
+        },
+        "secondBar": {
+          "t": 1792114200,
+          "open": 673,
+          "close": 672
+        },
+        "return0930": 0
+      },
+      {
+        "date": "2026-10-19",
+        "previousDate": "2026-10-16",
+        "previousClose": 671,
+        "dailyOpen": 640,
+        "hourlyOpen": 640,
+        "hourlyClose": 650,
+        "firstBar": {
+          "t": 1792371600,
+          "open": 640,
+          "close": 654
+        },
+        "secondBar": {
+          "t": 1792373400,
+          "open": 655,
+          "close": 650
+        },
+        "return0930": -0.025335320417287588
+      },
+      {
+        "date": "2026-10-20",
+        "previousDate": "2026-10-19",
+        "previousClose": 670,
+        "dailyOpen": 669,
+        "hourlyOpen": 669,
+        "hourlyClose": 670,
+        "firstBar": {
+          "t": 1792458000,
+          "open": 669,
+          "close": 675
+        },
+        "secondBar": {
+          "t": 1792459800,
+          "open": 675,
+          "close": 670
+        },
+        "return0930": 0.00746268656716409
+      },
+      {
+        "date": "2026-10-21",
+        "previousDate": "2026-10-20",
+        "previousClose": 660,
+        "dailyOpen": 684,
+        "hourlyOpen": 684,
+        "hourlyClose": 678,
+        "firstBar": {
+          "t": 1792544400,
+          "open": 684,
+          "close": 681
+        },
+        "secondBar": {
+          "t": 1792546200,
+          "open": 681,
+          "close": 678
+        },
+        "return0930": 0.031818181818181746
+      },
+      {
+        "date": "2026-10-22",
+        "previousDate": "2026-10-21",
+        "previousClose": 684,
+        "dailyOpen": 690,
+        "hourlyOpen": 690,
+        "hourlyClose": 676,
+        "firstBar": {
+          "t": 1792630800,
+          "open": 690,
+          "close": 678
+        },
+        "secondBar": {
+          "t": 1792632600,
+          "open": 678,
+          "close": 676
+        },
+        "return0930": -0.00877192982456143
+      },
+      {
+        "date": "2026-10-27",
+        "previousDate": "2026-10-22",
+        "previousClose": 654,
+        "dailyOpen": 654,
+        "hourlyOpen": 654,
+        "hourlyClose": 662,
+        "firstBar": {
+          "t": 1793062800,
+          "open": 654,
+          "close": 657
+        },
+        "secondBar": {
+          "t": 1793064600,
+          "open": 658,
+          "close": 662
+        },
+        "return0930": 0.004587155963302836
+      },
+      {
+        "date": "2026-10-28",
+        "previousDate": "2026-10-27",
+        "previousClose": 651,
+        "dailyOpen": 672,
+        "hourlyOpen": 672,
+        "hourlyClose": 693,
+        "firstBar": {
+          "t": 1793149200,
+          "open": 672,
+          "close": 683
+        },
+        "secondBar": {
+          "t": 1793151000,
+          "open": 684,
+          "close": 693
+        },
+        "return0930": 0.04915514592933956
+      },
+      {
+        "date": "2026-10-29",
+        "previousDate": "2026-10-28",
+        "previousClose": 695,
+        "dailyOpen": 709,
+        "hourlyOpen": 709,
+        "hourlyClose": 685,
+        "firstBar": {
+          "t": 1793235600,
+          "open": 709,
+          "close": 691
+        },
+        "secondBar": {
+          "t": 1793237400,
+          "open": 690,
+          "close": 685
+        },
+        "return0930": -0.0057553956834532904
+      },
+      {
+        "date": "2026-10-30",
+        "previousDate": "2026-10-29",
+        "previousClose": 683,
+        "dailyOpen": 654,
+        "hourlyOpen": 654,
+        "hourlyClose": 654,
+        "firstBar": {
+          "t": 1793322000,
+          "open": 654,
+          "close": 649
+        },
+        "secondBar": {
+          "t": 1793323800,
+          "open": 649,
+          "close": 654
+        },
+        "return0930": -0.049780380673499214
+      }
+    ]
+  }
+}

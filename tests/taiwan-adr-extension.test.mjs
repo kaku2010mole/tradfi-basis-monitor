@@ -74,7 +74,10 @@ test('rendered historical table includes both new stocks, explicit partial cover
   const module = { exports: {} };
   new Function('require', 'module', 'exports', bundle.outputFiles[0].text)(createRequire(import.meta.url), module, module.exports);
   const html = renderToStaticMarkup(React.createElement(module.exports.default, { tsm: {}, anchorTimestamp: null, now: Date.parse('2026-10-28T08:00:00+08:00') })).replaceAll(/<!--.*?-->/g, '');
-  for (const text of ['Hon Hai Precision','MediaTek','2317','2454','57/62','2026-07-31','2026-10-28','10 Taiwan stocks','valid n per stock below','conditioned on TSM ADR','Latest refresh exclusions:','2026-10-23: No verified cash half-hour bars']) assert.ok(html.includes(text), text);
+  const coverage = model.adrStudyCoverage(current, '2317');
+  for (const text of ['Hon Hai Precision','MediaTek','2317','2454',`${coverage.n}/${current.dates.length}`,'2026-07-31',current.asOf,'10 Taiwan stocks','valid n per stock below','conditioned on TSM ADR']) assert.ok(html.includes(text), text);
+  for (const item of current.refresh.excluded) assert.ok(html.includes(`${item.date}: ${item.reason}`));
+  for (const item of current.refresh.corrections ?? []) assert.ok(html.includes(`${item.date}: previous traded Taiwan date ${item.previousDate}`));
   for (const code of ['2317','2454']) for (const threshold of [.01,.02]) {
     const stats = model.adrStudyStats(current,code,model.adrCohort(current,'up',threshold));
     assert.ok(html.includes(`${stats.hitPct.toFixed(1)}%`));

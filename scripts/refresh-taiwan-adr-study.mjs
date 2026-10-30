@@ -1,4 +1,5 @@
-// Offline, append-only refresh. Run before publishing a research snapshot;
+// Offline refresh: append verified outcomes and audit any ADR-anchor repairs.
+// Run before publishing a research snapshot;
 // never fetch/recompute historical bars on the live 2-second quote path.
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
@@ -9,6 +10,22 @@ const localDay = t => new Date(t * 1000 + 8 * 3600000).toISOString().slice(0, 10
 const nyDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' });
 const nyDay = t => nyDate.format(t * 1000);
 const stamp = (date, hour) => Date.parse(`${date}T${String(hour).padStart(2,'0')}:00:00+08:00`) / 1000;
+
+export function latestStudyDate(now, calendars) {
+  if (!Number.isFinite(now)) return null;
+  const midnight = Math.floor((now + 8 * 3600000) / 86400000) * 86400000;
+  for (let days = 0; days <= 40; days++) {
+    const day = new Date(midnight - days * 86400000);
+    const calendar = calendars.find(item => item.year === day.getUTCFullYear());
+    if (!calendar) return null;
+    const date = day.toISOString().slice(0, 10);
+    if ([0, 6].includes(day.getUTCDay()) || calendar.holidays.includes(date)) continue;
+    // Outcome is 09:30, but validation also needs the completed 09:00–10:00
+    // hourly bar and 09:30–10:00 half-hour bar, plus a publication buffer.
+    if (now >= Date.parse(`${date}T10:30:00+08:00`)) return date;
+  }
+  return null;
+}
 
 export function completedAdrPoints(payload) {
   const data = payload.chart?.result?.[0];
@@ -47,6 +64,26 @@ export function appendStudy(original, adrRows, cashByCode, target) {
   return sample;
 }
 
+export function repairAdrAnchors(original, adrRows, cashByCode) {
+  const sample = structuredClone(original), corrections = [];
+  for (const adr of adrRows) {
+    const i = sample.dates.indexOf(adr.date);
+    if (i < 0 || !Number.isFinite(adr.adrReturn) || Math.abs(sample.adrReturns[i] - adr.adrReturn) <= 1e-12) continue;
+    // Never silently rewrite the frozen cash outcomes. A predictor repair is
+    // allowed only when all retained outcomes revalidate on the traded-day grid.
+    for (const [code, values] of Object.entries(sample.returns0930)) {
+      if (!Number.isFinite(values[i])) continue;
+      const row = cashByCode[code]?.find(row => row.date === adr.date);
+      if (row?.previousDate !== adr.previousDate || !Number.isFinite(row.return0930) || Math.abs(row.return0930 - values[i]) > 1e-10) {
+        throw Error(`Cannot verify ADR anchor correction for ${adr.date} / ${code}`);
+      }
+    }
+    corrections.push({ date: adr.date, previousDate: adr.previousDate, oldAdrReturn: sample.adrReturns[i], adrReturn: adr.adrReturn, reason: 'Revalidated against previous actual traded Taiwan daily bar' });
+    sample.adrReturns[i] = adr.adrReturn;
+  }
+  return { sample, corrections };
+}
+
 async function fetchPayload(symbol, interval) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=${interval}&range=${interval === '30m' ? '60d' : '1mo'}&includePrePost=true&events=div%2Csplits`;
   const response = await fetch(url, { headers:{'User-Agent':'Mozilla/5.0'}, signal:AbortSignal.timeout(30000) });
@@ -57,11 +94,9 @@ async function fetchPayload(symbol, interval) {
 async function main() {
   const now = Date.now();
   const basisCode = stripTypeScriptTypes(await readFile(new URL('../app/lib/taiwanStockBasis.ts', import.meta.url), 'utf8'));
-  const { latestTaiwanCashClose, TWSE_2026 } = await import('data:text/javascript;base64,' + Buffer.from(basisCode).toString('base64'));
-  // Require a publication buffer after 13:30 and a known holiday calendar.
-  const targetTime = latestTaiwanCashClose(now - 30 * 60000, [TWSE_2026]);
-  if (targetTime === null) throw Error('No verified TWSE calendar for current date');
-  const target = localDay(targetTime / 1000);
+  const { TWSE_2026 } = await import('data:text/javascript;base64,' + Buffer.from(basisCode).toString('base64'));
+  const target = latestStudyDate(now, [TWSE_2026]);
+  if (target === null) throw Error('No verified TWSE calendar for current date');
   const sampleUrl = new URL('../app/data/taiwanAdrStudy.json', import.meta.url);
   const original = JSON.parse(await readFile(sampleUrl, 'utf8'));
   if (original.asOf >= target) { console.log(`Already current through ${original.asOf}`); return; }
@@ -70,10 +105,10 @@ async function main() {
   for (const code of Object.keys(original.returns0930)) {
     const symbol = `${code}.TW`;
     const responses = await Promise.all(['1d','60m','30m'].map(interval => fetchPayload(symbol, interval)));
-    const [daily, hourly, half] = responses.map(r => parseChart(r.payload, symbol));
+    const [daily, hourly, half] = responses.map((r, i) => parseChart(r.payload, symbol, { tradedOnly: i === 0 }));
     sources.push(...responses.map(({url,fetchedAt}) => ({url,fetchedAt})));
     if (code === '2330') referenceDaily = daily;
-    const dates = daily.bars.map(bar => localDay(bar.t)).filter(d => d > original.asOf && d <= target);
+    const dates = daily.bars.map(bar => localDay(bar.t)).filter(d => d >= original.start && d <= target);
     cash[code] = alignCashReturns(dates, daily, hourly, half);
   }
   const adrResponses = await Promise.all(['60m','1d'].map(interval => fetchPayload('TSM', interval)));
@@ -83,13 +118,14 @@ async function main() {
   const daily = referenceDaily.bars;
   const adrRows = daily.flatMap((bar, i) => {
     const date = localDay(bar.t);
-    if (!i || date <= original.asOf || date > target) return [];
+    if (!i || date < original.start || date > target) return [];
     return [adrInput(date, localDay(daily[i-1].t), points, eventDates)];
   });
-  const sample = appendStudy(original, adrRows, cash, target);
-  sample.refresh = { updatedAt:new Date(now).toISOString(), through:target, excluded:adrRows.filter(row => !sample.dates.includes(row.date)).map(row => ({date:row.date, reason:row.excluded ?? 'No verified cash half-hour bars'})) };
+  const repaired = repairAdrAnchors(original, adrRows, cash);
+  const sample = appendStudy(repaired.sample, adrRows, cash, target);
+  sample.refresh = { updatedAt:new Date(now).toISOString(), through:target, corrections:repaired.corrections, excluded:adrRows.filter(row => row.date > original.asOf && !sample.dates.includes(row.date)).map(row => ({date:row.date, reason:row.excluded ?? 'No verified cash half-hour bars'})) };
   const audit = { updatedAt:new Date(now).toISOString(), from:original.asOf, through:target, priorDateCount:original.dates.length,
-    method:'Append completed Taiwan sessions only; preserve original sample. TSM completed extended-hours hourly bars at/before prior TW date 14:00 and current TW date 09:00. Cash 09:00–09:30 close / previous daily close - 1. Corporate-action/mismatched/missing data excluded, never zero-filled.', sources, adrRows, cash };
+    method:'Append verified Taiwan 09:30 observations after 10:30 publication buffer. Preserve historical cash outcomes; audit ADR anchor repairs against actual traded days, excluding zero-volume daily placeholders. TSM completed extended-hours hourly bars at/before prior TW trading date 14:00 and current TW date 09:00. Cash 09:00–09:30 close / previous traded daily close - 1. Corporate-action/mismatched/missing data excluded, never zero-filled.', corrections:repaired.corrections, sources, adrRows, cash };
   await mkdir(new URL('../tests/fixtures/', import.meta.url), { recursive:true });
   await writeFile(new URL(`../tests/fixtures/taiwan-adr-refresh-${target}.json`, import.meta.url), JSON.stringify(audit,null,2)+'\n');
   await writeFile(sampleUrl, JSON.stringify(sample)+'\n');
