@@ -17,7 +17,7 @@ export async function japanBrowserToken() {
 export async function connectJapanFeed() {
   const check = await fetch(`/api/posley-auth-check?origin=${encodeURIComponent(location.origin)}`, { cache: "no-store", signal: AbortSignal.timeout(8000) });
   const data = await check.json() as { registered?: boolean };
-  if (!check.ok || !data.registered) throw new Error("当前网址的 Posley 登录尚未配置；可继续使用办公室推送行情。");
+  if (!check.ok || !data.registered) throw new Error("Posley sign-in is not configured for this URL. Office relay quotes remain available.");
   const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const verifier = encode(crypto.getRandomValues(new Uint8Array(48)));
   sessionStorage.setItem("equity_monitor_pkce", verifier);

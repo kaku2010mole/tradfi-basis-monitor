@@ -45,8 +45,8 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
           <small>Korea, Japan, Taiwan &amp; U.S. ADR references</small>
         </Link>
         <Link href="/japan-estimate" aria-current={active === "japan-estimate" ? "page" : undefined}>
-          <span>日股估计价格</span>
-          <small>真实现货收盘锚点 · 铠侠驱动 · 周末保留</small>
+          <span>Japanese stock estimates</span>
+          <small>Daily cash-close anchors · Kioxia input · weekend carry</small>
         </Link>
         <Link href="/hk-auction" aria-current={active === "auction" ? "page" : undefined}>
           <span>HK auction basis</span>

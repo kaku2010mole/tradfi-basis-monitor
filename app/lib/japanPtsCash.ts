@@ -10,7 +10,7 @@ export function parseKioxiaPts(html: string, now: number): RealQuote | null {
   if (!row) return null;
   const price = Number(row[1].replaceAll(",", "")), timestamp = Date.parse(`${row[2]}T${row[3]}:00+09:00`);
   if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(timestamp) || timestamp > now + 5000 || now - timestamp > 7 * 86_400_000) return null;
-  return { price, timestamp, kind: "last", delayMinutes: 15, source: "Japannext PTS · 株探公开现货（15 分钟延迟）" };
+  return { price, timestamp, kind: "last", delayMinutes: 15, source: "Japannext PTS · Kabutan cash (15-minute delay)" };
 }
 type Cache = { quote: RealQuote | null; refreshAt: number; pending?: Promise<void> };
 const root = globalThis as typeof globalThis & { __JAPAN_PTS_CASH__?: Cache };

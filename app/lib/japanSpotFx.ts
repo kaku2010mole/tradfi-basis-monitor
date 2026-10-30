@@ -5,7 +5,7 @@ export function parseJapanSpotFx(payload: unknown, now: number): RealQuote | nul
   if (meta?.symbol !== "JPY=X" || meta.currency !== "JPY" || meta.instrumentType !== "CURRENCY") return null;
   const price = Number(meta.regularMarketPrice), timestamp = Number(meta.regularMarketTime) * 1000;
   if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(timestamp) || timestamp <= 0 || timestamp > now + 5000 || now - timestamp > 7 * 86_400_000) return null;
-  return { price, timestamp, kind: "last", source: "Yahoo USD/JPY · 现货汇率参考" };
+  return { price, timestamp, kind: "last", source: "Yahoo USD/JPY · spot FX reference" };
 }
 type Cache = { quote: RealQuote | null; refreshAt: number; pending?: Promise<void> };
 const root = globalThis as typeof globalThis & { __JAPAN_SPOT_FX__?: Cache };

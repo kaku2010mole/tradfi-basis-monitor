@@ -6,7 +6,7 @@ test('independent Japan panel uses cash anchors and real FX, with contract quote
   const {default:worker}=await import('../dist/server/index.js');
   const ctx={waitUntil(){},passThroughOnException(){}};
   const page=await worker.fetch(new Request('http://localhost/japan-estimate'),{ASSETS:{fetch:async()=>new Response('',{status:404})}},ctx);
-  assert.equal(page.status,200); assert.match(await page.text(),/日股估计价格/);
+  assert.equal(page.status,200); assert.match(await page.text(),/Japanese stock estimates/);
   const protectedApi=await worker.fetch(new Request('http://localhost/api/japan-estimate'),{SITE_PASSWORD:'test-password'},ctx);
   assert.equal(protectedApi.status,401);
   const original={fetch:globalThis.fetch,now:Date.now,snapshot:globalThis.__FUTU_PUSH_SNAPSHOT__,state:globalThis.__JAPAN_ESTIMATE__,fx:globalThis.__JAPAN_SPOT_FX__,pts:globalThis.__JAPAN_PTS_CASH__};
@@ -36,9 +36,9 @@ test('independent Japan panel uses cash anchors and real FX, with contract quote
     now+=2100;contractPrice=30;push(14143.5,150);const changedContract=await get();
     assert.equal(tokyo(changedContract).yen,tokyo(moved).yen);assert.equal(tokyo(changedContract).usd,tokyo(moved).usd);assert.ok(tokyo(changedContract).deviationPct<0);
     now+=2100;push(14143.5,160);const fx=await get();assert.equal(tokyo(fx).yen,tokyo(moved).yen);assert.equal(tokyo(fx).usd,tokyo(fx).yen/160);
-    now+=100_000;push(14143.5,160,now-100_000);const stale=await get();assert.equal(stale.kioxia.fresh,false);assert.equal(tokyo(stale).status,'估价已冻结');assert.equal(tokyo(stale).deviationPct,null);assert.equal(tokyo(stale).yen,tokyo(fx).yen);
-    now=Date.parse('2026-11-01T12:00:00+09:00');const weekend=await get();assert.equal(weekend.anchorDate,'2026-10-30');assert.equal(tokyo(weekend).status,'估价已冻结');
-    now=Date.parse('2026-11-02T15:30:00+09:00');const pending=await get();assert.equal(pending.anchorDate,'2026-11-02');assert.equal(pending.anchorReady,false);assert.equal(tokyo(pending).yen,null);assert.equal(tokyo(pending).close,null);assert.equal(tokyo(pending).status,'等待本次收盘价');
+    now+=100_000;push(14143.5,160,now-100_000);const stale=await get();assert.equal(stale.kioxia.fresh,false);assert.equal(tokyo(stale).status,'Estimate frozen');assert.equal(tokyo(stale).deviationPct,null);assert.equal(tokyo(stale).yen,tokyo(fx).yen);
+    now=Date.parse('2026-11-01T12:00:00+09:00');const weekend=await get();assert.equal(weekend.anchorDate,'2026-10-30');assert.equal(tokyo(weekend).status,'Estimate frozen');
+    now=Date.parse('2026-11-02T15:30:00+09:00');const pending=await get();assert.equal(pending.anchorDate,'2026-11-02');assert.equal(pending.anchorReady,false);assert.equal(tokyo(pending).yen,null);assert.equal(tokyo(pending).close,null);assert.equal(tokyo(pending).status,'Awaiting new close');
     await new Promise(resolve=>setImmediate(resolve));
     now+=61_000;publishClose=true;await get();await new Promise(resolve=>setImmediate(resolve));
     const newClose=await get();assert.equal(newClose.anchorDate,'2026-11-02');assert.equal(newClose.anchorReady,true);assert.equal(tokyo(newClose).close,10000);assert.equal(tokyo(newClose).yen,10000,'new close resets the anchor; the previous Friday quote cannot move it');assert.equal(newClose.kioxia.quote,null);

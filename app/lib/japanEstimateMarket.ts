@@ -37,7 +37,7 @@ function refreshCloses(store: State, target: string | null, now: number) {
         if (!next || next.bars.at(-1)!.date < entry.history.bars.at(-1)!.date) throw new Error("Cash close not yet published");
         entry.history = next;
         entry.error = undefined;
-      } catch { entry.error = "现货收盘数据刷新失败；保留原始日期"; }
+      } catch { entry.error = "Cash close refresh failed; original date retained"; }
       finally {
         entry.refreshAt = Date.now() + (entry.error || entry.history.bars.at(-1)?.date !== latestJapanClose(Date.now()) ? 60_000 : 20 * 60_000);
         entry.pending = undefined;
@@ -58,7 +58,7 @@ export async function japanEstimateState(token?: string, now = Date.now()) {
   const office = root.__FUTU_PUSH_SNAPSHOT__?.payload.quotes ?? [];
   const officeQuote = (symbol: string) => {
     const record = office.find(q => q.symbol === symbol);
-    return realQuote(record, typeof record?.source === "string" ? record.source : "Posley 现货行情", now);
+    return realQuote(record, typeof record?.source === "string" ? record.source : "Posley cash feed", now);
   };
   const officeK = officeQuote("TSE.285A"), officeFx = officeQuote("FX.USDJPY");
   // Shared connection is optional when the office relay already supplies both inputs.
@@ -67,7 +67,7 @@ export async function japanEstimateState(token?: string, now = Date.now()) {
     const q = remote.find(q => q.symbol === symbol);
     // Explicit allowlist prevents an identically named derivative from entering.
     const validStream = symbol === "285A" ? /^orderbook:ibkr:STK:285A:TSEJ:JPY$/i.test(q?.streamKey ?? "") : /^orderbook:ibkr:FX:USD:JPY$/i.test(q?.streamKey ?? "");
-    return validStream ? realQuote(q as unknown as Record<string, unknown>, "Posley IBKR · 真实股票 / 外汇", now) : null;
+    return validStream ? realQuote(q as unknown as Record<string, unknown>, "Posley IBKR · cash stock / spot FX", now) : null;
   };
   store.kioxia = best([officeK, remoteQuote("285A"), store.kioxia && store.kioxia.timestamp <= now + 5000 ? store.kioxia : null,
     !freshRealQuote(officeK, now) && !freshRealQuote(remoteQuote("285A"), now) ? kioxiaPtsCash(now) : null]);
@@ -97,7 +97,7 @@ export async function japanEstimateState(token?: string, now = Date.now()) {
     const usd = yen && fx ? yen / fx.price : null;
     return { ...stock, close, yen, usd, changePct: yen && close ? (yen / close - 1) * 100 : null, model,
       weak: !model || Math.abs(model.correlation) < 0.4 || (model.improvementPct ?? -1) <= 0,
-      status: !anchorDate ? "交易日历待更新" : !close || !kAnchor ? "等待本次收盘价" : rebase ? "拆股日：等待新收盘锚点" : !model ? "历史样本不足" : !kQuote ? "收盘参考" : kFresh ? "现货驱动外推" : kQuote.delayMinutes && now - kQuote.timestamp <= 35 * 60_000 ? "延迟现货外推" : "估价已冻结",
+      status: !anchorDate ? "Calendar update required" : !close || !kAnchor ? "Awaiting new close" : rebase ? "Stock split: awaiting new close" : !model ? "Insufficient history" : !kQuote ? "Closing reference" : kFresh ? "Cash-driven estimate" : kQuote.delayMinutes && now - kQuote.timestamp <= 35 * 60_000 ? "Delayed cash estimate" : "Estimate frozen",
       historyDate: history.bars.at(-1)?.date ?? null, historyFetchedAt: history.fetchedAt, historyError: entry.error ?? null,
     };
   });
@@ -114,6 +114,6 @@ export async function japanEstimateState(token?: string, now = Date.now()) {
   return { timestamp: comparisonNow, anchorDate, anchorTime, anchorReady: Boolean(kAnchor && rows.every(r => r.close)),
     kioxia: { anchor: kAnchor, quote: kQuote, price: kPrice, changePct: kReturn, fresh: kFresh },
     fx: { quote: fx, fresh: fxFresh }, rows: compared,
-    historySource: "Yahoo Finance · TSE 真实股票日线", modelDefinition: "close-anchored-cash-log-return-v1", calendarThrough: "2027-12-31" };
+    historySource: "Yahoo Finance · TSE cash-equity daily history", modelDefinition: "close-anchored-cash-log-return-v1", calendarThrough: "2027-12-31" };
 }
 export type JapanEstimatePayload = Awaited<ReturnType<typeof japanEstimateState>>;
