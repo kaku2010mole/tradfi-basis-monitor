@@ -1,16 +1,16 @@
 // Cash-only model. No derivatives data or exchange API belongs in this module.
 export const JAPAN_ESTIMATE_STOCKS = [
-  { code: "5802", name: "住友电工", symbol: "SUMIELECUSDT" },
-  { code: "6758", name: "索尼", symbol: "JPSONYUSDT" },
-  { code: "6857", name: "爱德万测试", symbol: "ADVANTESTUSDT" },
+  { code: "5802", name: "Sumitomo Electric", symbol: "SUMIELECUSDT" },
+  { code: "6758", name: "Sony Group", symbol: "JPSONYUSDT" },
+  { code: "6857", name: "Advantest", symbol: "ADVANTESTUSDT" },
   { code: "6920", name: "Lasertec", symbol: "LASERTECUSDT" },
-  { code: "6976", name: "太阳诱电", symbol: "TAIYOYUDENUSDT" },
-  { code: "6981", name: "村田制作所", symbol: "MURATAUSDT" },
-  { code: "7203", name: "丰田汽车", symbol: "TOYOTAUSDT" },
-  { code: "8035", name: "东京电子", symbol: "TOKYOELUSDT" },
-  { code: "8306", name: "三菱日联", symbol: "JPMUFGUSDT" },
-  { code: "9983", name: "迅销", symbol: "FASTRETAILINGUSDT" },
-  { code: "9984", name: "软银集团", symbol: "SOFTBANKUSDT" },
+  { code: "6976", name: "Taiyo Yuden", symbol: "TAIYOYUDENUSDT" },
+  { code: "6981", name: "Murata Manufacturing", symbol: "MURATAUSDT" },
+  { code: "7203", name: "Toyota Motor", symbol: "TOYOTAUSDT" },
+  { code: "8035", name: "Tokyo Electron", symbol: "TOKYOELUSDT" },
+  { code: "8306", name: "MUFG", symbol: "JPMUFGUSDT" },
+  { code: "9983", name: "Fast Retailing", symbol: "FASTRETAILINGUSDT" },
+  { code: "9984", name: "SoftBank Group", symbol: "SOFTBANKUSDT" },
 ] as const;
 export type CashDay = { date: string; close: number };
 export type CashHistory = { bars: CashDay[]; splits: string[]; fetchedAt: number };

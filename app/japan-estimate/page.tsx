@@ -1,3 +1,3 @@
 import JapanEstimateDashboard from "../components/JapanEstimateDashboard";
-export const metadata = { title: "日股估计价格 | TradFi Monitor", description: "以日本现货收盘为锚点，由铠侠真实股票行情驱动的日股估价。" };
+export const metadata = { title: "Japanese stock estimates | TradFi Monitor", description: "Japanese stock estimates anchored to daily cash closes and driven by Kioxia stock quotes." };
 export default function JapanEstimatePage() { return <JapanEstimateDashboard />; }
