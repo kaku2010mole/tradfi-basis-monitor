@@ -4,7 +4,7 @@ import Link from "next/link";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
-  active: "jlp" | "basis" | "oracle" | "blog" | "skhynix" | "samsung" | "stock-basis" | "polymarket" | "auction" | "dividends" | "smic";
+  active: "jlp" | "basis" | "oracle" | "blog" | "skhynix" | "samsung" | "stock-basis" | "japan-estimate" | "polymarket" | "auction" | "dividends" | "smic";
 };
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
@@ -43,6 +43,10 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         <Link href="/stock-basis" aria-current={active === "stock-basis" ? "page" : undefined}>
           <span>Stock cross-venue basis</span>
           <small>Korea, Japan, Taiwan &amp; U.S. ADR references</small>
+        </Link>
+        <Link href="/japan-estimate" aria-current={active === "japan-estimate" ? "page" : undefined}>
+          <span>日股估计价格</span>
+          <small>真实现货收盘锚点 · 铠侠驱动 · 周末保留</small>
         </Link>
         <Link href="/hk-auction" aria-current={active === "auction" ? "page" : undefined}>
           <span>HK auction basis</span>
