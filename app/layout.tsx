@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import GlobalOracleAlerts from "./components/GlobalOracleAlerts";
 import PosleyOAuthCallback from "./components/PosleyOAuthCallback";
+import GlobalTranslation from "./components/GlobalTranslation";
 
 export const metadata: Metadata = {
   title: "TradFi Basis Monitor",
@@ -24,7 +25,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body><PosleyOAuthCallback /><GlobalOracleAlerts />{children}</body>
+      <body><GlobalTranslation /><PosleyOAuthCallback /><GlobalOracleAlerts />{children}</body>
     </html>
   );
 }
