@@ -1,0 +1,5 @@
+.toggle{flex:0 0 auto;min-height:34px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;border:1px solid #c9dcd1;border-radius:6px;background:#f2faf5;color:#176347;font:700 11px/1.2 Arial,"PingFang SC",sans-serif;white-space:nowrap;cursor:pointer}
+.toggle:hover{background:#e4f4eb;border-color:#83b79d}
+.toggle:focus-visible{outline:2px solid #11875f;outline-offset:3px}
+.toggle[aria-pressed="true"]{background:#173c2b;color:#fff;border-color:#173c2b}
+@media(max-width:560px){.toggle{min-width:38px;padding:0 7px;gap:4px}.toggle svg{width:14px;height:14px}.toggle span{font-size:10px}}

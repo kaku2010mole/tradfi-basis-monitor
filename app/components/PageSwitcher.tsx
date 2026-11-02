@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import LanguageToggle from "./LanguageToggle";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
@@ -9,7 +10,7 @@ type PageSwitcherProps = {
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
   return (
-    <details className={styles.switcher}>
+    <div className={styles.tools}><LanguageToggle /><details className={styles.switcher}>
       <summary aria-label="Open dashboard settings">
         <span aria-hidden="true">⚙</span>
         <b>Settings</b>
@@ -61,6 +62,6 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
           <small>Live SMH return → next HK open &amp; probabilities</small>
         </Link>
       </nav>
-    </details>
+    </details></div>
   );
 }
