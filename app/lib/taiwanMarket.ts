@@ -1,10 +1,12 @@
 import { bitgetBooks } from "./bitgetRelativeMarket";
+import type { BitgetBook } from "./bitgetRelativeMarket";
 import { taiwanCashSnapshot } from "./fugleTaiwanMarket";
 import { taiwanFxSnapshot } from "./taiwanFxMarket";
 import { taiwanLatestCloses } from "./taiwanLatestClose";
 import { honHaiGdrSnapshot } from "./honHaiGdrMarket";
-import { ADR_FALLBACK_OFFSET_MS, DAY_MS, TAIPEI_OFFSET_MS, TAIWAN_STOCKS, TWSE_2026, adrModelAnchor, fresh, indexAnchorFromCandles, lastReferenceAtOrBefore, latestTaiwanAnchor, latestTaiwanCashClose, parseTaiwanCalendar, positive, previousTaiwanAnchor, taiwanOpeningCutoff } from "./taiwanStockBasis";
-import type { AdrReference, Calendar, ReferencePrice, TaiwanPayload, TaiwanRow } from "./taiwanStockBasis";
+import { dayKey, shiftDay, tradingDay, usClose, zonedTime } from "./smicOpening";
+import { ADR_FALLBACK_OFFSET_MS, DAY_MS, TAIPEI_OFFSET_MS, TAIWAN_ADR_PAIRS, TAIWAN_STOCKS, TWSE_2026, adrModelAnchor, fresh, indexAnchorFromCandles, lastReferenceAtOrBefore, latestTaiwanAnchor, latestTaiwanCashClose, parseTaiwanCalendar, positive, previousTaiwanAnchor, taiwanOpeningCutoff } from "./taiwanStockBasis";
+import type { AdrReference, Calendar, ReferencePrice, TaiwanBook, TaiwanPayload, TaiwanRow } from "./taiwanStockBasis";
 
 const memo = new Map<string, { expires: number; pending: Promise<unknown> }>();
 function cached<T>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
@@ -102,6 +104,79 @@ async function yahooAdr(symbol: string, target: number, openingTarget: number): 
 const lastAdrPoints = new Map<string, ReferencePrice[]>();
 const savedModelAnchors = new Map<string, ReferencePrice>();
 
+let lastUmcReference: ReferencePrice | null = null;
+let umcReferencePending: Promise<void> | null = null;
+let nextUmcReferenceRefresh = 0;
+
+function keepUmcReference(quote: ReferencePrice | null, preferOnTie = false) {
+  if (quote && (!lastUmcReference || quote.timestamp > lastUmcReference.timestamp
+    || preferOnTie && quote.timestamp === lastUmcReference.timestamp)) lastUmcReference = quote;
+}
+
+type NasdaqTrade = { lastSalePrice?: string; lastTradeTimestamp?: string; isRealTime?: boolean; currency?: string | null };
+const NASDAQ_UMC = "https://api.nasdaq.com/api/quote/UMC";
+const NASDAQ_HEADERS = {
+  Accept: "application/json",
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36",
+  Origin: "https://www.nasdaq.com", Referer: "https://www.nasdaq.com/",
+};
+
+async function nasdaqUmcData<T extends { symbol?: string }>(path: string): Promise<T> {
+  const response = await fetch(`${NASDAQ_UMC}/${path}`, { headers: NASDAQ_HEADERS, cache: "no-store", signal: AbortSignal.timeout(4_000) });
+  if (!response.ok) throw new Error(`Nasdaq UMC HTTP ${response.status}`);
+  const payload = await response.json() as { status?: { rCode?: number }; data?: T };
+  if (payload.status?.rCode !== 200 || payload.data?.symbol !== "UMC") throw new Error("Nasdaq UMC identity unavailable");
+  return payload.data;
+}
+
+function nasdaqPrice(value: string | undefined) {
+  return positive(value?.replace(/[$,]/g, ""));
+}
+
+function nasdaqUmcTrade(trade: NasdaqTrade | null | undefined): ReferencePrice | null {
+  const match = /^(?:Closed at )?([A-Za-z]{3} \d{1,2}, \d{4}) (\d{1,2}):([0-5]\d)(?::([0-5]\d))? (AM|PM) ET$/.exec(trade?.lastTradeTimestamp ?? "");
+  const price = nasdaqPrice(trade?.lastSalePrice);
+  if (!match || price === null || trade?.currency && trade.currency !== "USD") return null;
+  const date = Date.parse(`${match[1]} 00:00 UTC`), hour = Number(match[2]);
+  if (!Number.isFinite(date) || hour < 1 || hour > 12) return null;
+  const timestamp = zonedTime(new Date(date).toISOString().slice(0, 10), hour % 12 + (match[5] === "PM" ? 12 : 0), Number(match[3]), "America/New_York") + Number(match[4] ?? 0) * 1000;
+  return { price, timestamp, source: `Nasdaq UMC last sale · ${trade?.isRealTime ? "indicative" : "delayed"}` };
+}
+
+async function nasdaqUmcReference(): Promise<ReferencePrice | null> {
+  const info = await nasdaqUmcData<{ symbol?: string; primaryData?: NasdaqTrade; secondaryData?: NasdaqTrade | null }>("info?assetclass=stocks").catch(() => null);
+  const trades = [nasdaqUmcTrade(info?.primaryData), nasdaqUmcTrade(info?.secondaryData)].filter((quote): quote is ReferencePrice => quote !== null);
+  const last = lastReferenceAtOrBefore(trades, Date.now());
+  if (last) return last;
+  // The closed-market last sale can be date-only and differ from the official close.
+  const date = dayKey(Date.now(), "America/New_York");
+  const params = new URLSearchParams({ assetclass: "stocks", fromdate: shiftDay(date, -10), todate: date, limit: "5" });
+  const history = await nasdaqUmcData<{ symbol?: string; tradesTable?: { rows?: Array<{ date?: string; close?: string }> } }>(`historical?${params}`);
+  const closes: ReferencePrice[] = (history.tradesTable?.rows ?? []).flatMap((row) => {
+    const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(row.date ?? "");
+    const price = nasdaqPrice(row.close);
+    if (!match || price === null) return [];
+    const day = `${match[3]}-${match[1]}-${match[2]}`;
+    return tradingDay(day, "US") === true
+      ? [{ price, timestamp: usClose(day), source: "Nasdaq UMC regular-session close · delayed reference" }] : [];
+  });
+  return lastReferenceAtOrBefore(closes, Date.now(), 10 * DAY_MS);
+}
+
+function umcReferenceSnapshot(now: number) {
+  const cachedCloses = (lastAdrPoints.get("UMC") ?? []).filter((point) => point.source.includes("5m close"));
+  keepUmcReference(lastReferenceAtOrBefore(cachedCloses, now));
+  const office = lastReferenceAtOrBefore(officeAdr("UMC", now), now);
+  keepUmcReference(office, true);
+  if (!fresh(lastUmcReference?.timestamp, now) && !umcReferencePending && Date.now() >= nextUmcReferenceRefresh) {
+    nextUmcReferenceRefresh = Date.now() + 60_000;
+    umcReferencePending = nasdaqUmcReference().then((quote) => keepUmcReference(quote)).catch(() => {
+      // An outage leaves the last actual observation and its clock intact.
+    }).finally(() => { umcReferencePending = null; });
+  }
+  return lastUmcReference && lastUmcReference.timestamp <= now ? lastUmcReference : null;
+}
+
 async function adrReference(symbol: string, target: number, now: number, cutoffTimestamp: number | null = null, openingTarget: number | null = null): Promise<AdrReference> {
   const key = `${symbol}:${target}`;
   const saved = savedModelAnchors.get(key);
@@ -141,7 +216,15 @@ async function adrReference(symbol: string, target: number, now: number, cutoffT
 }
 
 let lastBooks: { data: Awaited<ReturnType<typeof bitgetBooks>>; receivedAt: number } | null = null;
-const taiwanSymbols = new Set<string>(TAIWAN_STOCKS.map((stock) => stock.symbol));
+const taiwanSymbols = new Set<string>([
+  ...TAIWAN_STOCKS.map((stock) => stock.symbol),
+  ...TAIWAN_ADR_PAIRS.map((pair) => pair.symbol),
+]);
+
+function normalizeBook(quote: BitgetBook | undefined): TaiwanBook {
+  return { bid: positive(quote?.bidPr), ask: positive(quote?.askPr), last: positive(quote?.lastPr),
+    index: positive(quote?.indexPrice), timestamp: positive(quote?.ts) };
+}
 
 export async function taiwanSnapshot(now = Date.now(), view: "full" | "prices" = "full", waitForRefresh = false): Promise<TaiwanPayload> {
   const honHaiGdr = honHaiGdrSnapshot();
@@ -149,7 +232,12 @@ export async function taiwanSnapshot(now = Date.now(), view: "full" | "prices" =
   const years = [...new Set([today.getUTCFullYear(), new Date(today.getTime() - 40 * DAY_MS).getUTCFullYear(), new Date(today.getTime() + 40 * DAY_MS).getUTCFullYear()])];
   const [calendarResults, tickerResult, cash, fx] = await Promise.all([
     Promise.all(years.map(calendar)),
-    bitgetBooks().then((all) => { const data = all.filter((book) => book.symbol && taiwanSymbols.has(book.symbol)); lastBooks = { data, receivedAt: Date.now() }; return { data, error: null }; })
+    bitgetBooks().then((all) => {
+      if (!all.length) throw new Error("Bitget ticker list unavailable");
+      const data = all.filter((book) => book.symbol && taiwanSymbols.has(book.symbol));
+      lastBooks = { data, receivedAt: Date.now() };
+      return { data, error: null };
+    })
       .catch((reason) => ({ data: lastBooks && now - lastBooks.receivedAt <= 7 * DAY_MS ? lastBooks.data : [], error: reason instanceof Error ? reason.message : "Bitget feed unavailable" })),
     taiwanCashSnapshot({ waitForRefresh }),
     taiwanFxSnapshot({ waitForRefresh }),
@@ -162,17 +250,21 @@ export async function taiwanSnapshot(now = Date.now(), view: "full" | "prices" =
   const closes = taiwanLatestCloses(cash.quotes, latestCloseDate, priorCloseDate, now);
   const calendarSource = [...new Set(calendars.map((item) => item.source))].join(" + ");
   const books = new Map(tickerResult.data.map((book) => [book.symbol, book]));
-  const makeRows = (anchors: Array<{ anchor: ReferencePrice | null; anchorError: string | null }>): TaiwanRow[] => TAIWAN_STOCKS.map((stock, index) => {
-    const quote = books.get(stock.symbol);
-    return { ...stock, adrSymbol: "adrSymbol" in stock ? stock.adrSymbol : null, ...anchors[index],
-      book: { bid: positive(quote?.bidPr), ask: positive(quote?.askPr), last: positive(quote?.lastPr), index: positive(quote?.indexPrice), timestamp: positive(quote?.ts) } };
-  });
-  // The normal cash/return tabs do not need model candles or ADR history.
+  // A missing symbol is authoritative only after a successful bulk ticker response.
+  const adrPerpBooks = tickerResult.error === null ? Object.fromEntries(TAIWAN_ADR_PAIRS.map(({ symbol }) => {
+    const quote = books.get(symbol);
+    return [symbol, quote ? normalizeBook(quote) : null] as const;
+  })) : undefined;
+  const umcAdrReference = adrPerpBooks?.UMCUSDT === null ? umcReferenceSnapshot(now) : undefined;
+  const makeRows = (anchors: Array<{ anchor: ReferencePrice | null; anchorError: string | null }>): TaiwanRow[] => TAIWAN_STOCKS.map((stock, index) => ({
+    ...stock, adrSymbol: "adrSymbol" in stock ? stock.adrSymbol : null, ...anchors[index], book: normalizeBook(books.get(stock.symbol)),
+  }));
+  // The normal cash/return tabs do not request model candles or anchor history.
   // Keep the full response available for the separately opened historical study
   // and old clients during rolling deployments.
   if (view === "prices") return { rows: makeRows(TAIWAN_STOCKS.map(() => ({ anchor: null, anchorError: null }))),
     anchorTimestamp: null, calendarSource, latestCloseDate, closes, view, tsm: { anchor: null, current: null, error: null },
-    cash, fx, honHaiGdr, error: tickerResult.error, timestamp: Date.now() };
+    cash, fx, honHaiGdr, adrPerpBooks, umcAdrReference, error: tickerResult.error, timestamp: Date.now() };
   const anchorTimestamp = latestTaiwanAnchor(now, calendars);
   const [anchors, tsm, umc] = await Promise.all([
     Promise.all(TAIWAN_STOCKS.map(async (stock) => {
@@ -184,5 +276,5 @@ export async function taiwanSnapshot(now = Date.now(), view: "full" | "prices" =
     anchorTimestamp === null ? Promise.resolve({ symbol: "TSM", anchor: null, current: null, error: "Taiwan anchor date unavailable" }) : adrReference("TSM", anchorTimestamp, now, taiwanOpeningCutoff(now, calendars), previousTaiwanAnchor(now, calendars)),
     anchorTimestamp === null ? Promise.resolve({ symbol: "UMC", anchor: null, current: null, error: "Taiwan anchor date unavailable" }) : adrReference("UMC", anchorTimestamp, now),
   ]);
-  return { rows: makeRows(anchors), anchorTimestamp, calendarSource, latestCloseDate, closes, view, tsm, adrs: { TSM: tsm, UMC: umc }, cash, fx, honHaiGdr, error: tickerResult.error, timestamp: Date.now() };
+  return { rows: makeRows(anchors), anchorTimestamp, calendarSource, latestCloseDate, closes, view, tsm, adrs: { TSM: tsm, UMC: umc }, cash, fx, honHaiGdr, adrPerpBooks, umcAdrReference, error: tickerResult.error, timestamp: Date.now() };
 }
