@@ -553,6 +553,10 @@ Use JLP position snapshot	使用 JLP 持仓快照
 Posley MCP snapshot	Posley MCP 持仓快照
 USDC borrowed	借入 USDC
 Modeled HL hedge	按 HL 对冲模型估算
+Last estimate	上次估算
+Market data delayed	行情延迟
+Waiting for fresh, aligned strategy inputs	等待各项行情同步更新
+Carry estimates pause when a source is stale.	行情过期时暂停更新收益估算。
 Waiting for position valuation	等待持仓估值
 Position equity and leverage must be within the supported range.	持仓权益和杠杆须在支持范围内。
 Loading chart history…	正在加载图表历史…
