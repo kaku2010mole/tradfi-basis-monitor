@@ -549,6 +549,14 @@ Total hedge / JLP NAV	总对冲金额 / JLP 净值
 Positive units mean a short; negative units mean a long. Ratios reflect pool assets and trader positions. Rebalance as delta changes.	正数量表示做空，负数量表示做多。比例反映资金池资产及交易者持仓；Delta 变化时需重新平衡。
 Leveraged neutral carry	杠杆中性套利收益
 Leveraged neutral carry history	杠杆中性套利历史
+Use JLP position snapshot	使用 JLP 持仓快照
+Posley MCP snapshot	Posley MCP 持仓快照
+USDC borrowed	借入 USDC
+Modeled HL hedge	按 HL 对冲模型估算
+Waiting for position valuation	等待持仓估值
+Position equity and leverage must be within the supported range.	持仓权益和杠杆须在支持范围内。
+Loading chart history…	正在加载图表历史…
+History could not be loaded · retrying	历史记录加载失败，正在重试
 APR / total capital	年化收益 / 总资本
 JLP leverage	JLP 杠杆
 HL hedge leverage	HL 对冲杠杆
