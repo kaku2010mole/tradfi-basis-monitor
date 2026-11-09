@@ -43,3 +43,15 @@ test("partial server restart / older responses retain cash and FX observations w
   const updated = mergeTaiwanFeed(prior, { ...next, cash: { ...next.cash, quotes: { "2330": newer } } });
   assert.equal(updated.cash.quotes["2330"], newer);
 });
+
+test("missing or older UMC data retains the previous trade with a last-quote label", () => {
+  const overnight = { price: 14.31, timestamp: 100, session: "overnight", marketOpen: true, source: "Yahoo Finance · Blue Ocean ATS overnight" };
+  const prior = { rows: [], umcAdrReference: overnight };
+  const newer = { price: 14.46, timestamp: 110, session: "pre", marketOpen: true, source: "Yahoo Finance" };
+  for (const incoming of [undefined, null, { ...overnight, timestamp: 90 }]) {
+    const merged = mergeTaiwanFeed(prior, { rows: [], umcAdrReference: incoming });
+    assert.deepEqual(merged.umcAdrReference, { ...overnight, marketOpen: false });
+  }
+  assert.equal(mergeTaiwanFeed(prior, { rows: [], umcAdrReference: newer }).umcAdrReference, newer);
+  assert.equal(prior.umcAdrReference.marketOpen, true);
+});

@@ -27,6 +27,7 @@ test("Futu UMC anchors accept a zero-volume reference, never an invalid or futur
 test("UMC 17:00 Futu baseline is separate from latest ADR, retains provenance and rolls by date", async () => {
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
+    .replace('import { isYahooUmcCurrent, parseYahooUmcReference } from "./yahooUmcReference";', 'const isYahooUmcCurrent = () => false, parseYahooUmcReference = () => null;')
     .replace('from "./smicOpening"', `from ${JSON.stringify(sessionUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")

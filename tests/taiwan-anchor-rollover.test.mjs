@@ -37,6 +37,7 @@ test("Taiwan model reanchors exactly at 14:00, not midnight, and respects holida
 test("a running server reanchors all ten names, TSM and UMC without a restart or stale-date fallback", async () => {
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
+    .replace('import { isYahooUmcCurrent, parseYahooUmcReference } from "./yahooUmcReference";', 'const isYahooUmcCurrent = () => false, parseYahooUmcReference = () => null;')
     .replace('from "./smicOpening"', `from ${JSON.stringify(sessionUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
@@ -136,6 +137,7 @@ test("UI removes the model but preserves the historical opening study and separa
 test("live ADR fallback uses the 17:00 candle OPEN, remains unavailable before it, and preserves the opening study", async () => {
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
+    .replace('import { isYahooUmcCurrent, parseYahooUmcReference } from "./yahooUmcReference";', 'const isYahooUmcCurrent = () => false, parseYahooUmcReference = () => null;')
     .replace('from "./smicOpening"', `from ${JSON.stringify(sessionUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
@@ -210,6 +212,7 @@ test("live ADR fallback uses the 17:00 candle OPEN, remains unavailable before i
 test("UMC validates ticker identity, isolates outages and prefers its own fresh office data", async () => {
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
+    .replace('import { isYahooUmcCurrent, parseYahooUmcReference } from "./yahooUmcReference";', 'const isYahooUmcCurrent = () => false, parseYahooUmcReference = () => null;')
     .replace('from "./smicOpening"', `from ${JSON.stringify(sessionUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")

@@ -22,7 +22,7 @@ export function mergeTaiwanFeed(prior: TaiwanPayload | null, next: TaiwanPayload
       return old && (!useful || (old.book.timestamp ?? 0) > (row.book.timestamp ?? 0)) ? { ...row, book: old.book } : row;
     }),
     adrPerpBooks: prior?.adrPerpBooks || next.adrPerpBooks ? adrPerpBooks : undefined,
-    umcAdrReference: oldUmc && (!newUmc || oldUmc.timestamp > newUmc.timestamp) ? oldUmc : newUmc,
+    umcAdrReference: oldUmc && (!newUmc || oldUmc.timestamp > newUmc.timestamp) ? { ...oldUmc, marketOpen: false } : newUmc,
     cash: next.cash ? { ...next.cash, quotes } : prior?.cash,
     fx: next.fx ? { ...next.fx, quote: oldFx && (!newFx || oldFx.timestamp > newFx.timestamp) ? oldFx : newFx ?? null } : prior?.fx,
     honHaiGdr: next.honHaiGdr ? { ...next.honHaiGdr, quote: oldGdr && (!newGdr || oldGdr.timestamp > newGdr.timestamp) ? oldGdr : newGdr ?? null } : prior?.honHaiGdr,

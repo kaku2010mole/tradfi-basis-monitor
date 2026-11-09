@@ -104,6 +104,33 @@ Card colors: positive spreads ≥1% amber, ≥0.5% teal, including closed-market
 KRX cash vs perpetuals	韩国现货与永续对比
 TSE cash & U.S. ADR vs Bitget	日本现货、美国 ADR 与 Bitget 对比
 Taiwan price comparison	台湾价格对比
+Taiwan · Bitget + Yahoo Finance	台湾 · Bitget + Yahoo Finance
+ADR spread opportunities	ADR 价差机会
+ASX compares two Bitget books. UMC compares Yahoo’s last trade with the Bitget midpoint.	ASX 对比 Bitget 双腿盘口。UMC 用 Yahoo 最近成交价对比 Bitget 中间价。
+Bitget quoted spread	Bitget 买卖报价差
+Waiting for synchronized quotes	等待两腿同步报价
+Buy ASX / sell TWASX	买入 ASX / 卖出 TWASX
+Sell ASX / buy TWASX	卖出 ASX / 买入 TWASX
+No gap at the best bid and ask	最优买卖价暂无正向价差
+Midpoint premium	中间价溢价
+Index premium	指数溢价
+Buy ADR / sell TW	买入 ADR / 卖出台股腿
+Sell ADR / buy TW	卖出 ADR / 买入台股腿
+Additional comparison	补充对比
+Reference spread	参考价差
+Waiting for comparable prices	等待可比报价
+UMC ADR at a discount to TWUMC	UMC ADR 相对 TWUMC 折价
+UMC ADR at a premium to TWUMC	UMC ADR 相对 TWUMC 溢价
+UMC ADR and TWUMC at parity	UMC ADR 与 TWUMC 平价
+Delayed reference	延时参考
+Yahoo quote unavailable	Yahoo 报价暂不可用
+Yahoo last trade · Bitget bid / ask	Yahoo 最近成交 · Bitget 买价 / 卖价
+UMC ADR last trade	UMC ADR 最近成交
+Last reported	上一笔报价
+Overnight	夜盘
+Quote time unavailable	报价时间暂不可用
+Reference only · USD ≈ USDT	仅供参考 · USD ≈ USDT
+Bitget spreads use synchronized best bids and asks, before fees and funding. Size depends on book depth.	Bitget 价差采用同步最优买卖价，未扣手续费和资金费，可成交量取决于盘口深度。
 All stocks	所有股票
 Japan + ADR	日本及 ADR
 Korea	韩国

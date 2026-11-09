@@ -33,7 +33,7 @@
 .adrNote { margin-top: 7px; }
 .adrCards {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, .8fr);
   gap: 8px;
 }
 .adrCard {
@@ -43,6 +43,9 @@
   border-radius: 9px;
   background: #fff;
 }
+.adrCard[data-focus="primary"] { border-color: #a9c8bd; }
+.adrCard[data-focus="secondary"] { align-self: start; background: #f9fcfb; }
+.adrCard[data-focus="primary"] h5 { font-size: 15px; }
 .adrCardHeader h5 { margin: 0 0 2px; font-size: 13px; }
 .adrCardHeader small, .adrMetrics dt, .adrQuote small, .adrQuote time {
   color: #526e64;
@@ -62,6 +65,22 @@
   background: #fff3df;
   color: #81510b;
 }
+.adrOpportunity {
+  display: grid;
+  align-items: baseline;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  margin: 8px 0;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: #eff3f2;
+  color: #526e64;
+}
+.adrOpportunity[data-state="quoted"] { background: #e5f5ec; color: #0b644f; }
+.adrOpportunity[data-state="reference"] { background: #fff3df; color: #81510b; }
+.adrOpportunity span, .adrOpportunity small { font-size: 11px; line-height: 1.35; }
+.adrOpportunity small { grid-column: 1 / -1; }
+.adrOpportunity strong { font-size: 22px; font-variant-numeric: tabular-nums; }
 .adrMetrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

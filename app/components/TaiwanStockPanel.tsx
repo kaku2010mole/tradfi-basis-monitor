@@ -4,7 +4,7 @@ import { memo, useEffect, useState } from "react";
 import { visiblePolling } from "../lib/visiblePolling";
 import { decimalNumber } from "../lib/numberFormat";
 import { TAIWAN_ADR_PAIRS, TAIWAN_STOCKS, taiwanAdrPremium, taiwanUmcAdrPremium } from "../lib/taiwanStockBasis";
-import type { ReferencePrice, TaiwanBook, TaiwanPayload, TaiwanRow } from "../lib/taiwanStockBasis";
+import type { TaiwanBook, TaiwanPayload, TaiwanRow, YahooUmcReference } from "../lib/taiwanStockBasis";
 import TaiwanAdrOutlook from "./TaiwanAdrOutlook";
 import TaiwanCashCard from "./TaiwanCashCard";
 import TaiwanTwdPanel from "./TaiwanTwdPanel";
@@ -29,6 +29,12 @@ const adrStatusLabel = {
   stale: "Stale quotes",
   unsynced: "Quotes out of sync",
 };
+const yahooSessionLabel: Record<YahooUmcReference["session"], string> = {
+  overnight: "Overnight",
+  pre: "Pre-market",
+  regular: "Regular session",
+  post: "After-hours",
+};
 
 function AdrQuoteTime({ timestamp }: { timestamp?: number | null }) {
   const observedAt = timestamp ? new Date(timestamp) : null;
@@ -46,54 +52,81 @@ function AdrPerpQuote({ symbol, book }: { symbol: string; book?: TaiwanBook | nu
   </div>;
 }
 
-function UmcAdrReferenceQuote({ reference }: { reference?: ReferencePrice | null }) {
+function UmcAdrReferenceQuote({ reference }: { reference?: YahooUmcReference | null }) {
+  const session = reference ? yahooSessionLabel[reference.session] : null;
   return <div className={tabs.adrQuote}>
-    <dt>UMC ADR overnight</dt>
+    <dt>UMC ADR last trade</dt>
     <dd><strong>{reference ? `${fmt(reference.price)} USD` : "—"}</strong>
-      <small>{reference?.source ?? "Yahoo Finance · Blue Ocean ATS overnight"}</small>
+      <small>{reference?.source ?? "Yahoo Finance"}</small>
+      {session && <small>{reference?.marketOpen ? session : `Last reported · ${session}`}</small>}
       <AdrQuoteTime timestamp={reference?.timestamp} />
     </dd>
   </div>;
 }
 
+function asxOpportunity(buyAdr: number | null, sellAdr: number | null) {
+  if (buyAdr === null || sellAdr === null) return { value: null, direction: "Waiting for synchronized quotes" };
+  if (buyAdr < 0) return { value: buyAdr, direction: "Buy ASX / sell TWASX" };
+  if (sellAdr > 0) return { value: sellAdr, direction: "Sell ASX / buy TWASX" };
+  return { value: null, direction: "No gap at the best bid and ask" };
+}
+
+function umcOpportunity(value: number | null) {
+  if (value === null) return { value, direction: "Waiting for comparable prices" };
+  if (value < 0) return { value, direction: "UMC ADR at a discount to TWUMC" };
+  if (value > 0) return { value, direction: "UMC ADR at a premium to TWUMC" };
+  return { value, direction: "UMC ADR and TWUMC at parity" };
+}
+
 function TaiwanAdrPerpPanel({ payload, now }: { payload: TaiwanPayload | null; now: number }) {
   return <section className={tabs.adrPanel} aria-labelledby="taiwan-perp-adr-title">
     <header className={tabs.adrHeader}>
-      <div><span>BITGET · ADR COMPARISON</span><h4 id="taiwan-perp-adr-title">ADR premiums</h4></div>
-      <p>Premium relative to the Taiwan perpetual after applying the ADR share ratio.</p>
+      <div><span>TAIWAN · BITGET + YAHOO FINANCE</span><h4 id="taiwan-perp-adr-title">ADR spread opportunities</h4></div>
+      <p>ASX compares two Bitget books. UMC compares Yahoo’s last trade with the Bitget midpoint.</p>
     </header>
     <div className={tabs.adrCards}>
       {TAIWAN_ADR_PAIRS.map((pair) => {
         const usesYahoo = pair.symbol === "UMCUSDT";
+        const secondary = pair.symbol === "TSMUSDT";
         const adr = usesYahoo ? null : payload?.adrPerpBooks?.[pair.symbol];
         const row = (payload?.rows ?? emptyRows).find((item) => item.symbol === pair.taiwanSymbol);
         const local = row?.book;
         const { status, midpoint, index, buyAdr, sellAdr } = taiwanAdrPremium(pair, adr, local, now);
         const reference = usesYahoo ? payload?.umcAdrReference : null;
-        const indicative = reference ? taiwanUmcAdrPremium(reference, local, now) : null;
-        return <article className={tabs.adrCard} key={pair.symbol}>
+        const opportunity = usesYahoo ? umcOpportunity(taiwanUmcAdrPremium(reference, local, now).premium)
+          : secondary ? null : asxOpportunity(buyAdr, sellAdr);
+        return <article className={tabs.adrCard} data-focus={secondary ? "secondary" : "primary"} key={pair.symbol}>
           <header className={tabs.adrCardHeader}>
-            <div><h5>{pair.name}</h5><small>TWSE {pair.code} · 1 ADR = {pair.ratio} shares</small></div>
+            <div>
+              {secondary && <small>Additional comparison</small>}
+              <h5>{pair.symbol.replace(/USDT$/, "")} / {pair.taiwanSymbol.replace(/USDT$/, "")}</h5>
+              <small>{pair.name} · TWSE {pair.code} · 1 ADR = {pair.ratio} shares</small>
+            </div>
             <span className={tabs.adrStatus} data-state={reference ? "reference" : status}>
-              {usesYahoo ? (reference ? "Overnight trade · indicative/delayed" : "Yahoo overnight quote unavailable") : adrStatusLabel[status]}
+              {usesYahoo ? (reference ? "Delayed reference" : "Yahoo quote unavailable") : adrStatusLabel[status]}
             </span>
           </header>
-          <dl className={tabs.adrMetrics}>
-            <div><dt>{usesYahoo ? "Reference premium" : "Midpoint premium"}</dt><dd>{pct(usesYahoo ? indicative?.premium : midpoint)}</dd></div>
+          {opportunity && <div className={tabs.adrOpportunity} data-state={usesYahoo ? "reference" : opportunity.value === null ? "flat" : "quoted"}>
+            <span>{usesYahoo ? "Reference spread" : "Bitget quoted spread"}</span>
+            <strong>{pct(opportunity.value)}</strong>
+            <small>{opportunity.direction}</small>
+          </div>}
+          {!usesYahoo && <dl className={tabs.adrMetrics}>
+            <div><dt>Midpoint premium</dt><dd>{pct(midpoint)}</dd></div>
             <div><dt>Index premium</dt><dd>{pct(index)}</dd></div>
             <div><dt>Buy ADR / sell TW</dt><dd>{pct(buyAdr)}</dd></div>
             <div><dt>Sell ADR / buy TW</dt><dd>{pct(sellAdr)}</dd></div>
-          </dl>
-          <span className={tabs.adrQuoteLabel}>{usesYahoo ? "ADR OVERNIGHT · BITGET BID / ASK (USDT)" : "BID / ASK · USDT"}</span>
+          </dl>}
+          <span className={tabs.adrQuoteLabel}>{usesYahoo ? "YAHOO LAST TRADE · BITGET BID / ASK" : "BID / ASK · USDT"}</span>
           <dl className={tabs.adrQuotes}>
             {usesYahoo ? <UmcAdrReferenceQuote reference={reference} /> : <AdrPerpQuote symbol={pair.symbol} book={adr} />}
             <AdrPerpQuote symbol={pair.taiwanSymbol} book={local} />
           </dl>
-          {reference && <p className={tabs.adrNote}>Reference premium assumes USD ≈ USDT.</p>}
+          {usesYahoo && <p className={tabs.adrNote}>Reference only · USD ≈ USDT</p>}
         </article>;
       })}
     </div>
-    <p className={tabs.adrNote}>Bitget directional premiums use fresh, synchronized bids and asks before fees or depth.</p>
+    <p className={tabs.adrNote}>Bitget spreads use synchronized best bids and asks, before fees and funding. Size depends on book depth.</p>
   </section>;
 }
 
