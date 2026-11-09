@@ -9,6 +9,7 @@ interface Env {
   DB: D1Database;
   SITE_PASSWORD?: string;
   FUTU_PUSH_TOKEN?: string;
+  JLP_POSITION_SNAPSHOT?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -32,10 +33,10 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env | undefined, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const sitePassword =
-      env?.SITE_PASSWORD ??
+    const processEnv =
       (globalThis as typeof globalThis & { process?: { env?: Record<string, string | undefined> } })
-        .process?.env?.SITE_PASSWORD;
+        .process?.env;
+    const sitePassword = env?.SITE_PASSWORD ?? processEnv?.SITE_PASSWORD;
 
     if (url.pathname === "/api/hk-auction/ingest" && request.method === "POST") {
       return handleFutuIngest(request, env?.FUTU_PUSH_TOKEN, sitePassword);
@@ -63,6 +64,23 @@ const worker = {
         }
         return Response.redirect(new URL("/login", request.url), 302);
       }
+    }
+
+    if (url.pathname === "/api/jlp/position" && request.method === "GET") {
+      const configured = env?.JLP_POSITION_SNAPSHOT ?? processEnv?.JLP_POSITION_SNAPSHOT;
+      if (sitePassword && configured) {
+        try {
+          const { jlpUnits, borrowedUsdc, asOf } = JSON.parse(configured);
+          if (
+            Number.isFinite(jlpUnits) && jlpUnits > 0 &&
+            Number.isFinite(borrowedUsdc) && borrowedUsdc >= 0 &&
+            typeof asOf === "string" && Number.isFinite(Date.parse(asOf))
+          ) {
+            return json({ jlpUnits, borrowedUsdc, asOf }, 200, "no-store");
+          }
+        } catch { /* An invalid snapshot leaves the calculator in manual mode. */ }
+      }
+      return json({ error: "JLP position snapshot unavailable" }, 404, "no-store");
     }
 
     if (url.pathname === "/api/markets") {

@@ -70,6 +70,34 @@ test("JLP Research is the homepage and the original Basis Monitor remains availa
   assert.match(jlpApi, /JLP data service unavailable/);
 });
 
+test("only exposes the aggregate JLP position after site login", async () => {
+  const { default: worker } = await import(new URL("../dist/server/index.js", import.meta.url).href);
+  const snapshot = { jlpUnits: 200, borrowedUsdc: 100, asOf: "2026-11-09T00:00:00Z" };
+  const env = {
+    SITE_PASSWORD: "fixture-password",
+    JLP_POSITION_SNAPSHOT: JSON.stringify({ ...snapshot, privateField: "ignored" }),
+  };
+  const fetchPage = (path, init, overrides = {}) => worker.fetch(
+    new Request(`https://localhost${path}`, init),
+    { ...env, ...overrides },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+  const path = "/api/jlp/position";
+  assert.equal((await fetchPage(path)).status, 401);
+  assert.equal((await fetchPage(path, undefined, { SITE_PASSWORD: "" })).status, 404);
+  const login = await fetchPage("/login", {
+    method: "POST",
+    body: new URLSearchParams({ password: env.SITE_PASSWORD }),
+  });
+  assert.equal(login.status, 303);
+  const headers = { cookie: login.headers.get("set-cookie").split(";")[0] };
+  const response = await fetchPage(path, { headers });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await response.json(), snapshot);
+  assert.equal((await fetchPage(path, { headers }, { JLP_POSITION_SNAPSHOT: "invalid" })).status, 404);
+});
+
 test("exports Jupiter liquidation events through the Render sidecar without allowing arbitrary endpoints", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];

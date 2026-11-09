@@ -12,16 +12,20 @@ export default function JlpFrame() {
     let observer: ResizeObserver | undefined;
     const resize = () => {
       const doc = iframe.contentDocument;
-      if (doc) setHeight(Math.max(800, doc.documentElement.scrollHeight, doc.body?.scrollHeight || 0));
+      const content = doc?.querySelector("main");
+      if (content && doc?.defaultView) {
+        const bottom = content.getBoundingClientRect().bottom + doc.defaultView.scrollY;
+        setHeight(Math.max(800, Math.ceil(bottom)));
+      }
     };
     const attach = () => {
       observer?.disconnect();
       const doc = iframe.contentDocument;
-      if (!doc) return;
+      const content = doc?.querySelector("main");
+      if (!content) return;
       resize();
       observer = new ResizeObserver(resize);
-      observer.observe(doc.documentElement);
-      if (doc.body) observer.observe(doc.body);
+      observer.observe(content);
     };
     iframe.addEventListener("load", attach);
     if (iframe.contentDocument?.readyState === "complete") attach();

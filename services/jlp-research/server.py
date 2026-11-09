@@ -2,6 +2,7 @@
 """Read-only JLP research data service; Python standard library only."""
 import concurrent.futures
 import csv
+from functools import lru_cache
 import io
 from itertools import groupby
 import json
@@ -345,6 +346,11 @@ def loop(name, fn, interval):
 
 CARRY_COMPONENTS = {'carry_fee_1x','carry_funding_1x','carry_borrow_apr','carry_margin_notional_1x'}
 UNBUCKETED_METRICS = {'funding_BTC','funding_ETH','funding_SOL','jlp_apr_archive'}
+CHART_METRICS = (
+    'market_price', 'nav', 'premium', 'jlp_apr_archive', 'jlp_apr', 'borrow_apr',
+    'funding_BTC', 'funding_ETH', 'funding_SOL',
+    'hedge_ratio_BTC', 'hedge_ratio_ETH', 'hedge_ratio_SOL',
+)
 
 def history_rows(c, start, leverage, hedge_leverage):
     """Exact old row order/values, retaining only one timestamp group in RAM."""
@@ -374,6 +380,27 @@ def history_series(rows, days):
     for k, grouped in buckets.items(): series[k] = list(grouped.values())
     return series
 
+def chart_series(connection, metrics, start, days):
+    placeholders = ','.join('?' for _ in metrics)
+    rows = connection.execute(
+        f"SELECT metric,ts,value,'' FROM samples "
+        f"WHERE metric IN ({placeholders}) AND ts>=? ORDER BY metric,ts",
+        (*metrics, start),
+    )
+    return history_series(rows, days)
+
+@lru_cache(maxsize=6)
+def chart_history(days, carry_days, _time_slot):
+    # Reuse a bounded response across requests arriving in the same ten seconds.
+    # Carry inputs use their own window so a 1h chart keeps every stored minute.
+    now = int(time.time() * 1000)
+    with connect() as connection:
+        series = chart_series(connection, CHART_METRICS, now - int(days * 86400000), days)
+        series.update(chart_series(
+            connection, sorted(CARRY_COMPONENTS), now - int(carry_days * 86400000), carry_days,
+        ))
+    return json.dumps(series, allow_nan=False, separators=(',', ':'))
+
 def write_history_csv(raw, rows):
     # Spill large exports to an ephemeral file, preserving every row and byte.
     # The wrapper is detached so the caller owns and closes the binary spool.
@@ -398,6 +425,9 @@ class Handler(SimpleHTTPRequestHandler):
         p=urlparse(self.path)
         if p.path=='/api/state':
             with LOCK: d=dict(STATE)
+            if parse_qs(p.query).get('view') == ['charts']:
+                d.pop('activity', None)
+                d.pop('liquidations', None)
             d['now']=int(time.time()*1000)
             d['recorder']=dict(lastWriteAt=LAST_WRITE,pendingRows=len(PENDING),
                 storage='persistent-disk' if os.path.ismount(DB.parent) else 'local-directory',
@@ -417,6 +447,9 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 args=parse_qs(p.query)
                 days=number(args.get('days',['7'])[0]);days=max(1/1440,min(90,days))
+                if p.path == '/api/history' and args.get('view') == ['charts']:
+                    carry_days = max(1/1440, min(90, number(args.get('carryDays', [str(days)])[0])))
+                    return self.send(chart_history(days, carry_days, int(time.time() // 10)))
                 leverage=number(args.get('leverage',['2'])[0])
                 hedge_leverage=number(args.get('hedgeLeverage',['10'])[0])
                 leveraged_apr(0,0,0,leverage)
