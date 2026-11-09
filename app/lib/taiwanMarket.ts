@@ -4,8 +4,9 @@ import { taiwanCashSnapshot } from "./fugleTaiwanMarket";
 import { taiwanFxSnapshot } from "./taiwanFxMarket";
 import { taiwanLatestCloses } from "./taiwanLatestClose";
 import { honHaiGdrSnapshot } from "./honHaiGdrMarket";
+import { isYahooUmcCurrent, parseYahooUmcReference } from "./yahooUmcReference";
 import { ADR_FALLBACK_OFFSET_MS, DAY_MS, TAIPEI_OFFSET_MS, TAIWAN_ADR_PAIRS, TAIWAN_STOCKS, TWSE_2026, adrModelAnchor, fresh, indexAnchorFromCandles, lastReferenceAtOrBefore, latestTaiwanAnchor, latestTaiwanCashClose, parseTaiwanCalendar, positive, previousTaiwanAnchor, taiwanOpeningCutoff } from "./taiwanStockBasis";
-import type { AdrReference, Calendar, ReferencePrice, TaiwanBook, TaiwanPayload, TaiwanRow } from "./taiwanStockBasis";
+import type { AdrReference, Calendar, ReferencePrice, TaiwanBook, TaiwanPayload, TaiwanRow, YahooUmcReference } from "./taiwanStockBasis";
 
 const memo = new Map<string, { expires: number; pending: Promise<unknown> }>();
 function cached<T>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
@@ -103,44 +104,12 @@ async function yahooAdr(symbol: string, target: number, openingTarget: number): 
 const lastAdrPoints = new Map<string, ReferencePrice[]>();
 const savedModelAnchors = new Map<string, ReferencePrice>();
 
-let lastUmcReference: ReferencePrice | null = null;
+let lastUmcReference: YahooUmcReference | null = null;
 let umcReferencePending: Promise<void> | null = null;
 let nextUmcReferenceRefresh = 0;
 
-type YahooNumber = number | { raw?: number };
-type YahooOvernightQuote = {
-  symbol?: string; currency?: string; quoteSourceName?: string; overnightMarketSource?: string;
-  overnightMarketPrice?: YahooNumber; overnightMarketTime?: YahooNumber;
-};
-
-function yahooRaw(value?: YahooNumber) { return typeof value === "number" ? value : value?.raw; }
-
-function yahooUmcQuote(html: string, now: number) {
-  const quotes: ReferencePrice[] = [];
-  // The public page embeds the quote responses. Yahoo's chart history does not include BOATS.
-  for (const [, dataUrl, json] of html.matchAll(/<script\b[^>]*\bdata-sveltekit-fetched\b[^>]*\bdata-url="([^"\s]+)"[^>]*>([\s\S]*?)<\/script>/g)) {
-    if (!/^https:\/\/query[12]\.finance\.yahoo\.com\/(?:v7\/finance\/quote\?|v10\/finance\/quoteSummary\/UMC\?)/.test(dataUrl)) continue;
-    try {
-      const payload = JSON.parse(JSON.parse(json).body) as {
-        quoteResponse?: { result?: YahooOvernightQuote[] };
-        quoteSummary?: { result?: Array<{ price?: YahooOvernightQuote }> };
-      };
-      const candidates = payload.quoteResponse?.result ?? payload.quoteSummary?.result?.map((item) => item.price) ?? [];
-      for (const candidate of candidates) {
-        if (candidate?.symbol !== "UMC" || candidate.currency !== "USD"
-          || !/\bBOATS\b/i.test(candidate.overnightMarketSource ?? candidate.quoteSourceName ?? "")) continue;
-        const price = positive(yahooRaw(candidate.overnightMarketPrice));
-        const seconds = yahooRaw(candidate.overnightMarketTime);
-        if (price !== null && seconds && Number.isSafeInteger(seconds)) {
-          quotes.push({ price, timestamp: seconds * 1000, source: "Yahoo Finance · Blue Ocean ATS overnight" });
-        }
-      }
-    } catch { /* One unavailable response does not invalidate the others. */ }
-  }
-  return lastReferenceAtOrBefore(quotes, now, 7 * DAY_MS);
-}
-
-async function yahooUmcOvernight(): Promise<ReferencePrice | null> {
+async function yahooUmcReference(): Promise<YahooUmcReference | null> {
+  let latest: YahooUmcReference | null = null;
   for (const host of ["finance.yahoo.com", "hk.finance.yahoo.com"]) {
     try {
       const response = await fetch(`https://${host}/quote/UMC/`, {
@@ -151,22 +120,25 @@ async function yahooUmcOvernight(): Promise<ReferencePrice | null> {
         }, cache: "no-store", signal: AbortSignal.timeout(5_000),
       });
       if (response.ok) {
-        const quote = yahooUmcQuote(await response.text(), Date.now());
-        if (quote) return quote;
+        const quote = parseYahooUmcReference(await response.text(), Date.now());
+        if (quote && (!latest || quote.timestamp > latest.timestamp || quote.timestamp === latest.timestamp && quote.marketOpen)) latest = quote;
+        if (latest?.marketOpen) return latest;
       }
     } catch { /* Try Yahoo's other region before keeping the last verified trade. */ }
   }
-  return null;
+  return latest;
 }
 
 function umcReferenceSnapshot(now: number) {
   if (!umcReferencePending && Date.now() >= nextUmcReferenceRefresh) {
     nextUmcReferenceRefresh = Date.now() + 60_000;
-    umcReferencePending = yahooUmcOvernight().then((quote) => {
+    umcReferencePending = yahooUmcReference().then((quote) => {
       if (quote && (!lastUmcReference || quote.timestamp >= lastUmcReference.timestamp)) lastUmcReference = quote;
+      else if (lastUmcReference) lastUmcReference = { ...lastUmcReference, marketOpen: false };
     }).finally(() => { umcReferencePending = null; });
   }
-  return lastUmcReference && lastUmcReference.timestamp <= now && now - lastUmcReference.timestamp <= 7 * DAY_MS ? lastUmcReference : null;
+  if (!lastUmcReference || lastUmcReference.timestamp > now || now - lastUmcReference.timestamp > 7 * DAY_MS) return null;
+  return { ...lastUmcReference, marketOpen: isYahooUmcCurrent(lastUmcReference, now) };
 }
 
 async function adrReference(symbol: string, target: number, now: number, cutoffTimestamp: number | null = null, openingTarget: number | null = null): Promise<AdrReference> {

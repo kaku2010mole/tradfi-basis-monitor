@@ -70,6 +70,8 @@ export const QUOTE_MAX_AGE_MS = 60_000;
 export const ADR_FALLBACK_OFFSET_MS = 3 * 3_600_000; // 14:00 -> 17:00 HKT, fixed across U.S. DST.
 export type Calendar = { year: number; holidays: string[]; source: string };
 export type ReferencePrice = { price: number; timestamp: number; source: string; volume?: number };
+export type YahooUmcSession = "overnight" | "pre" | "regular" | "post";
+export type YahooUmcReference = ReferencePrice & { session: YahooUmcSession; marketOpen: boolean };
 export type TaiwanBook = { bid: number | null; ask: number | null; last: number | null; index: number | null; timestamp: number | null };
 // Missing symbol is supported only for legacy TSM payloads during rolling deploys.
 export type AdrReference = { symbol?: string; anchor: ReferencePrice | null; current: ReferencePrice | null; error: string | null; anchorTargetTimestamp?: number | null; anchorMode?: "14:00" | "17:00 fallback" | "waiting"; preOpen?: ReferencePrice | null; cutoffTimestamp?: number | null; openingAnchor?: ReferencePrice | null; openingAnchorTimestamp?: number | null };
@@ -78,7 +80,7 @@ export type TaiwanRow = {
   code: string; name: string; chineseName: string; symbol: string; adrSymbol: string | null;
   book: TaiwanBook; anchor: ReferencePrice | null; anchorError: string | null;
 };
-export type TaiwanPayload = { rows: TaiwanRow[]; anchorTimestamp: number | null; calendarSource: string; tsm: TsmReference; adrs?: Record<string, AdrReference>; adrPerpBooks?: Record<string, TaiwanBook | null>; umcAdrReference?: ReferencePrice | null; honHaiGdr?: import("./honHaiGdr").HonHaiGdrFeed; cash?: TaiwanCashFeed; fx?: TaiwanFxFeed; latestCloseDate?: string | null; closes?: Record<string, import("./taiwanPerpTwd").TaiwanCloseReference>; view?: "full" | "prices"; error: string | null; timestamp: number };
+export type TaiwanPayload = { rows: TaiwanRow[]; anchorTimestamp: number | null; calendarSource: string; tsm: TsmReference; adrs?: Record<string, AdrReference>; adrPerpBooks?: Record<string, TaiwanBook | null>; umcAdrReference?: YahooUmcReference | null; honHaiGdr?: import("./honHaiGdr").HonHaiGdrFeed; cash?: TaiwanCashFeed; fx?: TaiwanFxFeed; latestCloseDate?: string | null; closes?: Record<string, import("./taiwanPerpTwd").TaiwanCloseReference>; view?: "full" | "prices"; error: string | null; timestamp: number };
 
 // Verified against the TWSE 115-year holiday schedule. Used only if that year's
 // official endpoint is unavailable; never silently use weekdays for an unknown year.

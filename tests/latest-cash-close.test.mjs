@@ -154,17 +154,21 @@ test('lightweight Taiwan API retains all ten pairs and cash/FX, with no oracle/A
   const ctx = { waitUntil() {}, passThroughOnException() {} };
   await worker.fetch(new Request('http://localhost/stock-basis'), {}, ctx);
   const originalFetch = globalThis.fetch, originalNow = Date.now;
-  Date.now = () => twClose + 60000;
+  let now = twClose + 60000;
+  Date.now = () => now;
   const urls = [];
   const overnightAt = at('2026-10-23T13:30:17');
+  const premarketAt = at('2026-10-23T16:00:17');
   const overnight = {
-    symbol: 'UMC', currency: 'USD', quoteSourceName: 'BOATS Real Time Price',
+    symbol: 'UMC', currency: 'USD', marketState: 'OVERNIGHT', quoteSourceName: 'BOATS Real Time Price',
     regularMarketPrice: { raw: 13.85 }, regularMarketTime: { raw: Date.parse('2026-10-22T20:00:00Z') / 1000 },
     overnightMarketPrice: { raw: 14.31 }, overnightMarketTime: { raw: overnightAt / 1000 },
   };
-  const quotePage = `<script type="application/json" data-sveltekit-fetched data-url="https://query1.finance.yahoo.com/v7/finance/quote?fields=overnightMarketPrice%2CovernightMarketTime&amp;symbols=UMC">${JSON.stringify({ body: JSON.stringify({ quoteResponse: { result: [
-    { ...overnight, quoteSourceName: 'Nasdaq Real Time Price', overnightMarketPrice: { raw: 99 } }, overnight,
-  ] } }) })}</script>`;
+  const premarket = {
+    ...overnight, marketState: 'PRE', quoteSourceName: 'Nasdaq Real Time Price', overnightMarketSource: 'BOATS Real Time Price',
+    preMarketPrice: { raw: 14.46 }, preMarketTime: { raw: premarketAt / 1000 },
+  };
+  const quotePage = (quote) => `<script type="application/json" data-sveltekit-fetched data-url="https://query1.finance.yahoo.com/v7/finance/quote?fields=overnightMarketPrice%2CovernightMarketTime&amp;symbols=UMC">${JSON.stringify({ body: JSON.stringify({ quoteResponse: { result: [quote] } }) })}</script>`;
   globalThis.fetch = async input => {
     const url = String(input); urls.push(url);
     if (url.includes('holidaySchedule')) return Response.json({ stat: 'ok', queryYear: 2026, data: TWSE_2026.holidays.map(d => [d, '休市']) });
@@ -173,7 +177,7 @@ test('lightweight Taiwan API retains all ten pairs and cash/FX, with no oracle/A
       { symbol: 'TSMUSDT', bidPr: '380', askPr: '381', ts: String(Date.now()) },
       { symbol: 'ASXUSDT', bidPr: '33', askPr: '34', ts: String(Date.now()) },
     ] });
-    if (url === 'https://finance.yahoo.com/quote/UMC/') return new Response(quotePage, { headers: { 'content-type': 'text/html' } });
+    if (url === 'https://finance.yahoo.com/quote/UMC/') return new Response(quotePage(now < premarketAt ? overnight : premarket), { headers: { 'content-type': 'text/html' } });
     if (url.includes('STOCK_DAY_ALL')) return Response.json([{ Code: '2330', Date: '1151023', ClosingPrice: '2400' }]);
     if (url.includes('chart/HNHPF')) return Response.json({ chart: { result: [{ meta: { symbol: 'HNHPF', currency: 'USD', instrumentType: 'EQUITY', regularMarketPrice: 15, regularMarketTime: Date.now() / 1000 } }] } });
     if (url.includes('TWD')) return Response.json({ chart: { result: [{ meta: { symbol: 'TWD=X', currency: 'TWD', instrumentType: 'CURRENCY', regularMarketPrice: 32.5, regularMarketTime: Date.now() / 1000 } }] } });
@@ -192,10 +196,17 @@ test('lightweight Taiwan API retains all ten pairs and cash/FX, with no oracle/A
     assert.equal(payload.adrPerpBooks.TSMUSDT.bid, 380);
     assert.equal(payload.adrPerpBooks.UMCUSDT, null);
     assert.deepEqual(payload.umcAdrReference, {
-      price: 14.31, timestamp: overnightAt, source: 'Yahoo Finance · Blue Ocean ATS overnight',
+      price: 14.31, timestamp: overnightAt, source: 'Yahoo Finance · Blue Ocean ATS overnight', session: 'overnight', marketOpen: true,
     });
     assert.deepEqual(payload.rows.slice(-2).map(r => [r.symbol, r.code]), [['HONHAIUSDT', '2317'], ['MEDIATEKUSDT', '2454']]);
     assert.equal(payload.anchorTimestamp, null); assert.ok(payload.rows.every(r => r.anchor === null));
     assert.ok(!urls.some(u => /history-index|chart\/TSM|chart\/UMC|api\.nasdaq\.com\/api\/quote\/UMC/.test(u)));
+    now = premarketAt + 60_000;
+    await worker.fetch(new Request('http://localhost/api/stock-basis/taiwan?view=prices'), {}, ctx);
+    await new Promise(resolve => setImmediate(resolve));
+    const after = await worker.fetch(new Request('http://localhost/api/stock-basis/taiwan?view=prices'), {}, ctx);
+    assert.deepEqual((await after.json()).umcAdrReference, {
+      price: 14.46, timestamp: premarketAt, source: 'Yahoo Finance', session: 'pre', marketOpen: true,
+    });
   } finally { globalThis.fetch = originalFetch; Date.now = originalNow; }
 });
