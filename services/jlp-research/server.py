@@ -19,6 +19,8 @@ import time
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+from jlp_position_aggregate import aggregate_positions
+from jlp_posley_mcp import PosleyMcpClient, PosleyMcpError
 from monitoring import jupiter_liquidations as liquidation_feed
 
 ROOT = Path(__file__).resolve().parent
@@ -41,6 +43,27 @@ MARKETS={'BTC':'3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh',
 RECORD_INTERVAL_MS = 60000
 STOP = threading.Event()
 LAST_WRITE = None
+POSITION_POLL_SECONDS = 60
+POSITION_MAX_AGE_MS = 5 * 60_000
+POSITION = None
+POSITION_CURRENT = False
+
+def position_accounts():
+    try:
+        ids = tuple(int(value) for value in os.environ.get('JLP_POSLEY_ACCOUNT_IDS', '').split(','))
+    except ValueError:
+        return ()
+    return ids if len(ids) == 2 and len(set(ids)) == 2 and min(ids) > 0 else ()
+
+POSITION_ACCOUNTS = position_accounts()
+POSITION_KEY = os.environ.get('JLP_POSLEY_MCP_API_KEY', '').strip()
+POSITION_CLIENT = None
+if POSITION_ACCOUNTS and POSITION_KEY and os.environ.get('SITE_PASSWORD'):
+    try:
+        POSITION_CLIENT = PosleyMcpClient(POSITION_KEY)
+    except PosleyMcpError:
+        print('JLP position sync configuration invalid', flush=True)
+POSITION_ACCOUNT_KEY = ','.join(map(str, POSITION_ACCOUNTS))
 
 class ClosingConnection(sqlite3.Connection):
     def __exit__(self, *args):
@@ -63,6 +86,43 @@ with connect() as c:
     ''')
     for name, body in c.execute('SELECT name, body FROM cache'):
         STATE[name] = json.loads(body)
+    if POSITION_CLIENT:
+        c.execute('CREATE TABLE IF NOT EXISTS private_jlp_position(account_set TEXT PRIMARY KEY, body TEXT)')
+        row = c.execute('SELECT body FROM private_jlp_position WHERE account_set=?',
+                        (POSITION_ACCOUNT_KEY,)).fetchone()
+        if row:
+            POSITION = json.loads(row[0])
+
+def sync_position():
+    global POSITION, POSITION_CURRENT
+    try:
+        results = [POSITION_CLIENT.account_positions(account_id) for account_id in POSITION_ACCOUNTS]
+        snapshot = aggregate_positions(results, int(time.time() * 1000), POSITION)
+        if snapshot != POSITION:
+            with connect() as c:
+                c.execute('INSERT OR REPLACE INTO private_jlp_position VALUES (?,?)',
+                          (POSITION_ACCOUNT_KEY, json.dumps(snapshot, allow_nan=False)))
+        with LOCK:
+            POSITION, POSITION_CURRENT = snapshot, True
+    except Exception as error:
+        with LOCK:
+            POSITION_CURRENT = False
+        # PosleyMcpError contains only the transport status and static messages.
+        detail = f' ({error})' if isinstance(error, PosleyMcpError) else ''
+        print(f'JLP position sync delayed{detail}', flush=True)
+
+def position_snapshot():
+    with LOCK:
+        snapshot, current = POSITION, POSITION_CURRENT
+    if not snapshot:
+        return None
+    current = current and int(time.time() * 1000) - min(snapshot['accountSnapshotTimes']) <= POSITION_MAX_AGE_MS
+    return {
+        'jlpUnits': snapshot['jlpUnits'],
+        'borrowedUsdc': snapshot['borrowedUsdc'],
+        'asOf': snapshot['asOf'],
+        'syncStatus': 'current' if current else 'delayed',
+    }
 
 def fetch(url, body=None):
     # curl uses the OS TLS certificate store and works with this host's network.
@@ -423,6 +483,11 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(raw)
     def do_GET(self):
         p=urlparse(self.path)
+        if p.path=='/api/position':
+            snapshot=position_snapshot()
+            if snapshot is None:
+                return self.send_error(404)
+            return self.send(json.dumps(snapshot,allow_nan=False))
         if p.path=='/api/state':
             with LOCK: d=dict(STATE)
             if parse_qs(p.query).get('view') == ['charts']:
@@ -480,6 +545,8 @@ if __name__=='__main__':
         STOP.set()
     signal.signal(signal.SIGTERM,request_stop)
     signal.signal(signal.SIGINT,request_stop)
+    if POSITION_CLIENT:
+        threading.Thread(target=loop,args=('position',sync_position,POSITION_POLL_SECONDS),daemon=True).start()
     for name,fn,interval in [('pool',pool,10),('loan',loan,15),('price',price,15),('funding',funding,10),('strategy',strategy,10),('activity',activity,20),('liquidations',liquidations,15),('history',history,3600),('persistence',persist,5)]:
         threading.Thread(target=loop,args=(name,fn,interval),daemon=True).start()
     port=int(os.environ.get('JLP_PORT','8788'))

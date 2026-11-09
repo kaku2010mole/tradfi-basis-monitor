@@ -24,6 +24,15 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
+function validJlpPosition(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const { jlpUnits, borrowedUsdc, asOf } = value as Record<string, unknown>;
+  if (typeof jlpUnits !== "number" || !Number.isFinite(jlpUnits) || jlpUnits <= 0 ||
+      typeof borrowedUsdc !== "number" || !Number.isFinite(borrowedUsdc) || borrowedUsdc < 0 ||
+      typeof asOf !== "string" || !Number.isFinite(Date.parse(asOf))) return null;
+  return { jlpUnits, borrowedUsdc, asOf };
+}
+
 // Image security config. SVG sources with .svg extension auto-skip the
 // optimization endpoint on the client side (served directly, no proxy).
 // To route SVGs through the optimizer (with security headers), set
@@ -67,17 +76,28 @@ const worker = {
     }
 
     if (url.pathname === "/api/jlp/position" && request.method === "GET") {
+      const syncEnabled = Boolean(sitePassword && processEnv?.JLP_POSLEY_MCP_API_KEY?.trim() &&
+        processEnv?.JLP_POSLEY_ACCOUNT_IDS?.trim());
+      if (syncEnabled) {
+        try {
+          const response = await fetch(`http://127.0.0.1:${processEnv?.JLP_PORT || "8788"}/api/position`, {
+            cache: "no-store",
+            signal: AbortSignal.timeout(2_000),
+          });
+          if (response.ok) {
+            const value = await response.json();
+            const position = validJlpPosition(value);
+            if (position && (value.syncStatus === "current" || value.syncStatus === "delayed")) {
+              return json({ ...position, syncStatus: value.syncStatus }, 200, "no-store");
+            }
+          }
+        } catch { /* The configured snapshot covers startup and connection failures. */ }
+      }
       const configured = env?.JLP_POSITION_SNAPSHOT ?? processEnv?.JLP_POSITION_SNAPSHOT;
       if (sitePassword && configured) {
         try {
-          const { jlpUnits, borrowedUsdc, asOf } = JSON.parse(configured);
-          if (
-            Number.isFinite(jlpUnits) && jlpUnits > 0 &&
-            Number.isFinite(borrowedUsdc) && borrowedUsdc >= 0 &&
-            typeof asOf === "string" && Number.isFinite(Date.parse(asOf))
-          ) {
-            return json({ jlpUnits, borrowedUsdc, asOf }, 200, "no-store");
-          }
+          const position = validJlpPosition(JSON.parse(configured));
+          if (position) return json(syncEnabled ? { ...position, syncStatus: "pending" } : position, 200, "no-store");
         } catch { /* An invalid snapshot leaves the calculator in manual mode. */ }
       }
       return json({ error: "JLP position snapshot unavailable" }, 404, "no-store");

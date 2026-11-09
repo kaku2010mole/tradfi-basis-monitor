@@ -1,7 +1,7 @@
 'use strict';
 const $=id=>document.getElementById(id),colors=['#b5ee68','#6bb9ee','#ffba7a','#b49bfa'];
 let state={},series={},days=7,position=null;
-let stateAvailable=false,positionNeedsRetry=false;
+let stateAvailable=false,positionRequest=null;
 let historyController=null,historyKey='';
 const hiddenLines={};
 try{const saved=JSON.parse(localStorage.getItem('jlp-chart-hidden-lines')||'{}');for(const [id,keys] of Object.entries(saved||{}))if(Array.isArray(keys))hiddenLines[id]=new Set(keys.filter(k=>typeof k==='string'));}catch{}
@@ -258,23 +258,41 @@ function updatePositionMode(){
  if(Object.keys(series).length)renderCarryChart();
  updateExport();
 }
-async function getPosition(){
- positionNeedsRetry=false;
- try{
-  const response=await fetch('/api/jlp/position',{cache:'no-store',signal:AbortSignal.timeout(5000)});
-  if(response.status===404||response.status===401){
-   if(position){position=null;$('positioncontrols').hidden=true;updatePositionMode();}
-   return;
-  }
-  if(!response.ok)throw new Error();
-  const snapshot=await response.json();
-  if(!(snapshot.jlpUnits>0)||!(snapshot.borrowedUsdc>=0)||!Number.isFinite(Date.parse(snapshot.asOf)))throw new Error();
-  if(!position)$('useActualPosition').checked=true;
-  position=snapshot;
-  $('positionsource').textContent=`Posley MCP snapshot · ${fmt(position.jlpUnits,0)} JLP · ${fmt(position.borrowedUsdc)} USDC borrowed · ${dt(Date.parse(position.asOf))} HKT`;
-  $('positioncontrols').hidden=false;
-  updatePositionMode();
- }catch{positionNeedsRetry=true;}
+function renderPositionSource(){
+ const label=position.syncStatus==='current'?'Posley MCP auto-sync':
+  position.syncStatus==='delayed'?'Posley MCP · Position sync delayed':
+  position.syncStatus==='pending'?'Posley MCP snapshot · Waiting for position sync':'Posley MCP snapshot';
+ const units=fmt(position.jlpUnits,Number.isInteger(position.jlpUnits)?0:6);
+ $('positionsource').textContent=`${label} · ${units} JLP · ${fmt(position.borrowedUsdc)} USDC borrowed · ${dt(Date.parse(position.asOf))} HKT`;
+}
+function getPosition(){
+ if(positionRequest)return positionRequest;
+ positionRequest=(async()=>{
+  try{
+   const response=await fetch('/api/jlp/position',{cache:'no-store',signal:AbortSignal.timeout(5000)});
+   if(response.status===401){
+    if(position){position=null;$('positioncontrols').hidden=true;updatePositionMode();}
+    return;
+   }
+   if(!response.ok)throw new Error();
+   const snapshot=await response.json(),asOf=Date.parse(snapshot.asOf);
+   if(!Number.isFinite(snapshot.jlpUnits)||snapshot.jlpUnits<=0||
+      !Number.isFinite(snapshot.borrowedUsdc)||snapshot.borrowedUsdc<0||!Number.isFinite(asOf))throw new Error();
+   if(position&&asOf<Date.parse(position.asOf))throw new Error();
+   const changed=!position||position.jlpUnits!==snapshot.jlpUnits||position.borrowedUsdc!==snapshot.borrowedUsdc;
+   if(!position)$('useActualPosition').checked=true;
+   position=snapshot;
+   renderPositionSource();
+   $('positioncontrols').hidden=false;
+   if(changed&&usingPosition())updatePositionMode();
+  }catch{
+   if(position?.syncStatus==='current'){
+    position={...position,syncStatus:'delayed'};
+    renderPositionSource();
+   }
+  }finally{positionRequest=null;}
+ })();
+ return positionRequest;
 }
 
 let stateRequest=null;
@@ -366,5 +384,5 @@ setInterval(()=>{if(!document.hidden)getState();},5000);
 setInterval(()=>{
  if(document.hidden)return;
  getHistory();
- if(positionNeedsRetry)getPosition();
+ getPosition();
 },15000);
