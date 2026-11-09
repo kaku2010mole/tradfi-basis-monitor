@@ -16,6 +16,54 @@ export const TAIWAN_STOCKS = [
   { code: "2454", name: "MediaTek", chineseName: "聯發科", symbol: "MEDIATEKUSDT" },
 ] as const;
 
+const UMC_ADR_RATIO = 5;
+export const TAIWAN_ADR_PAIRS = [
+  { symbol: "ASXUSDT", taiwanSymbol: "TWASXUSDT", ratio: 2, name: "ASE Technology", code: "3711" },
+  { symbol: "UMCUSDT", taiwanSymbol: "TWUMCUSDT", ratio: UMC_ADR_RATIO, name: "United Microelectronics", code: "2303" },
+  { symbol: "TSMUSDT", taiwanSymbol: "TWTSMUSDT", ratio: 5, name: "TSMC", code: "2330" },
+] as const;
+
+type Pair = (typeof TAIWAN_ADR_PAIRS)[number];
+type PremiumStatus = "live" | "missing-adr" | "waiting" | "stale" | "unsynced";
+const ADR_BOOK_MAX_AGE_MS = 15_000;
+const validPrice = (n: number | null | undefined): n is number => n != null && Number.isFinite(n) && n > 0;
+
+function validBook(book: TaiwanBook | null | undefined): book is TaiwanBook & { bid: number; ask: number; timestamp: number } {
+  return !!book && validPrice(book.bid) && validPrice(book.ask) && book.bid <= book.ask && validPrice(book.timestamp);
+}
+
+function unavailable(status: Exclude<PremiumStatus, "live">, timestamp: number | null = null) {
+  return { status, midpoint: null, buyAdr: null, sellAdr: null, index: null, timestamp };
+}
+
+export function taiwanAdrPremium(pair: Pair, adr: TaiwanBook | null | undefined, tw: TaiwanBook | null | undefined, now: number) {
+  if (adr === null) return unavailable("missing-adr");
+  if (!validBook(adr) || !validBook(tw) || !Number.isFinite(now)) return unavailable("waiting");
+  const timestamp = Math.min(adr.timestamp, tw.timestamp);
+  if (now - timestamp > ADR_BOOK_MAX_AGE_MS || Math.max(adr.timestamp, tw.timestamp) - now > 5_000) return unavailable("stale", timestamp);
+  if (Math.abs(adr.timestamp - tw.timestamp) > 5_000) return unavailable("unsynced", timestamp);
+
+  const premium = (adrPrice: number, localPrice: number) => 100 * (adrPrice / (pair.ratio * localPrice) - 1);
+  return {
+    status: "live" as const,
+    midpoint: premium((adr.bid + adr.ask) / 2, (tw.bid + tw.ask) / 2),
+    buyAdr: premium(adr.ask, tw.bid),
+    sellAdr: premium(adr.bid, tw.ask),
+    index: validPrice(adr.index) && validPrice(tw.index) ? premium(adr.index, tw.index) : null,
+    timestamp,
+  };
+}
+
+export function taiwanUmcAdrPremium(reference: ReferencePrice | null | undefined, tw: TaiwanBook | null | undefined, now: number) {
+  const timestamp = validPrice(reference?.timestamp) ? reference.timestamp : null;
+  if (!reference || !validPrice(reference.price) || !Number.isFinite(now) || timestamp === null || timestamp > now
+    || now - timestamp > 7 * DAY_MS || !validBook(tw) || now - tw.timestamp > ADR_BOOK_MAX_AGE_MS || tw.timestamp - now > 5_000) {
+    return { premium: null, timestamp };
+  }
+  const midpoint = (tw.bid + tw.ask) / 2;
+  return { premium: 100 * (reference.price / (UMC_ADR_RATIO * midpoint) - 1), timestamp };
+}
+
 export const DAY_MS = 86_400_000;
 export const TAIPEI_OFFSET_MS = 8 * 3_600_000;
 export const QUOTE_MAX_AGE_MS = 60_000;
@@ -30,7 +78,7 @@ export type TaiwanRow = {
   code: string; name: string; chineseName: string; symbol: string; adrSymbol: string | null;
   book: TaiwanBook; anchor: ReferencePrice | null; anchorError: string | null;
 };
-export type TaiwanPayload = { rows: TaiwanRow[]; anchorTimestamp: number | null; calendarSource: string; tsm: TsmReference; adrs?: Record<string, AdrReference>; honHaiGdr?: import("./honHaiGdr").HonHaiGdrFeed; cash?: TaiwanCashFeed; fx?: TaiwanFxFeed; latestCloseDate?: string | null; closes?: Record<string, import("./taiwanPerpTwd").TaiwanCloseReference>; view?: "full" | "prices"; error: string | null; timestamp: number };
+export type TaiwanPayload = { rows: TaiwanRow[]; anchorTimestamp: number | null; calendarSource: string; tsm: TsmReference; adrs?: Record<string, AdrReference>; adrPerpBooks?: Record<string, TaiwanBook | null>; umcAdrReference?: ReferencePrice | null; honHaiGdr?: import("./honHaiGdr").HonHaiGdrFeed; cash?: TaiwanCashFeed; fx?: TaiwanFxFeed; latestCloseDate?: string | null; closes?: Record<string, import("./taiwanPerpTwd").TaiwanCloseReference>; view?: "full" | "prices"; error: string | null; timestamp: number };
 
 // Verified against the TWSE 115-year holiday schedule. Used only if that year's
 // official endpoint is unavailable; never silently use weekdays for an unknown year.

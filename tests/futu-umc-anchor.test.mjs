@@ -6,6 +6,7 @@ import test from "node:test";
 const moduleUrl = (source) => "data:text/javascript;base64," + Buffer.from(stripTypeScriptTypes(source)).toString("base64");
 const { validFutuAdrAnchors, mergeFutuAdrAnchors } = await import(moduleUrl(await readFile(new URL("../app/lib/futuAdrAnchors.ts", import.meta.url), "utf8")));
 const modelUrl = moduleUrl(await readFile(new URL("../app/lib/taiwanStockBasis.ts", import.meta.url), "utf8"));
+const sessionUrl = moduleUrl(await readFile(new URL("../app/lib/smicOpening.ts", import.meta.url), "utf8"));
 const at = (date) => Date.parse(date + "+08:00");
 const timestamp = at("2026-10-20T17:00:00");
 const point = { price: 19.67, timestamp, volume: 0 };
@@ -26,6 +27,7 @@ test("Futu UMC anchors accept a zero-volume reference, never an invalid or futur
 test("UMC 17:00 Futu baseline is separate from latest ADR, retains provenance and rolls by date", async () => {
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
+    .replace('from "./smicOpening"', `from ${JSON.stringify(sessionUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
     .replace('import { taiwanLatestCloses } from "./taiwanLatestClose";', "const taiwanLatestCloses = () => ({});")

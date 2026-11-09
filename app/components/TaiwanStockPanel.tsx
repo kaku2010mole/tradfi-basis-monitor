@@ -3,8 +3,8 @@
 import { memo, useEffect, useState } from "react";
 import { visiblePolling } from "../lib/visiblePolling";
 import { decimalNumber } from "../lib/numberFormat";
-import { TAIWAN_STOCKS } from "../lib/taiwanStockBasis";
-import type { TaiwanPayload, TaiwanRow } from "../lib/taiwanStockBasis";
+import { TAIWAN_ADR_PAIRS, TAIWAN_STOCKS, taiwanAdrPremium, taiwanUmcAdrPremium } from "../lib/taiwanStockBasis";
+import type { ReferencePrice, TaiwanBook, TaiwanPayload, TaiwanRow } from "../lib/taiwanStockBasis";
 import TaiwanAdrOutlook from "./TaiwanAdrOutlook";
 import TaiwanCashCard from "./TaiwanCashCard";
 import TaiwanTwdPanel from "./TaiwanTwdPanel";
@@ -20,6 +20,81 @@ const pct = (n: number | null | undefined) => n == null || !Number.isFinite(n) ?
 const stampFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Taipei", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 const stamp = (n: number | null | undefined) => n == null ? "—" : stampFormat.format(n);
 const emptyRows: TaiwanRow[] = TAIWAN_STOCKS.map((stock) => ({ ...stock, adrSymbol: "adrSymbol" in stock ? stock.adrSymbol : null, anchor: null, anchorError: null, book: { bid: null, ask: null, last: null, index: null, timestamp: null } }));
+
+const adrStampFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Taipei", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+const adrStatusLabel = {
+  live: "Live BBO",
+  "missing-adr": "ADR leg unavailable",
+  waiting: "Waiting for quotes",
+  stale: "Stale quotes",
+  unsynced: "Quotes out of sync",
+};
+
+function AdrQuoteTime({ timestamp }: { timestamp?: number | null }) {
+  const observedAt = timestamp ? new Date(timestamp) : null;
+  return observedAt && Number.isFinite(observedAt.getTime())
+    ? <time dateTime={observedAt.toISOString()}>{adrStampFormat.format(observedAt)} HKT</time>
+    : <small>Quote time unavailable</small>;
+}
+
+function AdrPerpQuote({ symbol, book }: { symbol: string; book?: TaiwanBook | null }) {
+  return <div className={tabs.adrQuote}>
+    <dt>{symbol}</dt>
+    <dd><strong>{book?.bid == null && book?.ask == null ? "—" : `${fmt(book.bid)} / ${fmt(book.ask)}`}</strong>
+      <AdrQuoteTime timestamp={book?.timestamp} />
+    </dd>
+  </div>;
+}
+
+function UmcAdrReferenceQuote({ reference }: { reference: ReferencePrice }) {
+  return <div className={tabs.adrQuote}>
+    <dt>UMC ADR reference</dt>
+    <dd><strong>{fmt(reference.price)} USD</strong>
+      <small>{reference.source}</small>
+      <AdrQuoteTime timestamp={reference.timestamp} />
+    </dd>
+  </div>;
+}
+
+function TaiwanAdrPerpPanel({ payload, now }: { payload: TaiwanPayload | null; now: number }) {
+  return <section className={tabs.adrPanel} aria-labelledby="taiwan-perp-adr-title">
+    <header className={tabs.adrHeader}>
+      <div><span>BITGET · ADR COMPARISON</span><h4 id="taiwan-perp-adr-title">ADR premiums</h4></div>
+      <p>Premium relative to the Taiwan perpetual after applying the ADR share ratio.</p>
+    </header>
+    <div className={tabs.adrCards}>
+      {TAIWAN_ADR_PAIRS.map((pair) => {
+        const adr = payload?.adrPerpBooks?.[pair.symbol];
+        const row = (payload?.rows ?? emptyRows).find((item) => item.symbol === pair.taiwanSymbol);
+        const local = row?.book;
+        const { status, midpoint, index, buyAdr, sellAdr } = taiwanAdrPremium(pair, adr, local, now);
+        const reference = pair.symbol === "UMCUSDT" && status === "missing-adr" ? payload?.umcAdrReference : null;
+        const indicative = reference ? taiwanUmcAdrPremium(reference, local, now) : null;
+        return <article className={tabs.adrCard} key={pair.symbol}>
+          <header className={tabs.adrCardHeader}>
+            <div><h5>{pair.name}</h5><small>TWSE {pair.code} · 1 ADR = {pair.ratio} shares</small></div>
+            <span className={tabs.adrStatus} data-state={reference ? "reference" : status}>
+              {reference ? "ADR reference · indicative/delayed" : adrStatusLabel[status]}
+            </span>
+          </header>
+          <dl className={tabs.adrMetrics}>
+            <div><dt>{reference ? "Reference premium" : "Midpoint premium"}</dt><dd>{pct(reference ? indicative?.premium : midpoint)}</dd></div>
+            <div><dt>Index premium</dt><dd>{pct(index)}</dd></div>
+            <div><dt>Buy ADR / sell TW</dt><dd>{pct(buyAdr)}</dd></div>
+            <div><dt>Sell ADR / buy TW</dt><dd>{pct(sellAdr)}</dd></div>
+          </dl>
+          <span className={tabs.adrQuoteLabel}>{reference ? "ADR REFERENCE · BITGET BID / ASK (USDT)" : "BID / ASK · USDT"}</span>
+          <dl className={tabs.adrQuotes}>
+            {reference ? <UmcAdrReferenceQuote reference={reference} /> : <AdrPerpQuote symbol={pair.symbol} book={adr} />}
+            <AdrPerpQuote symbol={pair.taiwanSymbol} book={local} />
+          </dl>
+          {reference && <p className={tabs.adrNote}>Reference premium assumes USD ≈ USDT.</p>}
+        </article>;
+      })}
+    </div>
+    <p className={tabs.adrNote}>Bitget directional premiums use fresh, synchronized bids and asks before fees or depth.</p>
+  </section>;
+}
 
 const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: boolean }) {
   const [payload, setPayload] = useState<TaiwanPayload | null>(null);
@@ -57,6 +132,7 @@ const TaiwanStockPanel = memo(function TaiwanStockPanel({ visible }: { visible: 
 
   return <section hidden={!visible} className={`${styles.marketGroup} ${styles.taiwanGroup}`} aria-label="Taiwan stock reference basis">
     <div className={styles.groupHead}><div><span>03 / TAIWAN · BITGET + CASH</span><h3>Taiwan price comparison</h3></div><small>{TAIWAN_STOCKS.length} names · perp 2s / cash 60s</small></div>
+    <TaiwanAdrPerpPanel payload={payload} now={clock} />
     <div className={tabs.tabs} role="tablist" aria-label="Taiwan comparison basis">
       {(["live", "returns"] as const).map((tab) => <button key={tab} id={`taiwan-${tab}-tab`} type="button" role="tab" aria-selected={mode === tab} aria-controls={`taiwan-${tab}-panel`} tabIndex={mode === tab ? 0 : -1} onClick={() => setMode(tab)} onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;

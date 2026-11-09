@@ -5,6 +5,7 @@ import test from "node:test";
 
 const moduleUrl = (source) => "data:text/javascript;base64," + Buffer.from(stripTypeScriptTypes(source)).toString("base64");
 const modelUrl = moduleUrl(await readFile(new URL("../app/lib/taiwanStockBasis.ts", import.meta.url), "utf8"));
+const sessionUrl = moduleUrl(await readFile(new URL("../app/lib/smicOpening.ts", import.meta.url), "utf8"));
 const model = await import(modelUrl);
 const at = (date) => Date.parse(date + "+08:00");
 
@@ -36,6 +37,7 @@ test("Taiwan model reanchors exactly at 14:00, not midnight, and respects holida
 test("a running server reanchors all ten names, TSM and UMC without a restart or stale-date fallback", async () => {
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
+    .replace('from "./smicOpening"', `from ${JSON.stringify(sessionUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
     .replace('import { taiwanLatestCloses } from "./taiwanLatestClose";', "const taiwanLatestCloses = () => ({});")
@@ -134,6 +136,7 @@ test("UI removes the model but preserves the historical opening study and separa
 test("live ADR fallback uses the 17:00 candle OPEN, remains unavailable before it, and preserves the opening study", async () => {
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
+    .replace('from "./smicOpening"', `from ${JSON.stringify(sessionUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
     .replace('import { taiwanLatestCloses } from "./taiwanLatestClose";', "const taiwanLatestCloses = () => ({});")
@@ -207,6 +210,7 @@ test("live ADR fallback uses the 17:00 candle OPEN, remains unavailable before i
 test("UMC validates ticker identity, isolates outages and prefers its own fresh office data", async () => {
   const source = (await readFile(new URL("../app/lib/taiwanMarket.ts", import.meta.url), "utf8"))
     .replace('from "./taiwanStockBasis"', `from ${JSON.stringify(modelUrl)}`)
+    .replace('from "./smicOpening"', `from ${JSON.stringify(sessionUrl)}`)
     .replace('import { bitgetBooks } from "./bitgetRelativeMarket";', "const bitgetBooks = async () => [];")
     .replace('import { taiwanCashSnapshot } from "./fugleTaiwanMarket";', "const taiwanCashSnapshot = async () => ({ quotes: {} });")
     .replace('import { taiwanLatestCloses } from "./taiwanLatestClose";', "const taiwanLatestCloses = () => ({});")
