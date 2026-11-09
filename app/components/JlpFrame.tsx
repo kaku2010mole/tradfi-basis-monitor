@@ -37,5 +37,5 @@ export default function JlpFrame() {
     };
   }, []);
 
-  return <iframe ref={frame} title="JLP Research dashboard" src="/jlp-app/index.html?v=20261109-2" style={{ display: "block", width: "100%", height, border: 0 }} />;
+  return <iframe ref={frame} title="JLP Research dashboard" src="/jlp-app/index.html?v=20261109-3" style={{ display: "block", width: "100%", height, border: 0 }} />;
 }

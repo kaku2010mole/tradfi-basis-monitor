@@ -13,6 +13,21 @@ the snapshot by default and values it with current inputs. It models the
 Hyperliquid hedge and margin from the selected hedge leverage. The snapshot is
 dated and can be switched off for manual estimates.
 
+To enable automatic updates on Render, set `JLP_POSLEY_ACCOUNT_IDS` to the
+two verified JLP loan account IDs, separated by a comma. Set
+`JLP_POSLEY_MCP_API_KEY` to a Posley managed service key with
+`mcp:pg:read` and a tool allowlist containing only `get_account_positions`.
+Configure the key in the hosting provider's server environment.
+
+The recorder polls every minute, validates both snapshots together and stores
+only the aggregate and source timestamps on the persistent disk. The site
+serves it through the authenticated estimator endpoint. The page checks every
+15 seconds while visible and recomputes when units or debt change. Before the
+first successful sync, it can use `JLP_POSITION_SNAPSHOT`. On a later failure,
+it labels the last verified aggregate as delayed. Posley omits closed legs.
+A fresh collateral leg can confirm repayment, but an empty account response
+cannot distinguish closure from missing coverage.
+
 The checked-in SQLite database seeds the 90-day public-market-data archive and
 the locally collected samples available at integration time. New samples are
 bucketed by observation minute and written immediately after successful fetches.

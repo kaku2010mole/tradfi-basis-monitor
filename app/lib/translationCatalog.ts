@@ -551,6 +551,9 @@ Leveraged neutral carry	杠杆中性套利收益
 Leveraged neutral carry history	杠杆中性套利历史
 Use JLP position snapshot	使用 JLP 持仓快照
 Posley MCP snapshot	Posley MCP 持仓快照
+Posley MCP auto-sync	Posley MCP 自动同步
+Position sync delayed	持仓同步延迟
+Waiting for position sync	等待持仓同步
 USDC borrowed	借入 USDC
 Modeled HL hedge	按 HL 对冲模型估算
 Last estimate	上次估算

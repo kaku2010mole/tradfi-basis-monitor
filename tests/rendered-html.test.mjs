@@ -96,6 +96,34 @@ test("only exposes the aggregate JLP position after site login", async () => {
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.deepEqual(await response.json(), snapshot);
   assert.equal((await fetchPage(path, { headers }, { JLP_POSITION_SNAPSHOT: "invalid" })).status, 404);
+
+  const keys = ["JLP_POSLEY_MCP_API_KEY", "JLP_POSLEY_ACCOUNT_IDS", "JLP_PORT"];
+  const originalEnv = keys.map((key) => process.env[key]);
+  const originalFetch = globalThis.fetch;
+  Object.assign(process.env, { JLP_POSLEY_MCP_API_KEY: "fixture-key", JLP_POSLEY_ACCOUNT_IDS: "1,2", JLP_PORT: "8789" });
+  const updated = { ...snapshot, borrowedUsdc: 75, asOf: "2026-11-09T00:01:00Z", syncStatus: "current" };
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push([url, options.headers]);
+    return Response.json({ ...updated, accountSnapshotTimes: [100, 200], privateField: "ignored" });
+  };
+  try {
+    assert.equal((await fetchPage(path)).status, 401);
+    assert.equal((await fetchPage(path, undefined, { SITE_PASSWORD: "" })).status, 404);
+    assert.deepEqual(requests, []);
+    const synced = await fetchPage(path, { headers });
+    assert.equal(synced.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await synced.json(), updated);
+    assert.deepEqual(requests, [["http://127.0.0.1:8789/api/position", undefined]]);
+    globalThis.fetch = async () => new Response(null, { status: 503 });
+    assert.deepEqual(await (await fetchPage(path, { headers })).json(), { ...snapshot, syncStatus: "pending" });
+  } finally {
+    globalThis.fetch = originalFetch;
+    keys.forEach((key, index) => {
+      if (originalEnv[index] === undefined) delete process.env[key];
+      else process.env[key] = originalEnv[index];
+    });
+  }
 });
 
 test("exports Jupiter liquidation events through the Render sidecar without allowing arbitrary endpoints", async () => {
