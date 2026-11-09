@@ -4,7 +4,6 @@ import { taiwanCashSnapshot } from "./fugleTaiwanMarket";
 import { taiwanFxSnapshot } from "./taiwanFxMarket";
 import { taiwanLatestCloses } from "./taiwanLatestClose";
 import { honHaiGdrSnapshot } from "./honHaiGdrMarket";
-import { dayKey, shiftDay, tradingDay, usClose, zonedTime } from "./smicOpening";
 import { ADR_FALLBACK_OFFSET_MS, DAY_MS, TAIPEI_OFFSET_MS, TAIWAN_ADR_PAIRS, TAIWAN_STOCKS, TWSE_2026, adrModelAnchor, fresh, indexAnchorFromCandles, lastReferenceAtOrBefore, latestTaiwanAnchor, latestTaiwanCashClose, parseTaiwanCalendar, positive, previousTaiwanAnchor, taiwanOpeningCutoff } from "./taiwanStockBasis";
 import type { AdrReference, Calendar, ReferencePrice, TaiwanBook, TaiwanPayload, TaiwanRow } from "./taiwanStockBasis";
 
@@ -108,73 +107,66 @@ let lastUmcReference: ReferencePrice | null = null;
 let umcReferencePending: Promise<void> | null = null;
 let nextUmcReferenceRefresh = 0;
 
-function keepUmcReference(quote: ReferencePrice | null, preferOnTie = false) {
-  if (quote && (!lastUmcReference || quote.timestamp > lastUmcReference.timestamp
-    || preferOnTie && quote.timestamp === lastUmcReference.timestamp)) lastUmcReference = quote;
-}
-
-type NasdaqTrade = { lastSalePrice?: string; lastTradeTimestamp?: string; isRealTime?: boolean; currency?: string | null };
-const NASDAQ_UMC = "https://api.nasdaq.com/api/quote/UMC";
-const NASDAQ_HEADERS = {
-  Accept: "application/json",
-  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36",
-  Origin: "https://www.nasdaq.com", Referer: "https://www.nasdaq.com/",
+type YahooNumber = number | { raw?: number };
+type YahooOvernightQuote = {
+  symbol?: string; currency?: string; quoteSourceName?: string; overnightMarketSource?: string;
+  overnightMarketPrice?: YahooNumber; overnightMarketTime?: YahooNumber;
 };
 
-async function nasdaqUmcData<T extends { symbol?: string }>(path: string): Promise<T> {
-  const response = await fetch(`${NASDAQ_UMC}/${path}`, { headers: NASDAQ_HEADERS, cache: "no-store", signal: AbortSignal.timeout(4_000) });
-  if (!response.ok) throw new Error(`Nasdaq UMC HTTP ${response.status}`);
-  const payload = await response.json() as { status?: { rCode?: number }; data?: T };
-  if (payload.status?.rCode !== 200 || payload.data?.symbol !== "UMC") throw new Error("Nasdaq UMC identity unavailable");
-  return payload.data;
+function yahooRaw(value?: YahooNumber) { return typeof value === "number" ? value : value?.raw; }
+
+function yahooUmcQuote(html: string, now: number) {
+  const quotes: ReferencePrice[] = [];
+  // The public page embeds the quote responses. Yahoo's chart history does not include BOATS.
+  for (const [, dataUrl, json] of html.matchAll(/<script\b[^>]*\bdata-sveltekit-fetched\b[^>]*\bdata-url="([^"\s]+)"[^>]*>([\s\S]*?)<\/script>/g)) {
+    if (!/^https:\/\/query[12]\.finance\.yahoo\.com\/(?:v7\/finance\/quote\?|v10\/finance\/quoteSummary\/UMC\?)/.test(dataUrl)) continue;
+    try {
+      const payload = JSON.parse(JSON.parse(json).body) as {
+        quoteResponse?: { result?: YahooOvernightQuote[] };
+        quoteSummary?: { result?: Array<{ price?: YahooOvernightQuote }> };
+      };
+      const candidates = payload.quoteResponse?.result ?? payload.quoteSummary?.result?.map((item) => item.price) ?? [];
+      for (const candidate of candidates) {
+        if (candidate?.symbol !== "UMC" || candidate.currency !== "USD"
+          || !/\bBOATS\b/i.test(candidate.overnightMarketSource ?? candidate.quoteSourceName ?? "")) continue;
+        const price = positive(yahooRaw(candidate.overnightMarketPrice));
+        const seconds = yahooRaw(candidate.overnightMarketTime);
+        if (price !== null && seconds && Number.isSafeInteger(seconds)) {
+          quotes.push({ price, timestamp: seconds * 1000, source: "Yahoo Finance · Blue Ocean ATS overnight" });
+        }
+      }
+    } catch { /* One unavailable response does not invalidate the others. */ }
+  }
+  return lastReferenceAtOrBefore(quotes, now, 7 * DAY_MS);
 }
 
-function nasdaqPrice(value: string | undefined) {
-  return positive(value?.replace(/[$,]/g, ""));
-}
-
-function nasdaqUmcTrade(trade: NasdaqTrade | null | undefined): ReferencePrice | null {
-  const match = /^(?:Closed at )?([A-Za-z]{3} \d{1,2}, \d{4}) (\d{1,2}):([0-5]\d)(?::([0-5]\d))? (AM|PM) ET$/.exec(trade?.lastTradeTimestamp ?? "");
-  const price = nasdaqPrice(trade?.lastSalePrice);
-  if (!match || price === null || trade?.currency && trade.currency !== "USD") return null;
-  const date = Date.parse(`${match[1]} 00:00 UTC`), hour = Number(match[2]);
-  if (!Number.isFinite(date) || hour < 1 || hour > 12) return null;
-  const timestamp = zonedTime(new Date(date).toISOString().slice(0, 10), hour % 12 + (match[5] === "PM" ? 12 : 0), Number(match[3]), "America/New_York") + Number(match[4] ?? 0) * 1000;
-  return { price, timestamp, source: `Nasdaq UMC last sale · ${trade?.isRealTime ? "indicative" : "delayed"}` };
-}
-
-async function nasdaqUmcReference(): Promise<ReferencePrice | null> {
-  const info = await nasdaqUmcData<{ symbol?: string; primaryData?: NasdaqTrade; secondaryData?: NasdaqTrade | null }>("info?assetclass=stocks").catch(() => null);
-  const trades = [nasdaqUmcTrade(info?.primaryData), nasdaqUmcTrade(info?.secondaryData)].filter((quote): quote is ReferencePrice => quote !== null);
-  const last = lastReferenceAtOrBefore(trades, Date.now());
-  if (last) return last;
-  // The closed-market last sale can be date-only and differ from the official close.
-  const date = dayKey(Date.now(), "America/New_York");
-  const params = new URLSearchParams({ assetclass: "stocks", fromdate: shiftDay(date, -10), todate: date, limit: "5" });
-  const history = await nasdaqUmcData<{ symbol?: string; tradesTable?: { rows?: Array<{ date?: string; close?: string }> } }>(`historical?${params}`);
-  const closes: ReferencePrice[] = (history.tradesTable?.rows ?? []).flatMap((row) => {
-    const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(row.date ?? "");
-    const price = nasdaqPrice(row.close);
-    if (!match || price === null) return [];
-    const day = `${match[3]}-${match[1]}-${match[2]}`;
-    return tradingDay(day, "US") === true
-      ? [{ price, timestamp: usClose(day), source: "Nasdaq UMC regular-session close · delayed reference" }] : [];
-  });
-  return lastReferenceAtOrBefore(closes, Date.now(), 10 * DAY_MS);
+async function yahooUmcOvernight(): Promise<ReferencePrice | null> {
+  for (const host of ["finance.yahoo.com", "hk.finance.yahoo.com"]) {
+    try {
+      const response = await fetch(`https://${host}/quote/UMC/`, {
+        headers: {
+          Accept: "text/html,application/xhtml+xml",
+          "Accept-Language": "en-US,en;q=0.9",
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36",
+        }, cache: "no-store", signal: AbortSignal.timeout(5_000),
+      });
+      if (response.ok) {
+        const quote = yahooUmcQuote(await response.text(), Date.now());
+        if (quote) return quote;
+      }
+    } catch { /* Try Yahoo's other region before keeping the last verified trade. */ }
+  }
+  return null;
 }
 
 function umcReferenceSnapshot(now: number) {
-  const cachedCloses = (lastAdrPoints.get("UMC") ?? []).filter((point) => point.source.includes("5m close"));
-  keepUmcReference(lastReferenceAtOrBefore(cachedCloses, now));
-  const office = lastReferenceAtOrBefore(officeAdr("UMC", now), now);
-  keepUmcReference(office, true);
-  if (!fresh(lastUmcReference?.timestamp, now) && !umcReferencePending && Date.now() >= nextUmcReferenceRefresh) {
+  if (!umcReferencePending && Date.now() >= nextUmcReferenceRefresh) {
     nextUmcReferenceRefresh = Date.now() + 60_000;
-    umcReferencePending = nasdaqUmcReference().then((quote) => keepUmcReference(quote)).catch(() => {
-      // An outage leaves the last actual observation and its clock intact.
+    umcReferencePending = yahooUmcOvernight().then((quote) => {
+      if (quote && (!lastUmcReference || quote.timestamp >= lastUmcReference.timestamp)) lastUmcReference = quote;
     }).finally(() => { umcReferencePending = null; });
   }
-  return lastUmcReference && lastUmcReference.timestamp <= now ? lastUmcReference : null;
+  return lastUmcReference && lastUmcReference.timestamp <= now && now - lastUmcReference.timestamp <= 7 * DAY_MS ? lastUmcReference : null;
 }
 
 async function adrReference(symbol: string, target: number, now: number, cutoffTimestamp: number | null = null, openingTarget: number | null = null): Promise<AdrReference> {
@@ -255,7 +247,7 @@ export async function taiwanSnapshot(now = Date.now(), view: "full" | "prices" =
     const quote = books.get(symbol);
     return [symbol, quote ? normalizeBook(quote) : null] as const;
   })) : undefined;
-  const umcAdrReference = adrPerpBooks?.UMCUSDT === null ? umcReferenceSnapshot(now) : undefined;
+  const umcAdrReference = umcReferenceSnapshot(now);
   const makeRows = (anchors: Array<{ anchor: ReferencePrice | null; anchorError: string | null }>): TaiwanRow[] => TAIWAN_STOCKS.map((stock, index) => ({
     ...stock, adrSymbol: "adrSymbol" in stock ? stock.adrSymbol : null, ...anchors[index], book: normalizeBook(books.get(stock.symbol)),
   }));

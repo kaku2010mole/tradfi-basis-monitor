@@ -156,6 +156,15 @@ test('lightweight Taiwan API retains all ten pairs and cash/FX, with no oracle/A
   const originalFetch = globalThis.fetch, originalNow = Date.now;
   Date.now = () => twClose + 60000;
   const urls = [];
+  const overnightAt = at('2026-10-23T13:30:17');
+  const overnight = {
+    symbol: 'UMC', currency: 'USD', quoteSourceName: 'BOATS Real Time Price',
+    regularMarketPrice: { raw: 13.85 }, regularMarketTime: { raw: Date.parse('2026-10-22T20:00:00Z') / 1000 },
+    overnightMarketPrice: { raw: 14.31 }, overnightMarketTime: { raw: overnightAt / 1000 },
+  };
+  const quotePage = `<script type="application/json" data-sveltekit-fetched data-url="https://query1.finance.yahoo.com/v7/finance/quote?fields=overnightMarketPrice%2CovernightMarketTime&amp;symbols=UMC">${JSON.stringify({ body: JSON.stringify({ quoteResponse: { result: [
+    { ...overnight, quoteSourceName: 'Nasdaq Real Time Price', overnightMarketPrice: { raw: 99 } }, overnight,
+  ] } }) })}</script>`;
   globalThis.fetch = async input => {
     const url = String(input); urls.push(url);
     if (url.includes('holidaySchedule')) return Response.json({ stat: 'ok', queryYear: 2026, data: TWSE_2026.holidays.map(d => [d, '休市']) });
@@ -164,8 +173,7 @@ test('lightweight Taiwan API retains all ten pairs and cash/FX, with no oracle/A
       { symbol: 'TSMUSDT', bidPr: '380', askPr: '381', ts: String(Date.now()) },
       { symbol: 'ASXUSDT', bidPr: '33', askPr: '34', ts: String(Date.now()) },
     ] });
-    if (url.includes('/api/quote/UMC/info')) return Response.json({ status: { rCode: 200 }, data: { symbol: 'UMC', primaryData: { lastSalePrice: '$13.855', lastTradeTimestamp: 'Oct 22, 2026' } } });
-    if (url.includes('/api/quote/UMC/historical')) return Response.json({ status: { rCode: 200 }, data: { symbol: 'UMC', tradesTable: { rows: [{ date: '10/22/2026', close: '$13.85' }] } } });
+    if (url === 'https://finance.yahoo.com/quote/UMC/') return new Response(quotePage, { headers: { 'content-type': 'text/html' } });
     if (url.includes('STOCK_DAY_ALL')) return Response.json([{ Code: '2330', Date: '1151023', ClosingPrice: '2400' }]);
     if (url.includes('chart/HNHPF')) return Response.json({ chart: { result: [{ meta: { symbol: 'HNHPF', currency: 'USD', instrumentType: 'EQUITY', regularMarketPrice: 15, regularMarketTime: Date.now() / 1000 } }] } });
     if (url.includes('TWD')) return Response.json({ chart: { result: [{ meta: { symbol: 'TWD=X', currency: 'TWD', instrumentType: 'CURRENCY', regularMarketPrice: 32.5, regularMarketTime: Date.now() / 1000 } }] } });
@@ -183,10 +191,11 @@ test('lightweight Taiwan API retains all ten pairs and cash/FX, with no oracle/A
     assert.equal(payload.adrPerpBooks.ASXUSDT.bid, 33);
     assert.equal(payload.adrPerpBooks.TSMUSDT.bid, 380);
     assert.equal(payload.adrPerpBooks.UMCUSDT, null);
-    assert.equal(payload.umcAdrReference.price, 13.85);
-    assert.equal(payload.umcAdrReference.timestamp, Date.parse('2026-10-22T20:00:00Z'));
+    assert.deepEqual(payload.umcAdrReference, {
+      price: 14.31, timestamp: overnightAt, source: 'Yahoo Finance · Blue Ocean ATS overnight',
+    });
     assert.deepEqual(payload.rows.slice(-2).map(r => [r.symbol, r.code]), [['HONHAIUSDT', '2317'], ['MEDIATEKUSDT', '2454']]);
     assert.equal(payload.anchorTimestamp, null); assert.ok(payload.rows.every(r => r.anchor === null));
-    assert.ok(!urls.some(u => /history-index|chart\/TSM|chart\/UMC/.test(u)));
+    assert.ok(!urls.some(u => /history-index|chart\/TSM|chart\/UMC|api\.nasdaq\.com\/api\/quote\/UMC/.test(u)));
   } finally { globalThis.fetch = originalFetch; Date.now = originalNow; }
 });

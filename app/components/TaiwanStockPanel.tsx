@@ -46,12 +46,12 @@ function AdrPerpQuote({ symbol, book }: { symbol: string; book?: TaiwanBook | nu
   </div>;
 }
 
-function UmcAdrReferenceQuote({ reference }: { reference: ReferencePrice }) {
+function UmcAdrReferenceQuote({ reference }: { reference?: ReferencePrice | null }) {
   return <div className={tabs.adrQuote}>
-    <dt>UMC ADR reference</dt>
-    <dd><strong>{fmt(reference.price)} USD</strong>
-      <small>{reference.source}</small>
-      <AdrQuoteTime timestamp={reference.timestamp} />
+    <dt>UMC ADR overnight</dt>
+    <dd><strong>{reference ? `${fmt(reference.price)} USD` : "—"}</strong>
+      <small>{reference?.source ?? "Yahoo Finance · Blue Ocean ATS overnight"}</small>
+      <AdrQuoteTime timestamp={reference?.timestamp} />
     </dd>
   </div>;
 }
@@ -64,28 +64,29 @@ function TaiwanAdrPerpPanel({ payload, now }: { payload: TaiwanPayload | null; n
     </header>
     <div className={tabs.adrCards}>
       {TAIWAN_ADR_PAIRS.map((pair) => {
-        const adr = payload?.adrPerpBooks?.[pair.symbol];
+        const usesYahoo = pair.symbol === "UMCUSDT";
+        const adr = usesYahoo ? null : payload?.adrPerpBooks?.[pair.symbol];
         const row = (payload?.rows ?? emptyRows).find((item) => item.symbol === pair.taiwanSymbol);
         const local = row?.book;
         const { status, midpoint, index, buyAdr, sellAdr } = taiwanAdrPremium(pair, adr, local, now);
-        const reference = pair.symbol === "UMCUSDT" && status === "missing-adr" ? payload?.umcAdrReference : null;
+        const reference = usesYahoo ? payload?.umcAdrReference : null;
         const indicative = reference ? taiwanUmcAdrPremium(reference, local, now) : null;
         return <article className={tabs.adrCard} key={pair.symbol}>
           <header className={tabs.adrCardHeader}>
             <div><h5>{pair.name}</h5><small>TWSE {pair.code} · 1 ADR = {pair.ratio} shares</small></div>
             <span className={tabs.adrStatus} data-state={reference ? "reference" : status}>
-              {reference ? "ADR reference · indicative/delayed" : adrStatusLabel[status]}
+              {usesYahoo ? (reference ? "Overnight trade · indicative/delayed" : "Yahoo overnight quote unavailable") : adrStatusLabel[status]}
             </span>
           </header>
           <dl className={tabs.adrMetrics}>
-            <div><dt>{reference ? "Reference premium" : "Midpoint premium"}</dt><dd>{pct(reference ? indicative?.premium : midpoint)}</dd></div>
+            <div><dt>{usesYahoo ? "Reference premium" : "Midpoint premium"}</dt><dd>{pct(usesYahoo ? indicative?.premium : midpoint)}</dd></div>
             <div><dt>Index premium</dt><dd>{pct(index)}</dd></div>
             <div><dt>Buy ADR / sell TW</dt><dd>{pct(buyAdr)}</dd></div>
             <div><dt>Sell ADR / buy TW</dt><dd>{pct(sellAdr)}</dd></div>
           </dl>
-          <span className={tabs.adrQuoteLabel}>{reference ? "ADR REFERENCE · BITGET BID / ASK (USDT)" : "BID / ASK · USDT"}</span>
+          <span className={tabs.adrQuoteLabel}>{usesYahoo ? "ADR OVERNIGHT · BITGET BID / ASK (USDT)" : "BID / ASK · USDT"}</span>
           <dl className={tabs.adrQuotes}>
-            {reference ? <UmcAdrReferenceQuote reference={reference} /> : <AdrPerpQuote symbol={pair.symbol} book={adr} />}
+            {usesYahoo ? <UmcAdrReferenceQuote reference={reference} /> : <AdrPerpQuote symbol={pair.symbol} book={adr} />}
             <AdrPerpQuote symbol={pair.taiwanSymbol} book={local} />
           </dl>
           {reference && <p className={tabs.adrNote}>Reference premium assumes USD ≈ USDT.</p>}
