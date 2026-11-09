@@ -1,6 +1,7 @@
 'use strict';
 const $=id=>document.getElementById(id),colors=['#b5ee68','#6bb9ee','#ffba7a','#b49bfa'];
 let state={},series={},days=7,position=null;
+let stateAvailable=false,positionNeedsRetry=false;
 let historyController=null,historyKey='';
 const hiddenLines={};
 try{const saved=JSON.parse(localStorage.getItem('jlp-chart-hidden-lines')||'{}');for(const [id,keys] of Object.entries(saved||{}))if(Array.isArray(keys))hiddenLines[id]=new Set(keys.filter(k=>typeof k==='string'));}catch{}
@@ -184,17 +185,26 @@ function renderStrategy(){
   $('leverage').value=x?x.leverage.toFixed(3):'';
   $('equity').value=x?x.capital.toFixed(2):'';
  }
- const valid=x&&!s.error&&age(s.fetchedAt)<45&&Object.entries(s.inputTimes||{}).length===4&&Object.values(s.inputTimes).every(t=>age(t)<45)&&!['pool','loan','price','funding'].some(k=>state[k]?.error)&&age(state.price?.sourceAt)<120;
+ const sources=['pool','loan','price','funding'];
+ const estimate=x&&age(s.fetchedAt)<15*60&&s.market>0&&s.nav>0&&
+  [s.market,s.nav,s.marginNotionalPer1x,s.feeAprPer1x,s.fundingAprPer1x,s.borrowApr,s.maxLtv].every(Number.isFinite)&&
+  sources.every(k=>Number.isFinite(s.inputTimes?.[k])&&s.inputTimes[k]>0);
+ const live=estimate&&stateAvailable&&!s.error&&age(s.fetchedAt)<45&&
+  sources.every(k=>!state[k]?.error&&age(s.inputTimes[k])<45)&&age(state.price?.sourceAt)<120;
  const factor=x&&typeof s.marginNotionalPer1x==='number'?1+x.leverage*s.marginNotionalPer1x/x.hedgeLeverage:null;
  const jlpEquity=factor?x.capital/factor:null;
- const tokens=valid?x.leverage*jlpEquity/s.market:null;
- $('hedgetable').innerHTML=['BTC','ETH','SOL'].map(c=>{const h=p.hedges?.[c]||{},n=typeof h.unitsPerJlp==='number'&&tokens!==null?h.unitsPerJlp*tokens:null;return `<tr><th>${c}</th><td>${pct(h.ratio,3)}</td><td class="muted">${pct(h.spotWeight)}</td><td>${fmt(h.unitsPerJlp,8)}</td><td>${n===null?'—':`${n>=0?'Short':'Long'} ${fmt(Math.abs(n),c==='BTC'?6:4)} ${c}`}</td></tr>`;}).join('');
+ const tokens=estimate?x.leverage*jlpEquity/s.market:null;
+ $('hedgetable').innerHTML=['BTC','ETH','SOL'].map(c=>{const h=p.hedges?.[c]||{},n=live&&typeof h.unitsPerJlp==='number'?h.unitsPerJlp*tokens:null;return `<tr><th>${c}</th><td>${pct(h.ratio,3)}</td><td class="muted">${pct(h.spotWeight)}</td><td>${fmt(h.unitsPerJlp,8)}</td><td>${n===null?'—':`${n>=0?'Short':'Long'} ${fmt(Math.abs(n),c==='BTC'?6:4)} ${c}`}</td></tr>`;}).join('');
  const hedges=Object.values(p.hedges||{});
  $('totalhedge').textContent=hedges.length===3?pct(hedges.reduce((a,h)=>a+h.ratio,0),3):'—';
  $('strategytime').textContent=!x?'Enter valid leverage and capital':p.hedgesError?'Custody hedge data unavailable':health(s);
+ const lastEstimate=$('carryEstimateStatus');
+ lastEstimate.hidden=!estimate||live;
+ lastEstimate.textContent=lastEstimate.hidden?'':`Last estimate · ${dt(s.fetchedAt)} HKT · Market data delayed`;
  const ids=['carryapr','carryfee','carryfund','carrycost','capitalstructure','marginstructure'];
- if(!valid){
+ if(!estimate){
   ids.forEach(id=>$(id).textContent='—');
+  $('carryapr').className='metric';
   $('carryprofit').textContent=!x&&!usingPosition()
    ?'Use JLP leverage 1–10× and HL leverage 1–40×.'
    :'Waiting for fresh, aligned strategy inputs';
@@ -204,7 +214,7 @@ function renderStrategy(){
   return;
  }
  const fee=x.leverage*s.feeAprPer1x/factor,funding=x.leverage*s.fundingAprPer1x/factor,cost=(x.leverage-1)*s.borrowApr/factor,net=fee+funding-cost;
- $('carryapr').textContent=pct(net);$('carryapr').className='metric '+(net<0?'negative':'positive');
+ $('carryapr').textContent=pct(net);$('carryapr').className='metric '+(live?(net<0?'negative':'positive'):'orange');
  $('carryprofit').textContent=`${usd(net/100*x.capital,2)} / year · ${usd(net/100*x.capital/365,2)} / day · ${usingPosition()?'Modeled HL hedge':'theoretical'}`;
  $('carryfee').textContent=pct(fee);$('carryfund').textContent=`${funding>=0?'+':''}${pct(funding)}`;
  $('carrycost').textContent=cost===0?'0.00% (no debt)':`−${pct(cost)}`;
@@ -212,7 +222,7 @@ function renderStrategy(){
  $('capitalstructure').textContent=`${usd(notional,2)} / ${usd(debt,2)}`;
  $('marginstructure').textContent=`${usd(jlpEquity,2)} / ${usd(margin,2)}`;
  const ltv=debt/(tokens*s.nav)*100;
- $('ltvstatus').textContent=`Loan LTV ${pct(ltv)} / limit ${pct(s.maxLtv)} · HL hedge leverage ${fmt(x.hedgeLeverage,0)}×${ltv>s.maxLtv?' · Exceeds current JLP Loan limit':''}`;
+ $('ltvstatus').textContent=`Loan LTV ${pct(ltv)} / limit ${pct(s.maxLtv)} · HL hedge leverage ${fmt(x.hedgeLeverage,0)}×${live&&ltv>s.maxLtv?' · Exceeds current JLP Loan limit':''}`;
  $('ltvstatus').className='meta '+(ltv>s.maxLtv?'error':'');
 }
 function renderCarryChart(){
@@ -249,21 +259,22 @@ function updatePositionMode(){
  updateExport();
 }
 async function getPosition(){
+ positionNeedsRetry=false;
  try{
   const response=await fetch('/api/jlp/position',{cache:'no-store',signal:AbortSignal.timeout(5000)});
   if(response.status===404||response.status===401){
    if(position){position=null;$('positioncontrols').hidden=true;updatePositionMode();}
    return;
   }
-  if(!response.ok)return;
+  if(!response.ok)throw new Error();
   const snapshot=await response.json();
-  if(!(snapshot.jlpUnits>0)||!(snapshot.borrowedUsdc>=0)||!Number.isFinite(Date.parse(snapshot.asOf)))return;
+  if(!(snapshot.jlpUnits>0)||!(snapshot.borrowedUsdc>=0)||!Number.isFinite(Date.parse(snapshot.asOf)))throw new Error();
   if(!position)$('useActualPosition').checked=true;
   position=snapshot;
   $('positionsource').textContent=`Posley MCP snapshot · ${fmt(position.jlpUnits,0)} JLP · ${fmt(position.borrowedUsdc)} USDC borrowed · ${dt(Date.parse(position.asOf))} HKT`;
   $('positioncontrols').hidden=false;
   updatePositionMode();
- }catch{/* A temporary outage retains the last timestamped position snapshot. */}
+ }catch{positionNeedsRetry=true;}
 }
 
 let stateRequest=null;
@@ -275,9 +286,15 @@ function getState(){
    if(!response.ok)throw new Error();
    const previousSettings=settings();
    state=await response.json();
+   stateAvailable=true;
    renderState();
    if(usingPosition()&&!previousSettings&&settings()&&Object.keys(series).length)renderCarryChart();
-  }catch{$('health').textContent='Data service unavailable';$('health').className='error';}
+  }catch{
+   stateAvailable=false;
+   $('health').textContent='Data service unavailable';
+   $('health').className='error';
+   renderStrategy();
+  }
   finally{stateRequest=null;}
  })();
  return stateRequest;
@@ -295,9 +312,9 @@ async function getHistory(showLoading=false){
  historyController=controller;
  historyKey=key;
  if(showLoading)historyStatus('Loading chart history…');
+ const timeout=setTimeout(()=>controller.abort(),12000);
  try{
-  const signal=AbortSignal.any([controller.signal,AbortSignal.timeout(12000)]);
-  const response=await fetch('/api/jlp/history?'+key,{cache:'no-store',signal});
+  const response=await fetch('/api/jlp/history?'+key,{cache:'no-store',signal:controller.signal});
   if(!response.ok)throw new Error();
   const data=await response.json();
   if(historyController!==controller)return;
@@ -307,6 +324,7 @@ async function getHistory(showLoading=false){
  }catch{
   if(historyController===controller)historyStatus('History could not be loaded · retrying');
  }finally{
+  clearTimeout(timeout);
   if(historyController===controller)historyController=null;
  }
 }
@@ -345,4 +363,8 @@ getState();
 getHistory(true);
 getPosition();
 setInterval(()=>{if(!document.hidden)getState();},5000);
-setInterval(()=>{if(!document.hidden)getHistory();},15000);
+setInterval(()=>{
+ if(document.hidden)return;
+ getHistory();
+ if(positionNeedsRetry)getPosition();
+},15000);
