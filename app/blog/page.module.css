@@ -17,6 +17,9 @@
 .workspace { display:grid; grid-template-columns:270px minmax(0,1fr); gap:12px; margin-top:12px; align-items:start; }
 .workspace.pairWorkspace { grid-template-columns:minmax(0,1fr); }
 .hedgePanel { overflow:hidden; border:1px solid #b9d8ce; border-radius:11px; background:#fff; box-shadow:0 16px 40px rgba(12,78,57,.07); }
+.diskFairPanel { margin-top:20px; }
+.diskFairPanel .hedgeGrid strong.positiveError { color:#0a7657; }
+.diskFairPanel .hedgeGrid strong.negativeError { color:#a95c19; }
 .hedgeHeader { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; padding:18px 20px; background:linear-gradient(110deg,#eaf8f0,#f7fbf8 68%); }
 .hedgeHeader>div>span,.hedgeGrid span { display:block; color:#587f6f; font:850 9px/1.2 monospace; letter-spacing:.11em; }
 .hedgeHeader h2 { margin:6px 0 5px; font-size:clamp(21px,3vw,30px); letter-spacing:-.04em; }

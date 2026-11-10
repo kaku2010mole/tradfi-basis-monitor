@@ -126,7 +126,7 @@ test('independent table displays integer KRW, precise USDT/returns and explicit 
 test('previous close reaches the existing quote API without changing cash/perp edges', async () => {
   const { default: worker } = await import('../dist/server/index.js');
   const ctx = { waitUntil() {}, passThroughOnException() {} };
-  await worker.fetch(new Request('http://localhost/basis'), { ASSETS: { fetch: async () => new Response('', { status: 404 }) } }, ctx);
+  await worker.fetch(new Request('http://localhost/'), { ASSETS: { fetch: async () => new Response('', { status: 404 }) } }, ctx);
   const originalFetch = globalThis.fetch, originalNow = Date.now, previous = globalThis.__FUTU_PUSH_SNAPSHOT__;
   Date.now = () => now;
   delete globalThis.__FUTU_PUSH_SNAPSHOT__;

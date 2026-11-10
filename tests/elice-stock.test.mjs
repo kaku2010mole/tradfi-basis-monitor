@@ -47,7 +47,7 @@ test('Elice cash basis never invents a missing ask, including outside regular ho
 test('authenticated Elice pushes clear removed sides and appear in the normal Korean group', async () => {
   const { default: worker } = await import('../dist/server/index.js');
   const ctx = { waitUntil() {}, passThroughOnException() {} };
-  await worker.fetch(new Request('http://localhost/basis'), { ASSETS: { fetch: async () => new Response('', { status: 404 }) } }, ctx);
+  await worker.fetch(new Request('http://localhost/'), { ASSETS: { fetch: async () => new Response('', { status: 404 }) } }, ctx);
   const previous = globalThis.__FUTU_PUSH_SNAPSHOT__, originalFetch = globalThis.fetch, clock = Date.now;
   const now = Date.parse('2026-10-21T08:30:00Z');
   Date.now = () => now;

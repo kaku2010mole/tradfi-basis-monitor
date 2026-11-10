@@ -56,6 +56,16 @@ export async function bitgetLivePrice(symbol: string) {
   return price;
 }
 
+export async function bitgetTradedMinuteClose(symbol: string, closeAt: number) {
+  const params = new URLSearchParams({
+    symbol, productType: "usdt-futures", granularity: "1m", endTime: String(closeAt), limit: "4",
+  });
+  const rows = await requestRows<Array<string | number>>(`history-candles?${params}`);
+  const row = rows.find((item) => Number(item[0]) === closeAt - STEPS["1m"]);
+  const close = Number(row?.[4]);
+  return Number(row?.[5]) > 0 && Number.isFinite(close) && close > 0 ? close : null;
+}
+
 const seriesCache = new Map<string, { expires: number; pending: Promise<PricePoint[]> }>();
 export function bitgetSeries(symbol: string, start: number, end: number, interval: string): Promise<PricePoint[]> {
   const step = STEPS[interval];

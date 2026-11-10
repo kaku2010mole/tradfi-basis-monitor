@@ -31,6 +31,7 @@ import {
 } from "../lib/relativeValueAlerts";
 import { leveragedKoreanHedge } from "../lib/leveragedKoreanHedge";
 import { bitgetBooks, bitgetLivePrice, bitgetMidpoint, bitgetSeries, relativeUniverse, type BitgetBook } from "../lib/bitgetRelativeMarket";
+import { DISK_DRAM_BETA, DISK_DRAM_SAMPLE_END, type DiskCashSnapshot } from "../lib/diskCashModel";
 import styles from "./page.module.css";
 
 type Analysis = {
@@ -603,6 +604,59 @@ function ResidualChart({ points }: { points: ProjectionPoint[] }) {
   </svg></div>;
 }
 
+function DiskFairPanel() {
+  const [snapshot, setSnapshot] = useState<DiskCashSnapshot | null>(null);
+  const [delayed, setDelayed] = useState(false);
+  useEffect(() => {
+    let controller: AbortController | null = null;
+    const refresh = async () => {
+      if (document.hidden || controller) return;
+      const request = new AbortController();
+      controller = request;
+      const timeout = window.setTimeout(() => request.abort(), 13_000);
+      try {
+        const response = await fetch("/api/blog/disk-fair", { cache: "no-store", signal: request.signal });
+        if (!response.ok) throw new Error("DISK cash model unavailable");
+        const data: DiskCashSnapshot = await response.json();
+        if (!request.signal.aborted) { setSnapshot(data); setDelayed(false); }
+      } catch {
+        if (controller === request) setDelayed(true);
+      } finally {
+        window.clearTimeout(timeout);
+        if (controller === request) controller = null;
+      }
+    };
+    void refresh();
+    const interval = window.setInterval(refresh, LIVE_REFRESH_MS);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      const pending = controller;
+      controller = null;
+      pending?.abort();
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
+
+  const { anchor, book, reference, fair, deviation, bidDeviation, askDeviation } = snapshot ?? {};
+  const source = reference?.source === "futu" ? "Futu DRAM cash BBO"
+    : reference?.source === "yahoo" ? "Yahoo DRAM cash print · indicative"
+    : reference ? "Bitget DRAM proxy · indicative" : "Waiting for DRAM reference";
+  const status = delayed ? "Refresh delayed" : !snapshot ? "Loading"
+    : !anchor ? "Waiting for both cash closes" : !book ? "Waiting for fresh Bitget BBO" : source;
+  return <section className={`${styles.hedgePanel} ${styles.diskFairPanel}`} aria-label="DISK fair value from DRAM">
+    <div className={styles.hedgeHeader}>
+      <div><span>DISK CASH FAIR VALUE · DRAM MODEL</span><h2>Bitget DISK vs. fair value</h2><p>{status}{snapshot ? ` · ${formatTime(snapshot.at, true)} HKT` : ""}</p></div>
+    </div>
+    <div className={styles.hedgeGrid}>
+      <div><span>MIDPOINT DEVIATION</span><strong className={deviation == null ? "" : deviation >= 0 ? styles.positiveError : styles.negativeError}>{deviation == null ? "—" : formatPct(deviation, 3)}</strong><small>{bidDeviation != null && askDeviation != null ? `Bid ${formatPct(bidDeviation, 3)} · Ask ${formatPct(askDeviation, 3)}` : "Bitget midpoint ÷ model fair value − 1"}</small></div>
+      <div><span>DISK MODEL FAIR VALUE · USD</span><strong>{fair == null ? "—" : `$${fair.toFixed(3)}`}</strong><small>{reference ? `DRAM ${reference.price.toFixed(3)} vs. ${reference.base.toFixed(3)} at anchor · ${formatPct((reference.price / reference.base - 1) * 100)} · ${formatTime(reference.at, true)} HKT` : "A current DRAM reference is required"}</small></div>
+      <div><span>BITGET DISK BID / ASK · USDT</span><strong>{book ? `${book.bid.toFixed(3)} / ${book.ask.toFixed(3)}` : "—"}</strong><small>{book ? `Mid ${book.mid.toFixed(3)} · ${formatTime(book.at, true)} HKT` : "A fresh two-sided quote is required"}</small></div>
+    </div>
+    <p className={styles.hedgeCaveat}>{anchor ? `U.S. cash close ${anchor.date} · DISK $${anchor.disk.toFixed(2)} · DRAM $${anchor.dram.toFixed(2)}. ` : ""}β {DISK_DRAM_BETA.toFixed(4)} from 60 cash sessions through {DISK_DRAM_SAMPLE_END}. The model uses the DRAM move since that close. Bitget proxy returns use their own close-time anchor. USD ≈ USDT. Off-hours estimates are indicative.</p>
+  </section>;
+}
+
 export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProduct?: "7709" | "7747" }) {
   const pairOnly = Boolean(dedicatedProduct);
   const pairConfig = dedicatedProduct ? DEDICATED_PRODUCTS[dedicatedProduct] : null;
@@ -1090,6 +1144,8 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
       <div><p className={styles.eyebrow}>{pairConfig ? `${pairConfig.stockName.toUpperCase()} · ${dedicatedProduct} PRICE COMPARISON` : "TEN-SECOND RELATIVE VALUE"}</p><h1>{pairConfig ? `${pairConfig.stockName} ↔ ${dedicatedProduct}` : "Relative Value Monitor"}</h1><p>{pairConfig ? `Compare Futu ${dedicatedProduct} cash with its Binance perpetual, see an anchor-based fair-price scenario, and size a ${pairConfig.stockCode} / FX hedge.` : "The selected predictor explains the paired contract's move. Live midpoint, theoretical return and deviation refresh every 10 seconds; the historical curve remains aligned to one-minute candles."}</p></div>
       <div className={styles.topActions}><span className={styles.releaseBadge}>RELEASE 08.14 · 7D + NEWS HOLD</span><span title={pairOnly && !followingLive ? "Historical mode pauses live updates" : liveError || (lastLiveAt ? `Last live update ${formatTime(lastLiveAt)} HKT` : "Waiting for live quote")} className={`${styles.connection} ${lastLiveAt && !liveError && (!pairOnly || followingLive) ? styles.online : ""}`}><i />{pairOnly && !followingLive ? "History · paused" : loading && !analysis ? "Loading history" : liveError ? pairConfig && relationshipId === pairConfig.cashRelationship ? "Cash book closed / stale" : "Live quote retrying" : lastLiveAt ? `Live · ${pairOnly ? "2s" : "10s"}` : "Connecting live"}</span><PageSwitcher active={dedicatedProduct === "7709" ? "skhynix" : dedicatedProduct === "7747" ? "samsung" : "blog"} /></div>
     </header>
+
+    {!pairOnly && <DiskFairPanel />}
 
     <section className={styles.universeStrip}>
       <div><span>MONITORED CONTRACT SCAN</span><strong>{analysis?.universe ? `${analysis.universe.count} active contracts` : "Scanning universe…"}</strong></div>

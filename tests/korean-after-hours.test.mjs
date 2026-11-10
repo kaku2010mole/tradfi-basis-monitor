@@ -18,7 +18,7 @@ const futu = (code = '035420') => quoteFromEntry({
 });
 
 test('all five previously IBKR-only stocks subscribe to actual Futu after-hours streams', () => {
-  assert.equal(new Set(KEY_GROUPS.flat()).size, 42);
+  assert.equal(new Set(KEY_GROUPS.flat()).size, 43);
   assert.ok(KEY_GROUPS.every(g => g.length <= 25));
   for (const code of additions) {
     assert.ok(KEY_GROUPS.flat().includes(`orderbook:futu:web_api:KR.${code}`));
@@ -69,7 +69,7 @@ test('remote discovery prefers verified Korean Futu streams independently of dir
 test('after-hours BBO passes authenticated ingest and produces two-way cash/FX/perp basis', async () => {
   const { default: worker } = await import('../dist/server/index.js');
   const ctx = { waitUntil() {}, passThroughOnException() {} };
-  await worker.fetch(new Request('http://localhost/basis'), { ASSETS: { fetch: async () => new Response('', { status: 404 }) } }, ctx);
+  await worker.fetch(new Request('http://localhost/'), { ASSETS: { fetch: async () => new Response('', { status: 404 }) } }, ctx);
   const originalFetch = globalThis.fetch, clock = Date.now, previous = globalThis.__FUTU_PUSH_SNAPSHOT__;
   Date.now = () => now;
   delete globalThis.__FUTU_PUSH_SNAPSHOT__;
