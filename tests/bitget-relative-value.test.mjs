@@ -14,7 +14,16 @@ test("exactly three monitor pairs; dedicated Korean pages do not depend on array
     assert.equal(r.asset1.venue, "bitget");
     assert.equal(r.asset2.venue, "bitget");
   }
-  assert.equal(config.RELATIONSHIPS[2].referenceBeta, null);
+  assert.deepEqual(config.RELATIONSHIPS.map((r) => r.referenceBeta), [1.009951061126099, 1.0256120667946136, 1.1186700291421061]);
+  assert.ok(config.RELATIONSHIPS.every((r) => r.cashCalibration.samples === 60));
+  const korea = config.RELATIONSHIPS[0];
+  assert.equal(korea.predictorFx.symbol, "KRW=X");
+  const model = config.trainRelationshipModel([], [], korea, 0, 0);
+  const predictor = [{ t: 1, value: 100 }, { t: 60_001, value: 102 }];
+  const target = [{ t: 1, value: 800 }, { t: 60_001, value: 824 }];
+  const fx = [{ t: 1, value: 1_300 }, { t: 60_001, value: 1_313 }];
+  const { stats } = config.projectRelationship(predictor, target, model, fx);
+  assert.ok(Math.abs(stats.asset2Theoretical - korea.referenceBeta * (1.02 * 1.01 - 1) * 100) < 1e-10);
   assert.deepEqual(config.SKHYNIX_7709_CHOICES.map((r) => r.id), ["skhynix-csop2l", "skhynix-csop2l-futu"]);
   assert.deepEqual(config.SAMSUNG_7747_CHOICES.map((r) => r.id), ["samsung-csop2l", "samsung-csop2l-futu"]);
 });
@@ -131,17 +140,15 @@ test("page resets legacy pair preferences and wires Bitget through server, fallb
   assert.match(api, /bitgetSeries\(leg.symbol, start, end, interval\)/);
 });
 
-test("the Blog chart and ranking apply the same fixed cash beta to DRAM → DISK", async () => {
+test("the Blog chart and ranking apply fixed cash betas to DRAM → DISK and IBB → XBI", async () => {
   const { default: worker } = await import("../dist/server/index.js");
   const env = { ASSETS: { fetch: async () => new Response("missing", { status: 404 }) } };
   const context = { waitUntil() {}, passThroughOnException() {} };
   const rendered = await worker.fetch(new Request("http://localhost/blog"), env, context);
   const html = await rendered.text();
-  for (const title of ["KODEX200 → KR200", "DRAM → DISK", "IBB ↔ XBI", "Bitget DISK vs. fair value"]) assert.ok(html.includes(title));
-  assert.doesNotMatch(html, /DISK ↔ DRAM|DISK ↔ SOXL|EUV ↔ LYTE|SMH → SOXL|QQQ → USTECH|BABAUSDT ↔ HK.09988/);
-  const pair = config.DRAM_DISK_RELATIONSHIP;
-  const expectedBeta = 1.0256120667946136;
-  const expectedError = 10 - expectedBeta * 20;
+  for (const title of ["KODEX200 → KR200", "DRAM → DISK", "IBB → XBI", "Bitget DISK vs. fair value"]) assert.ok(html.includes(title));
+  assert.doesNotMatch(html, /IBB ↔ XBI|DISK ↔ DRAM|DISK ↔ SOXL|EUV ↔ LYTE|SMH → SOXL|QQQ → USTECH|BABAUSDT ↔ HK.09988/);
+  const pairs = config.RELATIONSHIPS.slice(1);
   const original = globalThis.fetch;
   const now = Date.now(), start = Math.floor((now - 3_600_000) / 60_000) * 60_000;
   const candleIntervals = new Set();
@@ -151,37 +158,44 @@ test("the Blog chart and ranking apply the same fixed cash beta to DRAM → DISK
     if (parsed.pathname.endsWith("/tickers")) return Response.json({ code: "00000", data: [
       { symbol: "DISKUSDT", bidPr: "109", askPr: "111", ts: String(Date.now()) },
       { symbol: "DRAMUSDT", bidPr: "119", askPr: "121", ts: String(Date.now()) },
+      { symbol: "IBBUSDT", bidPr: "119", askPr: "121", ts: String(Date.now()) },
+      { symbol: "XBIUSDT", bidPr: "109", askPr: "111", ts: String(Date.now()) },
     ] });
     candleIntervals.add(parsed.searchParams.get("granularity"));
-    const last = parsed.searchParams.get("symbol") === "DRAMUSDT" ? "120" : "110";
+    const last = ["DRAMUSDT", "IBBUSDT"].includes(parsed.searchParams.get("symbol")) ? "120" : "110";
     return Response.json({ code: "00000", data: [
       [start, "100", "100", "100", "100"],
       [start + 60_000, last, last, last, last],
     ] });
   };
   try {
-    const chart = await worker.fetch(new Request(`http://localhost/api/blog/analysis?relationship=disk-dram&start=${start}&end=${now}`), env, context);
-    assert.equal(chart.status, 200);
-    const analysis = await chart.json();
-    assert.equal(analysis.relationship.asset1.symbol, "DRAMUSDT");
-    assert.equal(analysis.relationship.asset2.symbol, "DISKUSDT");
-    assert.equal(analysis.model.beta, expectedBeta);
-    assert.equal(analysis.model.validationSamples, 0);
-    assert.ok(Math.abs(analysis.stats.predictionError - expectedError) < 1e-8);
-    assert.ok(Math.abs(analysis.stats.asset2TheoreticalPrice - (100 + expectedBeta * 20)) < 1e-8);
+    for (const pair of pairs) {
+      const chart = await worker.fetch(new Request(`http://localhost/api/blog/analysis?relationship=${pair.id}&start=${start}&end=${now}`), env, context);
+      assert.equal(chart.status, 200);
+      const analysis = await chart.json();
+      assert.equal(analysis.relationship.asset1.symbol, pair.asset1.symbol);
+      assert.equal(analysis.relationship.asset2.symbol, pair.asset2.symbol);
+      assert.equal(analysis.model.beta, pair.referenceBeta);
+      assert.equal(analysis.model.validationSamples, 0);
+      assert.ok(Math.abs(analysis.stats.predictionError - (10 - pair.referenceBeta * 20)) < 1e-8);
+      assert.ok(Math.abs(analysis.stats.asset2TheoreticalPrice - (100 + pair.referenceBeta * 20)) < 1e-8);
+    }
 
     const response = await worker.fetch(new Request("http://localhost/api/blog/ranking", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ start, end: now, relationships: [config.RELATIONSHIPS[0], {
-        ...pair, asset1: pair.asset2, asset2: pair.asset1, referenceBeta: null, simpleReturn: undefined,
-      }] }),
+      body: JSON.stringify({ start, end: now, relationships: [
+        config.RELATIONSHIPS[0],
+        ...pairs.map((pair) => ({ ...pair, asset1: pair.asset2, asset2: pair.asset1, referenceBeta: null, cashCalibration: undefined })),
+      ] }),
     }), env, context);
     assert.equal(response.status, 200);
     const data = await response.json();
-    assert.equal(data.rankings.length, 1);
-    assert.equal(data.rankings[0].id, "disk-dram");
-    assert.equal(data.rankings[0].beta, expectedBeta);
-    assert.ok(Math.abs(data.rankings[0].predictionError - expectedError) < 1e-8);
+    assert.deepEqual(data.rankings.map((row) => row.id), pairs.map((pair) => pair.id));
+    for (const [i, row] of data.rankings.entries()) {
+      const beta = pairs[i].referenceBeta;
+      assert.equal(row.beta, beta);
+      assert.ok(Math.abs(row.predictionError - (10 - beta * 20)) < 1e-8);
+    }
     assert.deepEqual([...candleIntervals], ["1m"]);
   } finally { globalThis.fetch = original; }
 });

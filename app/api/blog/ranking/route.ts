@@ -1,5 +1,5 @@
 import {
-  DRAM_DISK_RELATIONSHIP,
+  RELATIONSHIPS,
   fixedTrainingWindow,
   MAX_STATISTICAL_OBSERVATION_MS,
   maxObservationMs,
@@ -143,7 +143,7 @@ export async function POST(request: Request) {
   const start = Number(payload.start);
   const end = Math.min(Number(payload.end), now);
   const relationships = Array.isArray(payload.relationships) ? payload.relationships.filter(validRelationship).slice(0, 30)
-    .map((item) => item.id === DRAM_DISK_RELATIONSHIP.id ? DRAM_DISK_RELATIONSHIP : item) : [];
+    .map((item) => RELATIONSHIPS.find((pair) => pair.id === item.id) ?? item) : [];
   if (!relationships.length || !Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || start >= end || end - start > MAX_STATISTICAL_OBSERVATION_MS + 60_000) {
     return Response.json({ error: "Invalid ranking window or relationships." }, { status: 400 });
   }
@@ -191,7 +191,7 @@ export async function POST(request: Request) {
         ]);
         const elapsedHours = Math.max(0, (end - relationshipStart) / 60 / 60_000);
         const predictorGross = (current1 / base1) * (currentFx / baseFx);
-        const theoretical = relationship.simpleReturn || (relationship.predictorFx && relationship.referenceBeta !== null)
+        const theoretical = relationship.cashCalibration || (relationship.predictorFx && relationship.referenceBeta !== null)
           ? model.beta * (predictorGross - 1) * 100
           : Math.expm1(model.alphaHourly * elapsedHours + model.beta * Math.log(predictorGross)) * 100;
         const actual = (current2 / base2 - 1) * 100;
