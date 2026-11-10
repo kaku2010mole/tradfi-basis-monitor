@@ -54,6 +54,7 @@ const loadRelativeSnapshot = () => {
   try {
     const snapshot = JSON.parse(window.localStorage.getItem(RELATIVE_VALUE_SNAPSHOT_KEY) || "null") as RelativeValueAlertSnapshot | null;
     if (!snapshot || typeof snapshot.id !== "string" || !Number.isFinite(snapshot.savedAt) || Date.now() - snapshot.savedAt > MAX_RELATIVE_SNAPSHOT_AGE_MS) return null;
+    if (snapshot.id === "disk-soxl" || snapshot.id === "euv-lyte") return null;
     if (![snapshot.start, snapshot.baseAsset1, snapshot.baseAsset2, snapshot.alphaHourly, snapshot.beta].every(Number.isFinite) || snapshot.baseAsset1 <= 0 || snapshot.baseAsset2 <= 0) return null;
     if (snapshot.fxSymbol && (!Number.isFinite(snapshot.baseFx) || snapshot.baseFx! <= 0)) return null;
     return snapshot;

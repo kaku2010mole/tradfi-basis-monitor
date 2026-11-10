@@ -109,27 +109,11 @@ export const RELATIONSHIPS: Relationship[] = [
     caveat: "Trading hours, FX assumptions, oracle construction and funding can create temporary cross-venue prediction errors.",
   },
   {
-    id: "disk-soxl", title: "DISK ↔ SOXL", short: "Semiconductor exposure · fitted relative return", kind: "sector-proxy",
-    asset1: { venue: "bitget", symbol: "DISKUSDT", label: "Bitget DISK" },
-    asset2: { venue: "bitget", symbol: "SOXLUSDT", label: "Bitget SOXL" },
-    referenceBeta: null, leveraged: true,
-    thesis: "Fit SOXL's hourly return to DISK using historical Bitget prices, then compare actual and model-implied returns from the selected anchor.",
-    caveat: "Different holdings, weights, leverage and trading liquidity can cause persistent deviations. This statistical relationship is not a fixed hedge ratio or a guaranteed convergence trade.",
-  },
-  {
     id: "disk-dram", title: "DISK ↔ DRAM", short: "Memory-sector exposure · fitted relative return", kind: "sector-proxy",
     asset1: { venue: "bitget", symbol: "DISKUSDT", label: "Bitget DISK" },
     asset2: { venue: "bitget", symbol: "DRAMUSDT", label: "Bitget DRAM" },
     referenceBeta: null, leveraged: false,
     thesis: "Fit DRAM's hourly return to DISK using historical Bitget prices, then compare actual and model-implied returns from the selected anchor.",
-    caveat: "Different holdings, weights, leverage and trading liquidity can cause persistent deviations. This statistical relationship is not a fixed hedge ratio or a guaranteed convergence trade.",
-  },
-  {
-    id: "euv-lyte", title: "EUV ↔ LYTE", short: "Technology exposure · fitted relative return", kind: "sector-proxy",
-    asset1: { venue: "bitget", symbol: "EUVUSDT", label: "Bitget EUV" },
-    asset2: { venue: "bitget", symbol: "LYTEUSDT", label: "Bitget LYTE" },
-    referenceBeta: null, leveraged: false,
-    thesis: "Fit LYTE's hourly return to EUV using historical Bitget prices, then compare actual and model-implied returns from the selected anchor.",
     caveat: "Different holdings, weights, leverage and trading liquidity can cause persistent deviations. This statistical relationship is not a fixed hedge ratio or a guaranteed convergence trade.",
   },
   {
