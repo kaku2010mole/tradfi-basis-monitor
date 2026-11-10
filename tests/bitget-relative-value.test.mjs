@@ -13,8 +13,8 @@ test("exactly three monitor pairs; dedicated Korean pages do not depend on array
   for (const r of config.RELATIONSHIPS.slice(1)) {
     assert.equal(r.asset1.venue, "bitget");
     assert.equal(r.asset2.venue, "bitget");
-    assert.equal(r.referenceBeta, null);
   }
+  assert.equal(config.RELATIONSHIPS[2].referenceBeta, null);
   assert.deepEqual(config.SKHYNIX_7709_CHOICES.map((r) => r.id), ["skhynix-csop2l", "skhynix-csop2l-futu"]);
   assert.deepEqual(config.SAMSUNG_7747_CHOICES.map((r) => r.id), ["samsung-csop2l", "samsung-csop2l-futu"]);
 });
@@ -131,16 +131,20 @@ test("page resets legacy pair preferences and wires Bitget through server, fallb
   assert.match(api, /bitgetSeries\(leg.symbol, start, end, interval\)/);
 });
 
-test("rendered monitor has only the requested pair buttons; Bitget ranking survives other venues failing", async () => {
+test("the Blog chart and ranking apply the same fixed cash beta to DRAM → DISK", async () => {
   const { default: worker } = await import("../dist/server/index.js");
   const env = { ASSETS: { fetch: async () => new Response("missing", { status: 404 }) } };
   const context = { waitUntil() {}, passThroughOnException() {} };
   const rendered = await worker.fetch(new Request("http://localhost/blog"), env, context);
   const html = await rendered.text();
-  for (const title of ["KODEX200 → KR200", "DISK ↔ DRAM", "IBB ↔ XBI", "Bitget DISK vs. fair value"]) assert.ok(html.includes(title));
-  assert.doesNotMatch(html, /DISK ↔ SOXL|EUV ↔ LYTE|SMH → SOXL|QQQ → USTECH|BABAUSDT ↔ HK.09988/);
+  for (const title of ["KODEX200 → KR200", "DRAM → DISK", "IBB ↔ XBI", "Bitget DISK vs. fair value"]) assert.ok(html.includes(title));
+  assert.doesNotMatch(html, /DISK ↔ DRAM|DISK ↔ SOXL|EUV ↔ LYTE|SMH → SOXL|QQQ → USTECH|BABAUSDT ↔ HK.09988/);
+  const pair = config.DRAM_DISK_RELATIONSHIP;
+  const expectedBeta = 1.0256120667946136;
+  const expectedError = 10 - expectedBeta * 20;
   const original = globalThis.fetch;
   const now = Date.now(), start = Math.floor((now - 3_600_000) / 60_000) * 60_000;
+  const candleIntervals = new Set();
   globalThis.fetch = async (url) => {
     if (!String(url).startsWith("https://api.bitget.com/")) throw new Error("other venue offline");
     const parsed = new URL(url);
@@ -148,17 +152,36 @@ test("rendered monitor has only the requested pair buttons; Bitget ranking survi
       { symbol: "DISKUSDT", bidPr: "109", askPr: "111", ts: String(Date.now()) },
       { symbol: "DRAMUSDT", bidPr: "119", askPr: "121", ts: String(Date.now()) },
     ] });
-    return Response.json({ code: "00000", data: [[start, "100", "100", "100", "100"]] });
+    candleIntervals.add(parsed.searchParams.get("granularity"));
+    const last = parsed.searchParams.get("symbol") === "DRAMUSDT" ? "120" : "110";
+    return Response.json({ code: "00000", data: [
+      [start, "100", "100", "100", "100"],
+      [start + 60_000, last, last, last, last],
+    ] });
   };
   try {
+    const chart = await worker.fetch(new Request(`http://localhost/api/blog/analysis?relationship=disk-dram&start=${start}&end=${now}`), env, context);
+    assert.equal(chart.status, 200);
+    const analysis = await chart.json();
+    assert.equal(analysis.relationship.asset1.symbol, "DRAMUSDT");
+    assert.equal(analysis.relationship.asset2.symbol, "DISKUSDT");
+    assert.equal(analysis.model.beta, expectedBeta);
+    assert.equal(analysis.model.validationSamples, 0);
+    assert.ok(Math.abs(analysis.stats.predictionError - expectedError) < 1e-8);
+    assert.ok(Math.abs(analysis.stats.asset2TheoreticalPrice - (100 + expectedBeta * 20)) < 1e-8);
+
     const response = await worker.fetch(new Request("http://localhost/api/blog/ranking", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ start, end: now, relationships: [config.RELATIONSHIPS[0], { ...config.RELATIONSHIPS[1], referenceBeta: 1 }] }),
+      body: JSON.stringify({ start, end: now, relationships: [config.RELATIONSHIPS[0], {
+        ...pair, asset1: pair.asset2, asset2: pair.asset1, referenceBeta: null, simpleReturn: undefined,
+      }] }),
     }), env, context);
     assert.equal(response.status, 200);
     const data = await response.json();
     assert.equal(data.rankings.length, 1);
     assert.equal(data.rankings[0].id, "disk-dram");
-    assert.ok(Math.abs(data.rankings[0].predictionError - 10) < 1e-8);
+    assert.equal(data.rankings[0].beta, expectedBeta);
+    assert.ok(Math.abs(data.rankings[0].predictionError - expectedError) < 1e-8);
+    assert.deepEqual([...candleIntervals], ["1m"]);
   } finally { globalThis.fetch = original; }
 });

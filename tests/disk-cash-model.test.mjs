@@ -5,8 +5,10 @@ import test from "node:test";
 
 const asModule = (source) => "data:text/javascript;base64," + Buffer.from(stripTypeScriptTypes(source)).toString("base64");
 const calendar = asModule(await readFile(new URL("../app/lib/smicOpening.ts", import.meta.url), "utf8"));
+const relativeValue = asModule(await readFile(new URL("../app/lib/relativeValue.ts", import.meta.url), "utf8"));
 const model = await import(asModule((await readFile(new URL("../app/lib/diskCashModel.ts", import.meta.url), "utf8"))
-  .replace('"./smicOpening"', JSON.stringify(calendar))));
+  .replace('"./smicOpening"', JSON.stringify(calendar))
+  .replace('"./relativeValue"', JSON.stringify(relativeValue))));
 
 test("DISK uses the last completed New York close across DST, weekends, and shortened sessions", () => {
   assert.deepEqual(model.latestDiskCashClose(Date.parse("2026-11-10T01:50:00Z")), {
