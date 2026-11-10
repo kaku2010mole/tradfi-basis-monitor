@@ -943,8 +943,10 @@ test("FX-adjusts SKHX to CSOP 2L prediction error everywhere", async () => {
     readFile(new URL("../app/lib/fxMarket.ts", import.meta.url), "utf8"),
   ]);
   assert.match(model, /predictorFx: \{ symbol: "KRW=X"/);
-  const generalRelationships = model.split("// This optional cash comparison")[0];
-  assert.equal((generalRelationships.match(/predictorFx: \{ symbol: "KRW=X"/g) ?? []).length, 2, "the general monitor still has only the two Korean single-stock models");
+  const dedicatedPerps = model.split("export const DRAM_DISK_RELATIONSHIP")[0];
+  assert.equal((dedicatedPerps.match(/predictorFx: \{ symbol: "KRW=X"/g) ?? []).length, 2, "both dedicated Korean single-stock perps retain FX adjustment");
+  const generalRelationships = model.split("export const RELATIONSHIPS")[1].split("// This optional cash comparison")[0];
+  assert.equal((generalRelationships.match(/predictorFx: \{ symbol: "KRW=X"/g) ?? []).length, 1, "only KODEX200 needs FX adjustment in the general monitor");
   assert.match(model, /SKHYNIX_7709_FUTU:[\s\S]*predictorFx: \{ symbol: "KRW=X"/);
   assert.match(model, /asset1LogReturn \+ .*Math\.log\(fxValue \/ firstFx\)/s);
   assert.match(analysis, /usdKrwSeries/);

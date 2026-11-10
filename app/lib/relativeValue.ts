@@ -3,6 +3,14 @@ export type MarketLeg = { venue: Venue; symbol: string; label: string; usdHkd?: 
 export type FxAdjustment = { symbol: "KRW=X"; label: string; source: "posley-ibkr" };
 export type RelationshipKind = "same-benchmark" | "leveraged-inverse" | "leveraged-long" | "risk-regime" | "cross-index" | "same-company" | "sector-proxy" | "commodity-proxy" | "custom";
 
+type CashCalibration = {
+  predictor: string;
+  target: string;
+  start: string;
+  end: string;
+  samples: number;
+};
+
 export type Relationship = {
   id: string;
   title: string;
@@ -11,7 +19,7 @@ export type Relationship = {
   asset1: MarketLeg;
   asset2: MarketLeg;
   referenceBeta: number | null;
-  simpleReturn?: true;
+  cashCalibration?: CashCalibration;
   leveraged: boolean;
   thesis: string;
   caveat: string;
@@ -108,27 +116,31 @@ export const DRAM_DISK_RELATIONSHIP: Relationship = {
   id: "disk-dram", title: "DRAM → DISK", short: "Fixed cash beta · 60 daily returns", kind: "sector-proxy",
   asset1: { venue: "bitget", symbol: "DRAMUSDT", label: "Bitget DRAM" },
   asset2: { venue: "bitget", symbol: "DISKUSDT", label: "Bitget DISK" },
-  referenceBeta: DISK_DRAM_BETA, simpleReturn: true, leveraged: false,
+  referenceBeta: DISK_DRAM_BETA, leveraged: false,
+  cashCalibration: { predictor: "DRAM cash", target: "DISK cash", start: "2026-08-14", end: DISK_DRAM_SAMPLE_END, samples: 60 },
   thesis: "Apply the 60-session cash beta to Bitget DRAMUSDT's return from the selected anchor to estimate Bitget DISKUSDT's return.",
   caveat: "Both chart legs are Bitget perpetuals. The separate cash fair-value card uses the latest completed U.S. cash close.",
 };
 
 export const RELATIONSHIPS: Relationship[] = [
   {
-    id: "kodex200-kr200", title: "KODEX200 → KR200", short: "Cross-venue Korea 200 parity", kind: "same-benchmark",
+    id: "kodex200-kr200", title: "KODEX200 → KR200", short: "Fixed cash beta · 60 daily returns", kind: "same-benchmark",
     asset1: { venue: "binance", symbol: "KODEX200USDT", label: "Binance KODEX200" }, asset2: { venue: "hyperliquid", symbol: "xyz:KR200", label: "Hyperliquid KR200" },
-    referenceBeta: 1, leveraged: false,
-    thesis: "Use the Binance KODEX200 contract's move to estimate the Hyperliquid KR200 contract on a locked one-for-one return basis.",
-    caveat: "Trading hours, FX assumptions, oracle construction and funding can create temporary cross-venue prediction errors.",
+    referenceBeta: 1.009951061126099, leveraged: false,
+    cashCalibration: { predictor: "KODEX 200 cash (069500)", target: "KOSPI 200 cash index", start: "2026-08-11", end: "2026-11-09", samples: 60 },
+    predictorFx: { symbol: "KRW=X", label: "USD/KRW", source: "posley-ibkr" },
+    thesis: "Convert the Binance KODEX200 return to KRW and apply the cash beta to estimate the Hyperliquid KR200 index-point return.",
+    caveat: "The chart uses Binance and Hyperliquid perpetual prices. Trading hours, oracle construction and funding can create temporary prediction errors.",
   },
   DRAM_DISK_RELATIONSHIP,
   {
-    id: "ibb-xbi", title: "IBB ↔ XBI", short: "Biotechnology baskets · fitted relative return", kind: "sector-proxy",
+    id: "ibb-xbi", title: "IBB → XBI", short: "Fixed cash beta · 60 daily returns", kind: "sector-proxy",
     asset1: { venue: "bitget", symbol: "IBBUSDT", label: "Bitget IBB" },
     asset2: { venue: "bitget", symbol: "XBIUSDT", label: "Bitget XBI" },
-    referenceBeta: null, leveraged: false,
-    thesis: "Fit XBI's hourly return to IBB using historical Bitget prices, then compare actual and model-implied returns from the selected anchor.",
-    caveat: "Different holdings, weights, leverage and trading liquidity can cause persistent deviations. This statistical relationship is not a fixed hedge ratio or a guaranteed convergence trade.",
+    referenceBeta: 1.1186700291421061, leveraged: false,
+    cashCalibration: { predictor: "IBB cash", target: "XBI cash", start: "2026-08-17", end: "2026-11-09", samples: 60 },
+    thesis: "Apply the cash beta to Bitget IBBUSDT's return from the selected anchor to estimate Bitget XBIUSDT's return.",
+    caveat: "Both chart legs are Bitget perpetuals. The ETFs' different holdings and weights can create persistent deviations.",
   },
 ];
 
@@ -219,7 +231,7 @@ export function fxAdjustedPredictor(asset1Rows: PricePoint[], fxRows: PricePoint
 export function trainRelationshipModel(asset1Rows: PricePoint[], asset2Rows: PricePoint[], relationship: Relationship, trainingStart: number, trainingEnd: number, fxRows: PricePoint[] = []): TrainedModel {
   const aligned = alignPrices(relationship.predictorFx ? fxAdjustedPredictor(asset1Rows, fxRows) : asset1Rows, asset2Rows);
   const method = relationship.referenceBeta === null ? "regression" as const : "reference" as const;
-  if (relationship.simpleReturn || aligned.length < 80) {
+  if (relationship.cashCalibration || aligned.length < 80) {
     const referenceBeta = relationship.referenceBeta;
     if (referenceBeta === null) throw new Error("Not enough aligned hourly candles to train and validate this relationship. Add a reference beta to use a fixed multiplier instead.");
     return {
@@ -227,7 +239,7 @@ export function trainRelationshipModel(asset1Rows: PricePoint[], asset2Rows: Pri
       alphaHourly: 0,
       beta: referenceBeta,
       referenceBeta,
-      simpleReturn: relationship.simpleReturn,
+      simpleReturn: relationship.cashCalibration ? true : undefined,
       trainedAt: Date.now(),
       trainingStart,
       trainingEnd,

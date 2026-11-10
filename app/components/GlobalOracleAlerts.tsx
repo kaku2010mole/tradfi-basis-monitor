@@ -20,7 +20,7 @@ import {
 } from "../lib/relativeValueAlerts";
 import BroadcastAlert from "./BroadcastAlert";
 import { bitgetLivePrice } from "../lib/bitgetRelativeMarket";
-import { DRAM_DISK_RELATIONSHIP } from "../lib/relativeValue";
+import { RELATIONSHIPS } from "../lib/relativeValue";
 
 type AlertState = { title: string; message: string; tone: "positive" | "negative" };
 type AlertQuote = {
@@ -56,7 +56,8 @@ const loadRelativeSnapshot = () => {
     const snapshot = JSON.parse(window.localStorage.getItem(RELATIVE_VALUE_SNAPSHOT_KEY) || "null") as RelativeValueAlertSnapshot | null;
     if (!snapshot || typeof snapshot.id !== "string" || !Number.isFinite(snapshot.savedAt) || Date.now() - snapshot.savedAt > MAX_RELATIVE_SNAPSHOT_AGE_MS) return null;
     if (snapshot.id === "disk-soxl" || snapshot.id === "euv-lyte") return null;
-    if (snapshot.id === DRAM_DISK_RELATIONSHIP.id && snapshot.simpleReturn !== true) return null;
+    const pair = RELATIONSHIPS.find((item) => item.id === snapshot.id);
+    if (pair?.cashCalibration && (snapshot.simpleReturn !== true || snapshot.beta !== pair.referenceBeta)) return null;
     if (![snapshot.start, snapshot.baseAsset1, snapshot.baseAsset2, snapshot.alphaHourly, snapshot.beta].every(Number.isFinite) || snapshot.baseAsset1 <= 0 || snapshot.baseAsset2 <= 0) return null;
     if (snapshot.fxSymbol && (!Number.isFinite(snapshot.baseFx) || snapshot.baseFx! <= 0)) return null;
     return snapshot;
