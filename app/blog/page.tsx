@@ -5,6 +5,8 @@ import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerE
 import Link from "next/link";
 import PageSwitcher from "../components/PageSwitcher";
 import {
+  DISK_DRAM_BETA,
+  DISK_DRAM_SAMPLE_END,
   fixedTrainingWindow,
   latestHktBusinessAnchor,
   MAX_OBSERVATION_MS,
@@ -31,7 +33,7 @@ import {
 } from "../lib/relativeValueAlerts";
 import { leveragedKoreanHedge } from "../lib/leveragedKoreanHedge";
 import { bitgetBooks, bitgetLivePrice, bitgetMidpoint, bitgetSeries, relativeUniverse, type BitgetBook } from "../lib/bitgetRelativeMarket";
-import { DISK_DRAM_BETA, DISK_DRAM_SAMPLE_END, type DiskCashSnapshot } from "../lib/diskCashModel";
+import type { DiskCashSnapshot } from "../lib/diskCashModel";
 import styles from "./page.module.css";
 
 type Analysis = {
@@ -266,7 +268,7 @@ async function rankInBrowser(relationships: Relationship[], start: number, end: 
         const currentFx = relationship.predictorFx ? rankingFxRows.filter((row) => row.t <= end + 60_000).at(-1)?.value : 1;
         if (!baseFx || !currentFx) continue;
         const predictorGross = (current1 / base1) * (currentFx / baseFx);
-        const theoretical = relationship.predictorFx && relationship.referenceBeta !== null
+        const theoretical = relationship.simpleReturn || (relationship.predictorFx && relationship.referenceBeta !== null)
           ? model.beta * (predictorGross - 1) * 100
           : Math.expm1(model.alphaHourly * elapsedHours + model.beta * Math.log(predictorGross)) * 100;
         const actual = (current2 / base2 - 1) * 100;
@@ -323,6 +325,7 @@ async function directFxSeries(start: number, end: number, interval: string): Pro
 
 async function directFixedModel(relationship: Relationship, now: number) {
   const { trainingStart, trainingEnd } = fixedTrainingWindow(now);
+  if (relationship.simpleReturn) return trainRelationshipModel([], [], relationship, trainingStart, trainingEnd);
   const key = `${MODEL_CACHE_PREFIX}:${relationship.id}:${relationship.referenceBeta ?? "fit"}:${trainingEnd}`;
   try {
     const saved = window.localStorage.getItem(key);
@@ -653,7 +656,7 @@ function DiskFairPanel() {
       <div><span>DISK MODEL FAIR VALUE · USD</span><strong>{fair == null ? "—" : `$${fair.toFixed(3)}`}</strong><small>{reference ? `DRAM ${reference.price.toFixed(3)} vs. ${reference.base.toFixed(3)} at anchor · ${formatPct((reference.price / reference.base - 1) * 100)} · ${formatTime(reference.at, true)} HKT` : "A current DRAM reference is required"}</small></div>
       <div><span>BITGET DISK BID / ASK · USDT</span><strong>{book ? `${book.bid.toFixed(3)} / ${book.ask.toFixed(3)}` : "—"}</strong><small>{book ? `Mid ${book.mid.toFixed(3)} · ${formatTime(book.at, true)} HKT` : "A fresh two-sided quote is required"}</small></div>
     </div>
-    <p className={styles.hedgeCaveat}>{anchor ? `U.S. cash close ${anchor.date} · DISK $${anchor.disk.toFixed(2)} · DRAM $${anchor.dram.toFixed(2)}. ` : ""}β {DISK_DRAM_BETA.toFixed(4)} from 60 cash sessions through {DISK_DRAM_SAMPLE_END}. The model uses the DRAM move since that close. Bitget proxy returns use their own close-time anchor. USD ≈ USDT. Off-hours estimates are indicative.</p>
+    <p className={styles.hedgeCaveat}>{anchor ? `U.S. cash close ${anchor.date} · DISK $${anchor.disk.toFixed(2)} · DRAM $${anchor.dram.toFixed(2)}. ` : ""}β {DISK_DRAM_BETA.toFixed(4)} from 60 cash sessions through {DISK_DRAM_SAMPLE_END}. The model measures DRAM's move from the latest completed U.S. cash close. Bitget proxy returns use the perpetual's price at the same close time. USD ≈ USDT. Off-hours estimates are indicative.</p>
   </section>;
 }
 
@@ -709,6 +712,7 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
       baseAsset2: first.asset2,
       alphaHourly: analysis.model.alphaHourly,
       beta: analysis.model.beta,
+      simpleReturn: analysis.model.simpleReturn,
       baseFx: first.fxValue,
       fxSymbol: analysis.relationship.predictorFx?.symbol,
     };
@@ -830,6 +834,7 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
           baseAsset2: first.asset2,
           alphaHourly: current.model.alphaHourly,
           beta: current.model.beta,
+          simpleReturn: current.model.simpleReturn,
           baseFx: first.fxValue,
           fxSymbol: current.relationship.predictorFx?.symbol,
         };
@@ -986,6 +991,7 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
   }, [pairOnly, relationships, startInput]);
 
   const selected = analysis?.relationship;
+  const cashBeta = analysis?.model.simpleReturn === true;
   const availability = useMemo(() => new Map(analysis?.universe?.candidates.map((item) => [item.id, item.available]) ?? []), [analysis?.universe]);
   const formulaOnly = analysis?.model.method === "reference" && analysis.model.validationSamples === 0;
   const signalLabel = formulaOnly ? "BETA LOCKED" : analysis?.model.quality === "weak" ? "MODEL WEAK" : analysis?.stats.status === "dislocation" ? "DISLOCATION" : analysis?.stats.status === "watch" ? "WATCH" : "IN RANGE";
@@ -1150,7 +1156,7 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
     <section className={styles.universeStrip}>
       <div><span>MONITORED CONTRACT SCAN</span><strong>{analysis?.universe ? `${analysis.universe.count} active contracts` : "Scanning universe…"}</strong></div>
       <div><span>VISIBLE MODELS</span><strong>{analysis?.universe ? `${relationships.filter((item) => availability.get(item.id) === true).length}/${relationships.length} listing verified` : `${relationships.length} defined`}</strong></div>
-      <div><span>FIXED TRAINING CUTOFF</span><strong>{analysis ? `${formatDate(analysis.model.trainingEnd)} HKT` : "Three days before current session"}</strong></div>
+      <div><span>FIXED TRAINING CUTOFF</span><strong>{cashBeta ? DISK_DRAM_SAMPLE_END : analysis ? `${formatDate(analysis.model.trainingEnd)} HKT` : "Three days before current session"}</strong></div>
       <div><span>MODEL MODE</span><strong className={analysis ? styles[formulaOnly ? "locked" : analysis.model.quality] : ""}>{analysis ? formulaOnly ? "BETA LOCKED" : analysis.model.quality.toUpperCase() : "—"}</strong></div>
     </section>
 
@@ -1167,7 +1173,7 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
           {hiddenRelationshipIds.length > 0 && <button className={styles.restoreButton} onClick={restoreBuiltIns}>Restore {hiddenRelationshipIds.length} deleted built-in model{hiddenRelationshipIds.length === 1 ? "" : "s"}</button>}
         </div>}
         <div className={styles.relationshipList}>{rankedRelationships.map((relationship, index) => { const predictionError = rankingError(relationship.id); return <div key={relationship.id} className={styles.relationshipItem}><button className={relationshipId === relationship.id ? styles.activeRelationship : ""} disabled={availability.get(relationship.id) === false} onClick={() => chooseRelationship(relationship.id)}>
-          <span className={styles.relationshipTitle}><i>#{index + 1}</i>{relationship.title}</span><small>{relationship.short}</small><div className={styles.relationshipMeta}>{predictionError !== undefined ? <strong className={`${styles.rankingError} ${predictionError >= 0 ? styles.positiveError : styles.negativeError}`}>{formatPct(predictionError, 3)}</strong> : <strong className={styles.pendingError}>CALCULATING</strong>}{relationship.referenceBeta !== null && <b>β {formatNumber(relationship.referenceBeta, 2)}</b>}</div>{availability.get(relationship.id) === false && <em>Not listed</em>}
+          <span className={styles.relationshipTitle}><i>#{index + 1}</i>{relationship.title}</span><small>{relationship.short}</small><div className={styles.relationshipMeta}>{predictionError !== undefined ? <strong className={`${styles.rankingError} ${predictionError >= 0 ? styles.positiveError : styles.negativeError}`}>{formatPct(predictionError, 3)}</strong> : <strong className={styles.pendingError}>CALCULATING</strong>}{relationship.referenceBeta !== null && <b>β {formatNumber(relationship.referenceBeta, relationship.simpleReturn ? 4 : 2)}</b>}</div>{availability.get(relationship.id) === false && <em>Not listed</em>}
         </button><button className={styles.removeRelationship} aria-label={`Delete ${relationship.title}`} title={`Delete ${relationship.title}`} onClick={() => removeRelationship(relationship)}>×</button></div>; })}</div>
         {analysis?.universe && <div className={styles.scanBreakdown}><span>LIVE UNIVERSE BREAKDOWN</span>{Object.entries(analysis.universe.typeCounts).sort((a, b) => b[1] - a[1]).map(([type, count]) => <div key={type}><b>{type.replaceAll("_", " ")}</b><strong>{count}</strong></div>)}<details><summary>View all {analysis.universe.count} symbols</summary><p>{analysis.universe.symbols.join(" · ")}</p></details></div>}
       </aside>}
@@ -1231,7 +1237,7 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
           })()}
           <section className={styles.heroCard}>
             <div className={styles.heroCopy}><span className={styles.kindPill}>{selected.kind.replaceAll("-", " ")}</span><h2>{selected.title}</h2><p>{selected.thesis}</p><small>{selected.caveat}</small></div>
-            <div className={`${styles.signal} ${styles[formulaOnly ? "normal" : analysis.model.quality === "weak" ? "watch" : analysis.stats.status]}`}><span>PREDICTION SIGNAL</span><strong>{signalLabel}</strong><b>{formulaOnly ? `β ${formatNumber(analysis.model.beta, 2)}` : `${formatNumber(analysis.stats.zScore)}σ`}</b><small>{formulaOnly ? `Using the supplied multiplier without blocking on historical validation. ${selected.asset2.symbol} is ${formatPct(analysis.stats.predictionError)} from theory.` : analysis.model.quality === "weak" ? "Holdout validation is too weak for a confident dislocation call." : `${selected.asset2.symbol} is ${formatPct(analysis.stats.predictionError)} away from theory.`}</small></div>
+            <div className={`${styles.signal} ${styles[formulaOnly ? "normal" : analysis.model.quality === "weak" ? "watch" : analysis.stats.status]}`}><span>PREDICTION SIGNAL</span><strong>{signalLabel}</strong><b>{formulaOnly ? `β ${formatNumber(analysis.model.beta, cashBeta ? 4 : 2)}` : `${formatNumber(analysis.stats.zScore)}σ`}</b><small>{formulaOnly ? `${cashBeta ? "Using the 60-session cash beta." : "Using the supplied multiplier without blocking on historical validation."} ${selected.asset2.symbol} is ${formatPct(analysis.stats.predictionError)} from theory.` : analysis.model.quality === "weak" ? "Holdout validation is too weak for a confident dislocation call." : `${selected.asset2.symbol} is ${formatPct(analysis.stats.predictionError)} away from theory.`}</small></div>
           </section>
 
           <section className={styles.predictionGrid}>
@@ -1271,17 +1277,20 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
             <div className={styles.neutralRatio}><span>NOTIONAL BALANCE</span><strong>{Math.abs(analysis.model.beta).toFixed(3)} : 1</strong><small>{selected.asset1.symbol} : {selected.asset2.symbol} · β {formatNumber(analysis.model.beta, 3)}<br />Live mids {neutralPrices.asset1.toLocaleString("en-US", { maximumFractionDigits: 6 })} / {neutralPrices.asset2.toLocaleString("en-US", { maximumFractionDigits: 6 })}</small></div>
           </section>}
 
-          <section className={styles.methodPanel}>
+          {cashBeta ? <section className={styles.methodPanel}>
+            <div><span>CASH BETA CALIBRATION</span><h3>DRAM cash → DISK cash</h3><p>Fixed β {DISK_DRAM_BETA.toFixed(4)} from 60 U.S. cash close-to-close returns through {DISK_DRAM_SAMPLE_END}, with zero intercept.</p></div>
+            <div><span>PREDICTION EQUATION</span><h3>DISKUSDT theoretical return = β × DRAMUSDT return</h3><p>Both Bitget returns are measured from the selected anchor. Prediction error is the actual DISKUSDT return minus its theoretical return, in percentage points.</p></div>
+          </section> : <section className={styles.methodPanel}>
             <div><span>{analysis.model.method === "reference" ? "RULE VALIDATION" : "MODEL TRAINING"}</span><h3>{formulaOnly ? "The supplied beta runs without a minimum history requirement." : "The backtest never refits on its own result."}</h3><p>{formulaOnly ? "This contract is too new for a meaningful holdout test, so the engine skips regression and applies the supplied leverage multiplier directly. Validation metrics will appear automatically once enough aligned hourly history exists." : analysis.model.method === "reference" ? "This relationship has an explicit beta, so the site does not fit a coefficient. The preceding 45-day hourly history and holdout sample only test how reliably the zero-intercept structural formula behaved before the selected backtest." : "The coefficient is estimated from a 45-day hourly history ending three days before the selected backtest. The final 25% is kept out of training and reports correlation, R², error and coefficient drift."}</p></div>
             <div><span>PREDICTION EQUATION</span><h3>{selected.predictorFx ? `${selected.asset2.symbol} price = P₀ × {1 + β × [(${selected.asset1.symbol}ₜ / ${selected.asset1.symbol}₀) × (USD/KRWₜ / USD/KRW₀) − 1]}.` : analysis.model.method === "reference" ? `${selected.asset2.symbol} = locked β × ${selected.asset1.symbol}.` : `${selected.asset2.symbol} = α × time + fitted β × ${selected.asset1.symbol}.`}</h3><p>{selected.predictorFx ? `Only the FX change between the selected anchor and each observation is used. β ${analysis.model.beta.toFixed(2)}× is the selected scenario; verify the issuer's daily factor because the product is Max 2×, not necessarily fixed 2×.` : `The engine works in log-return space. It converts ${selected.asset1.symbol}'s cumulative move over the selected period into ${selected.asset2.symbol}'s theoretical move, then compares that number with ${selected.asset2.symbol}'s actual return. Funding, liquidity and oracle timing remain outside the formula.`}</p></div>
-          </section>
+          </section>}
 
           <section className={styles.sources}><div><span>DATA SOURCES</span><h3>Market prices, not guaranteed convergence</h3></div><div className={styles.sourceGrid}>
             <a href="https://www.bitget.com/docs/catalog/classic-contract-market/classic-contract-market" target="_blank" rel="noreferrer"><b>Bitget public market data</b><small>Historical trade candles and fresh bid/ask midpoints ↗</small></a>
             {pairConfig && <a href={pairConfig.issuerUrl} target="_blank" rel="noreferrer"><b>CSOP product reference</b><small>Verify the daily leverage assumption ↗</small></a>}
           </div></section>
 
-          <section className={styles.modelPanel}>
+          {!cashBeta && <section className={styles.modelPanel}>
             <div className={styles.modelHead}><div><span>{analysis.model.method === "reference" ? "LOCKED STRUCTURAL RULE" : "FROZEN MODEL CARD"}</span><h3>{formulaOnly ? "Direct formula · no history required" : analysis.model.method === "reference" ? "Direct formula, validated out of sample" : "Trained once, validated out of sample"}</h3><p>{formulaOnly ? `β ${formatNumber(analysis.model.beta, 3)} supplied by the user · zero intercept · theoretical return remains active` : `${formatDate(analysis.model.trainingStart)} — ${formatDate(analysis.model.trainingEnd)} HKT · ${analysis.model.method === "reference" ? "β fixed from the stated product relationship · zero intercept · history used only for validation" : "first 75% train / final 25% validation"} · hourly log returns`}</p></div><b className={styles[formulaOnly ? "locked" : analysis.model.quality]}>{formulaOnly ? "locked" : analysis.model.quality}</b></div>
             <div className={styles.modelMetrics}>
               <div><span>{analysis.model.method === "reference" ? "Locked β" : "Learned β"}</span><strong>{formatNumber(analysis.model.beta, 3)}</strong><small>{analysis.model.method === "reference" ? "Used directly, not regressed" : "Estimated on training sample"}</small></div>
@@ -1291,7 +1300,7 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
               <div><span>Holdout MAE</span><strong>{formulaOnly ? "—" : `${analysis.model.validationMaePct.toFixed(3)}%`}</strong><small>{formulaOnly ? "Validation pending" : "Per hourly prediction"}</small></div>
               <div><span>β drift</span><strong>{formulaOnly ? "—" : `${(analysis.model.betaDrift * 100).toFixed(1)}%`}</strong><small>{formulaOnly ? "Using supplied beta unchanged" : analysis.model.method === "reference" ? "Observed holdout β versus locked β" : "Train versus holdout"}</small></div>
             </div>
-          </section>
+          </section>}
         </>}
       </div>
     </section>

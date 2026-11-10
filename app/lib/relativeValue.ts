@@ -11,6 +11,7 @@ export type Relationship = {
   asset1: MarketLeg;
   asset2: MarketLeg;
   referenceBeta: number | null;
+  simpleReturn?: true;
   leveraged: boolean;
   thesis: string;
   caveat: string;
@@ -23,6 +24,7 @@ export type TrainedModel = {
   alphaHourly: number;
   beta: number;
   referenceBeta: number | null;
+  simpleReturn?: true;
   trainedAt: number;
   trainingStart: number;
   trainingEnd: number;
@@ -60,6 +62,8 @@ export const VALIDATION_FRACTION = .25;
 export const MAX_OBSERVATION_MS = 3 * 24 * 60 * 60_000;
 export const MAX_STATISTICAL_OBSERVATION_MS = 7 * 24 * 60 * 60_000;
 export const TRAINING_INTERVAL = "1h";
+export const DISK_DRAM_BETA = 1.0256120667946136;
+export const DISK_DRAM_SAMPLE_END = "2026-11-06";
 
 // Both fitted and user-supplied beta models can be inspected over seven days.
 // Fixed-beta products still carry their daily-reset caveat; the longer range is
@@ -100,6 +104,15 @@ export const SAMSUNG_7747_PERP: Relationship = {
     caveat: "CSOP's leverage factor can change daily and be below 2×. The default 2× is a scenario, not a verified factor; check the issuer's daily notice. Daily reset, swap costs, oracle timing and liquidity can create deviations.",
   };
 
+export const DRAM_DISK_RELATIONSHIP: Relationship = {
+  id: "disk-dram", title: "DRAM → DISK", short: "Fixed cash beta · 60 daily returns", kind: "sector-proxy",
+  asset1: { venue: "bitget", symbol: "DRAMUSDT", label: "Bitget DRAM" },
+  asset2: { venue: "bitget", symbol: "DISKUSDT", label: "Bitget DISK" },
+  referenceBeta: DISK_DRAM_BETA, simpleReturn: true, leveraged: false,
+  thesis: "Apply the 60-session cash beta to Bitget DRAMUSDT's return from the selected anchor to estimate Bitget DISKUSDT's return.",
+  caveat: "Both chart legs are Bitget perpetuals. The separate cash fair-value card uses the latest completed U.S. cash close.",
+};
+
 export const RELATIONSHIPS: Relationship[] = [
   {
     id: "kodex200-kr200", title: "KODEX200 → KR200", short: "Cross-venue Korea 200 parity", kind: "same-benchmark",
@@ -108,14 +121,7 @@ export const RELATIONSHIPS: Relationship[] = [
     thesis: "Use the Binance KODEX200 contract's move to estimate the Hyperliquid KR200 contract on a locked one-for-one return basis.",
     caveat: "Trading hours, FX assumptions, oracle construction and funding can create temporary cross-venue prediction errors.",
   },
-  {
-    id: "disk-dram", title: "DISK ↔ DRAM", short: "Memory-sector exposure · fitted relative return", kind: "sector-proxy",
-    asset1: { venue: "bitget", symbol: "DISKUSDT", label: "Bitget DISK" },
-    asset2: { venue: "bitget", symbol: "DRAMUSDT", label: "Bitget DRAM" },
-    referenceBeta: null, leveraged: false,
-    thesis: "Fit DRAM's hourly return to DISK using historical Bitget prices, then compare actual and model-implied returns from the selected anchor.",
-    caveat: "Different holdings, weights, leverage and trading liquidity can cause persistent deviations. This statistical relationship is not a fixed hedge ratio or a guaranteed convergence trade.",
-  },
+  DRAM_DISK_RELATIONSHIP,
   {
     id: "ibb-xbi", title: "IBB ↔ XBI", short: "Biotechnology baskets · fitted relative return", kind: "sector-proxy",
     asset1: { venue: "bitget", symbol: "IBBUSDT", label: "Bitget IBB" },
@@ -213,7 +219,7 @@ export function fxAdjustedPredictor(asset1Rows: PricePoint[], fxRows: PricePoint
 export function trainRelationshipModel(asset1Rows: PricePoint[], asset2Rows: PricePoint[], relationship: Relationship, trainingStart: number, trainingEnd: number, fxRows: PricePoint[] = []): TrainedModel {
   const aligned = alignPrices(relationship.predictorFx ? fxAdjustedPredictor(asset1Rows, fxRows) : asset1Rows, asset2Rows);
   const method = relationship.referenceBeta === null ? "regression" as const : "reference" as const;
-  if (aligned.length < 80) {
+  if (relationship.simpleReturn || aligned.length < 80) {
     const referenceBeta = relationship.referenceBeta;
     if (referenceBeta === null) throw new Error("Not enough aligned hourly candles to train and validate this relationship. Add a reference beta to use a fixed multiplier instead.");
     return {
@@ -221,6 +227,7 @@ export function trainRelationshipModel(asset1Rows: PricePoint[], asset2Rows: Pri
       alphaHourly: 0,
       beta: referenceBeta,
       referenceBeta,
+      simpleReturn: relationship.simpleReturn,
       trainedAt: Date.now(),
       trainingStart,
       trainingEnd,
@@ -293,7 +300,7 @@ export function projectRelationship(asset1Rows: PricePoint[], asset2Rows: PriceP
     if (fxRows.length && (!firstFx || !fxValue)) throw new Error("Synchronized USD/KRW history is unavailable.");
     const predictorLogReturn = asset1LogReturn + (firstFx && fxValue ? Math.log(fxValue / firstFx) : 0);
     const predictorGrossReturn = Math.exp(predictorLogReturn);
-    const theoreticalGrossReturn = firstFx && fxValue && model.method === "reference"
+    const theoreticalGrossReturn = model.simpleReturn || (firstFx && fxValue && model.method === "reference")
       ? 1 + model.beta * (predictorGrossReturn - 1)
       : Math.exp(model.alphaHourly * elapsedHours + model.beta * predictorLogReturn);
     if (theoreticalGrossReturn <= 0) throw new Error("The fixed-beta theoretical price is not positive in this window.");

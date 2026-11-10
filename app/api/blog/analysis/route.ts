@@ -90,6 +90,7 @@ async function getSeries(leg: Relationship["asset1"], start: number, end: number
 
 async function getFixedModel(relationship: Relationship, now: number) {
   const { trainingStart, trainingEnd } = fixedTrainingWindow(now);
+  if (relationship.simpleReturn) return trainRelationshipModel([], [], relationship, trainingStart, trainingEnd);
   const key = `${relationship.id}:${relationship.referenceBeta ?? "fit"}:${trainingEnd}`;
   const cached = modelCache.get(key);
   if (cached) return cached;

@@ -1,7 +1,6 @@
 import { dayKey, shiftDay, tradingDay, usClose } from "./smicOpening";
+import { DISK_DRAM_BETA } from "./relativeValue";
 
-export const DISK_DRAM_BETA = 1.0256120667946136;
-export const DISK_DRAM_SAMPLE_END = "2026-11-06";
 const US_ZONE = "America/New_York";
 const MINUTE = 60_000;
 
