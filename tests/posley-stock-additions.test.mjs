@@ -21,7 +21,7 @@ test('remote discovery matches Futu KR keys and retains both FX names beyond 24 
 test('Fast Retailing stays in Japan with Bitget quotes, without inventing a missing cash basis', async () => {
   const {default: worker} = await import('../dist/server/index.js');
   const ctx = {waitUntil(){},passThroughOnException(){}};
-  await worker.fetch(new Request('http://localhost/basis'), {ASSETS:{fetch:async()=>new Response('',{status:404})}}, ctx);
+  await worker.fetch(new Request('http://localhost/'), {ASSETS:{fetch:async()=>new Response('',{status:404})}}, ctx);
   const originalFetch=globalThis.fetch, previous=globalThis.__FUTU_PUSH_SNAPSHOT__, clock=Date.now;
   const stamp=Date.parse('2026-10-15T01:00:00Z');
   Date.now=()=>stamp;
@@ -73,10 +73,10 @@ test('office pusher maps the actual sources and does not refresh closed Japanese
     .replace('const TOKEN_FILE = process.env.FUTU_PUSH_TOKEN_FILE;', 'const TOKEN_FILE = "test-only";');
   const m = await import('data:text/javascript;base64,' + Buffer.from(decoder + '\nexport { quoteFromEntry, KEY_GROUPS };').toString('base64'));
   assert.ok(m.KEY_GROUPS.every(group => group.length <= 25));
-  assert.equal(m.KEY_GROUPS.flat().length, 42);
+  assert.equal(m.KEY_GROUPS.flat().length, 43);
   assert.ok(m.KEY_GROUPS.flat().includes('orderbook:futu:US.SMH'));
   assert.ok(m.KEY_GROUPS.flat().includes('orderbook:futu:US.EWY'));
-  for (const symbol of ['LITE','MU']) {
+  for (const symbol of ['LITE','MU','DRAM']) {
     const key=`orderbook:futu:US.${symbol}`;
     assert.ok(m.KEY_GROUPS.flat().includes(key));
     const quote=m.quoteFromEntry({key,fields:{bids:'300,10',asks:'301,8',bids_receive_ts_ms:String(Date.now()),asks_receive_ts_ms:String(Date.now())}});
@@ -108,7 +108,7 @@ test('office pusher maps the actual sources and does not refresh closed Japanese
 test('new authenticated cash pushes promote all five Korean names out of conversion-only cards', async () => {
   const {default: worker} = await import('../dist/server/index.js');
   // Initialize vinext's fetch wrapper before installing the endpoint mocks.
-  await worker.fetch(new Request('http://localhost/basis'), {ASSETS:{fetch:async()=>new Response('',{status:404})}}, {waitUntil(){},passThroughOnException(){}});
+  await worker.fetch(new Request('http://localhost/'), {ASSETS:{fetch:async()=>new Response('',{status:404})}}, {waitUntil(){},passThroughOnException(){}});
   const originalFetch = globalThis.fetch, previous = globalThis.__FUTU_PUSH_SNAPSHOT__, clock = Date.now;
   // Advance beyond the preceding ticker fixture's 2s public cache window.
   const stamp = Date.parse('2026-10-16T07:00:00Z');

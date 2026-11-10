@@ -5,7 +5,7 @@ import LanguageToggle from "./LanguageToggle";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
-  active: "jlp" | "basis" | "oracle" | "blog" | "skhynix" | "samsung" | "stock-basis" | "japan-estimate" | "polymarket" | "auction" | "dividends" | "smic";
+  active: "jlp" | "oracle" | "blog" | "skhynix" | "samsung" | "stock-basis" | "japan-estimate" | "polymarket" | "auction" | "dividends" | "smic";
 };
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
@@ -20,10 +20,6 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
         <Link href="/" aria-current={active === "jlp" ? "page" : undefined}>
           <span>JLP Research</span>
           <small>Live yield, hedging and financing</small>
-        </Link>
-        <Link href="/basis" aria-current={active === "basis" ? "page" : undefined}>
-          <span>Basis monitor</span>
-          <small>Midpoint, anchor drift and funding</small>
         </Link>
         <Link href="/oracle" aria-current={active === "oracle" ? "page" : undefined}>
           <span>Oracle monitor</span>
@@ -61,6 +57,9 @@ export default function PageSwitcher({ active }: PageSwitcherProps) {
           <span>Opening outlook · SMIC / DOOSENER</span>
           <small>Live SMH return → next HK open &amp; probabilities</small>
         </Link>
+        <form className="sign-out" action="/logout" method="post">
+          <button type="submit">Lock</button>
+        </form>
       </nav>
     </details></div>
   );

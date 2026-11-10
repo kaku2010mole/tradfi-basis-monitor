@@ -63,6 +63,7 @@
 .switcher nav a span { display: block; font-size: 12px; font-weight: 800; }
 .switcher nav a small { display: block; margin-top: 4px; color: #7d8983; font-size: 10px; line-height: 1.35; }
 .switcher nav a[aria-current="page"] small { color: #b9c5bf; }
+.switcher nav form { margin: 6px 7px 3px; }
 
 @media (max-width: 560px) {
   .switcher summary {

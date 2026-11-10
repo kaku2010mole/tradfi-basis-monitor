@@ -19,27 +19,26 @@ async function render(pathname = "/") {
 }
 
 test("server-renders the TradFi dashboard shell", async () => {
-  const response = await render("/basis");
+  const response = await render("/");
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>TradFi Basis Monitor<\/title>/i);
-  assert.match(html, /Set the anchor\. Then watch the drift\./);
+  assert.match(html, /<title>JLP Research · Live Monitor<\/title>/i);
+  assert.match(html, /action="\/logout"/);
   assert.doesNotMatch(html, /href="\/taker"/);
   assert.doesNotMatch(html, /Hyperliquid Taker–Taker/);
   assert.match(html, /href="\/blog"/);
   assert.doesNotMatch(html, /href="\/trade"/);
 });
 
-test("adds a daily OpenD-backed Treasury futures yield estimator", async () => {
-  const [response, estimator, route, pusher] = await Promise.all([
-    render("/basis"),
+test("preserves the daily OpenD-backed Treasury futures yield estimator", async () => {
+  const [estimator, route, pusher] = await Promise.all([
     readFile(new URL("../app/components/TreasuryYieldEstimator.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/treasury-yields/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../services/futu-pusher/push.py", import.meta.url), "utf8"),
   ]);
-  assert.match(await response.text(), /美债期货收益率估算/);
+  assert.match(estimator, /美债期货收益率估算/);
   assert.match(estimator, /\/api\/treasury-yields/);
   assert.match(estimator, /30 \* 60_000/);
   assert.match(route, /daily_treasury_yield_curve/);
@@ -52,7 +51,7 @@ test("adds a daily OpenD-backed Treasury futures yield estimator", async () => {
   }
 });
 
-test("JLP Research is the homepage and the original Basis Monitor remains available", async () => {
+test("JLP Research is the homepage and the retired Basis Monitor is absent", async () => {
   const [home, basis, switcher, jlp, jlpApi] = await Promise.all([
     render("/"),
     render("/basis"),
@@ -62,9 +61,9 @@ test("JLP Research is the homepage and the original Basis Monitor remains availa
   ]);
   assert.equal(home.status, 200);
   assert.match(await home.text(), /JLP Research dashboard/);
-  assert.match(await basis.text(), /Set the anchor\. Then watch the drift\./);
+  assert.equal(basis.status, 404);
   assert.match(switcher, /href="\/" aria-current=\{active === "jlp"/);
-  assert.match(switcher, /href="\/basis"/);
+  assert.doesNotMatch(switcher, /href="\/basis"/);
   assert.match(jlp, /\/api\/jlp\/state/);
   assert.match(jlp, /\/api\/jlp\/history/);
   assert.match(jlpApi, /JLP data service unavailable/);
