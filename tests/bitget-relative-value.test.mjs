@@ -6,9 +6,9 @@ import test from "node:test";
 const moduleFrom = async (file) => import("data:text/javascript;base64," + Buffer.from(stripTypeScriptTypes(await readFile(new URL(file, import.meta.url), "utf8"))).toString("base64"));
 const config = await moduleFrom("../app/lib/relativeValue.ts");
 const market = await moduleFrom("../app/lib/bitgetRelativeMarket.ts");
-const ids = ["kodex200-kr200", "disk-soxl", "disk-dram", "euv-lyte", "ibb-xbi"];
+const ids = ["kodex200-kr200", "disk-dram", "ibb-xbi"];
 
-test("exactly five monitor pairs; dedicated Korean pages do not depend on array positions", () => {
+test("exactly three monitor pairs; dedicated Korean pages do not depend on array positions", () => {
   assert.deepEqual(config.RELATIONSHIPS.map((r) => r.id), ids);
   for (const r of config.RELATIONSHIPS.slice(1)) {
     assert.equal(r.asset1.venue, "bitget");
@@ -96,12 +96,12 @@ test("Bitget request failure is retried on next call; hourly request uses 1H", a
 
 test("a Binance outage does not mark Bitget contracts as missing", async () => {
   const original = globalThis.fetch;
-  globalThis.fetch = async () => Response.json({ code: "00000", data: [{ symbol: "DISKUSDT" }, { symbol: "SOXLUSDT" }] });
+  globalThis.fetch = async () => Response.json({ code: "00000", data: [{ symbol: "DISKUSDT" }, { symbol: "DRAMUSDT" }] });
   try {
     const scan = await market.relativeUniverse(config.RELATIONSHIPS, async () => { throw new Error("offline"); });
-    assert.equal(scan.candidates.find((r) => r.id === "disk-soxl").available, true);
+    assert.equal(scan.candidates.find((r) => r.id === "disk-dram").available, true);
     assert.equal(scan.candidates.find((r) => r.id === "kodex200-kr200").available, null);
-    assert.equal(scan.candidates.find((r) => r.id === "disk-dram").available, false);
+    assert.equal(scan.candidates.find((r) => r.id === "ibb-xbi").available, false);
   } finally { globalThis.fetch = original; }
 });
 
@@ -137,8 +137,8 @@ test("rendered monitor has only the requested pair buttons; Bitget ranking survi
   const context = { waitUntil() {}, passThroughOnException() {} };
   const rendered = await worker.fetch(new Request("http://localhost/blog"), env, context);
   const html = await rendered.text();
-  for (const title of ["KODEX200 → KR200", "DISK ↔ SOXL", "DISK ↔ DRAM", "EUV ↔ LYTE", "IBB ↔ XBI"]) assert.ok(html.includes(title));
-  assert.doesNotMatch(html, /SMH → SOXL|QQQ → USTECH|BABAUSDT ↔ HK.09988/);
+  for (const title of ["KODEX200 → KR200", "DISK ↔ DRAM", "IBB ↔ XBI", "Bitget DISK vs. fair value"]) assert.ok(html.includes(title));
+  assert.doesNotMatch(html, /DISK ↔ SOXL|EUV ↔ LYTE|SMH → SOXL|QQQ → USTECH|BABAUSDT ↔ HK.09988/);
   const original = globalThis.fetch;
   const now = Date.now(), start = Math.floor((now - 3_600_000) / 60_000) * 60_000;
   globalThis.fetch = async (url) => {
@@ -146,7 +146,7 @@ test("rendered monitor has only the requested pair buttons; Bitget ranking survi
     const parsed = new URL(url);
     if (parsed.pathname.endsWith("/tickers")) return Response.json({ code: "00000", data: [
       { symbol: "DISKUSDT", bidPr: "109", askPr: "111", ts: String(Date.now()) },
-      { symbol: "SOXLUSDT", bidPr: "119", askPr: "121", ts: String(Date.now()) },
+      { symbol: "DRAMUSDT", bidPr: "119", askPr: "121", ts: String(Date.now()) },
     ] });
     return Response.json({ code: "00000", data: [[start, "100", "100", "100", "100"]] });
   };
@@ -158,7 +158,7 @@ test("rendered monitor has only the requested pair buttons; Bitget ranking survi
     assert.equal(response.status, 200);
     const data = await response.json();
     assert.equal(data.rankings.length, 1);
-    assert.equal(data.rankings[0].id, "disk-soxl");
+    assert.equal(data.rankings[0].id, "disk-dram");
     assert.ok(Math.abs(data.rankings[0].predictionError - 10) < 1e-8);
   } finally { globalThis.fetch = original; }
 });

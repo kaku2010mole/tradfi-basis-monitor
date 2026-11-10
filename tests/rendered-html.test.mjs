@@ -467,8 +467,8 @@ test("restores the Relative Value Monitor and its global prediction-error broadc
   assert.match(relativeValue, /id: "kodex200-kr200"/);
   assert.match(relativeValue, /symbol: "KODEX200USDT"/);
   assert.match(relativeValue, /symbol: "xyz:KR200"/);
-  for (const id of ["disk-soxl", "disk-dram", "euv-lyte", "ibb-xbi"]) assert.ok(relativeValue.includes(`id: "${id}"`));
-  assert.doesNotMatch(relativeValue, /id: "baba-hk09988"|id: "smh-soxl"|id: "qqq-ustech"/);
+  for (const id of ["disk-dram", "ibb-xbi"]) assert.ok(relativeValue.includes(`id: "${id}"`));
+  assert.doesNotMatch(relativeValue, /id: "disk-soxl"|id: "euv-lyte"|id: "baba-hk09988"|id: "smh-soxl"|id: "qqq-ustech"/);
   assert.match(alerts, /RELATIVE_VALUE_SIGNAL_EVENT/);
   assert.match(alerts, /window\.setInterval\(\(\) => void pollRelative\(\), 10_000\)/);
   assert.match(alerts, /PREDICTION ERROR/);
