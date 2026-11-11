@@ -1251,12 +1251,12 @@ Three-venue carry & basis	三市场资金费套利及基差
 Funding & Basis	资金费率及基差
 HKEX pre-open / cross-venue basis	港交所盘前 / 跨市场基差
 Ten-second relative value	每十秒更新的相对价值
-Beta model deviation	β 模型偏差
+Beta model discount	β 模型折价
 DISK synthetic NAV comparison	DISK 合成净值比较
 Synthetic NAV discount	合成净值折价
 Synthetic NAV · USD	合成净值 · 美元
 Buy at ask	按卖价买入
-Positive means DISK is below synthetic NAV.	正值表示 DISK 低于合成净值。
+Positive = discount; negative = premium.	正值表示折价，负值表示溢价。
 Base NAV	基准净值
 U.S. close	美股收盘
 Valuation coverage	估值覆盖率
