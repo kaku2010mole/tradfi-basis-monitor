@@ -1,6 +1,7 @@
 import { dayKey, shiftDay, tradingDay, usClose } from "./smicOpening";
 import { DISK_DRAM_BETA } from "./relativeValue";
 import type { DiskConstituentSnapshot } from "./diskConstituentMarket";
+import type { DiskSyntheticNavSnapshot } from "./diskSyntheticNav";
 
 const US_ZONE = "America/New_York";
 const MINUTE = 60_000;
@@ -22,6 +23,7 @@ export type DiskCashSnapshot = {
   deviation: number | null;
   bidDeviation: number | null;
   askDeviation: number | null;
+  syntheticNav?: DiskSyntheticNavSnapshot;
   constituents?: DiskConstituentSnapshot;
   constituentFair: number | null;
   constituentDeviation: number | null;

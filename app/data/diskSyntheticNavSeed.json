@@ -1,0 +1,276 @@
+{
+  "reviewedAt": "2026-11-11",
+  "nav": {
+    "nav": 23.352866111111112,
+    "date": "2026-11-09",
+    "at": 1794258000000,
+    "source": "https://temaetfs.com/disk"
+  },
+  "holdings": {
+    "asOf": "2026-11-09",
+    "source": "https://temaetfs.com/hubfs/Website/Holdings/DISK-holdings-11092026.csv",
+    "holdings": [
+      {
+        "symbol": "000660.KS",
+        "currency": "KRW",
+        "name": "SK HYNIX INC",
+        "weight": 0.1779,
+        "quantity": 9135.0
+      },
+      {
+        "symbol": "SNDK",
+        "currency": "USD",
+        "name": "SANDISK CORP",
+        "weight": 0.1526,
+        "quantity": 8260.0
+      },
+      {
+        "symbol": "285A.T",
+        "currency": "JPY",
+        "name": "KIOXIA HOLDINGS CORP",
+        "weight": 0.1298,
+        "quantity": 105800.0
+      },
+      {
+        "symbol": "MU",
+        "currency": "USD",
+        "name": "MICRON TECHNOLOGY INC",
+        "weight": 0.0865,
+        "quantity": 5555.0
+      },
+      {
+        "symbol": "688825.SS",
+        "currency": "CNY",
+        "proxy": true,
+        "name": "CHANGXIN MEMORY TECHNOLOGIES-SWAP-MREX-L",
+        "weight": 0.0666,
+        "quantity": 511000.0
+      },
+      {
+        "symbol": "005930.KS",
+        "currency": "KRW",
+        "name": "SAMSUNG ELECTRONICS CO LTD",
+        "weight": 0.0544,
+        "quantity": 17040.0
+      },
+      {
+        "symbol": "402340.KS",
+        "currency": "KRW",
+        "name": "SK SQUARE CO LTD",
+        "weight": 0.0522,
+        "quantity": 4278.0
+      },
+      {
+        "symbol": "2408.TW",
+        "currency": "TWD",
+        "name": "NANYA TECHNOLOGY CORP",
+        "weight": 0.0461,
+        "quantity": 184522.0
+      },
+      {
+        "symbol": "AEHR",
+        "currency": "USD",
+        "name": "AEHR TEST SYSTEMS",
+        "weight": 0.0459,
+        "quantity": 35893.0
+      },
+      {
+        "symbol": "2344.TW",
+        "currency": "TWD",
+        "name": "WINBOND ELECTRONICS CORP",
+        "weight": 0.0397,
+        "quantity": 450839.0
+      },
+      {
+        "symbol": "WDC",
+        "currency": "USD",
+        "name": "WESTERN DIGITAL CORP",
+        "weight": 0.0375,
+        "quantity": 6036.0
+      },
+      {
+        "symbol": "STX",
+        "currency": "USD",
+        "name": "SEAGATE TECHNOLOGY HOLDINGS PLC",
+        "weight": 0.0364,
+        "quantity": 3376.0
+      },
+      {
+        "symbol": "001309.SZ",
+        "currency": "CNY",
+        "name": "SHENZHEN TECHWINSEMI TECHNOLOGY CO LTD",
+        "weight": 0.0166,
+        "quantity": 26673.0
+      },
+      {
+        "symbol": "688525.SS",
+        "currency": "CNY",
+        "name": "BIWIN STORAGE TECHNOLOGY CO LTD",
+        "weight": 0.0156,
+        "quantity": 37147.0
+      },
+      {
+        "symbol": "5289.TWO",
+        "currency": "TWD",
+        "name": "INNODISK CORP",
+        "weight": 0.014,
+        "quantity": 21963.0
+      },
+      {
+        "symbol": "2337.TW",
+        "currency": "TWD",
+        "name": "MACRONIX INTERNATIONAL CO LTD",
+        "weight": 0.0122,
+        "quantity": 228846.0
+      },
+      {
+        "symbol": "SKHY",
+        "currency": "USD",
+        "name": "SK HYNIX INC",
+        "weight": 0.008,
+        "quantity": 2879.0
+      }
+    ],
+    "cashWeight": 0.0079,
+    "warning": "Published holdings date may differ from valuation time; independent cash-price anchors are used."
+  },
+  "baselines": {
+    "000660.KS": {
+      "currency": "KRW",
+      "native": 1136000,
+      "at": 1794205800000,
+      "fx": 1340.3499755859375,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "SNDK": {
+      "currency": "USD",
+      "native": 886.510009765625,
+      "at": 1794258000000,
+      "fx": 1,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "285A.T": {
+      "currency": "JPY",
+      "native": 8302,
+      "at": 1794205800000,
+      "fx": 157.88900756835938,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "MU": {
+      "currency": "USD",
+      "native": 733.1500244140625,
+      "at": 1794258000000,
+      "fx": 1,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "688825.SS": {
+      "currency": "CNY",
+      "native": 39.9900016784668,
+      "at": 1794207600000,
+      "fx": 6.672699928283691,
+      "fxAt": 1794254400000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "005930.KS": {
+      "currency": "KRW",
+      "native": 189900,
+      "at": 1794205800000,
+      "fx": 1340.3499755859375,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "402340.KS": {
+      "currency": "KRW",
+      "native": 722000,
+      "at": 1794205800000,
+      "fx": 1340.3499755859375,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "2408.TW": {
+      "currency": "TWD",
+      "native": 370,
+      "at": 1794202200000,
+      "fx": 32.76599884033203,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "AEHR": {
+      "currency": "USD",
+      "native": 59.810001373291016,
+      "at": 1794258000000,
+      "fx": 1,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "2344.TW": {
+      "currency": "TWD",
+      "native": 132.5,
+      "at": 1794202200000,
+      "fx": 32.76599884033203,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "WDC": {
+      "currency": "USD",
+      "native": 289.7799987792969,
+      "at": 1794258000000,
+      "fx": 1,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "STX": {
+      "currency": "USD",
+      "native": 506.1400146484375,
+      "at": 1794258000000,
+      "fx": 1,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "001309.SZ": {
+      "currency": "CNY",
+      "native": 187.3699951171875,
+      "at": 1794207600000,
+      "fx": 6.672699928283691,
+      "fxAt": 1794254400000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "688525.SS": {
+      "currency": "CNY",
+      "native": 125.41000366210938,
+      "at": 1794207600000,
+      "fx": 6.672699928283691,
+      "fxAt": 1794254400000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "5289.TWO": {
+      "currency": "TWD",
+      "native": 925,
+      "at": 1794202200000,
+      "fx": 32.76599884033203,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "2337.TW": {
+      "currency": "TWD",
+      "native": 83.30000305175781,
+      "at": 1794202200000,
+      "fx": 32.76599884033203,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    },
+    "SKHY": {
+      "currency": "USD",
+      "native": 134.3800048828125,
+      "at": 1794258000000,
+      "fx": 1,
+      "fxAt": 1794258000000,
+      "source": "Reviewed Yahoo completed cash close and completed FX close at/before official NAV date; no current prices retained."
+    }
+  },
+  "warning": "Dated historical valuation references only. Holdings date and reported valuation marks can differ; weights are a disclosed-portfolio estimate, not confirmed intraday fund accounts."
+}

@@ -1252,26 +1252,63 @@ Funding & Basis	资金费率及基差
 HKEX pre-open / cross-venue basis	港交所盘前 / 跨市场基差
 Ten-second relative value	每十秒更新的相对价值
 Beta model deviation	β 模型偏差
-Constituent-adjusted DISK spread	DISK 成分股调整后价差
-Constituent-adjusted deviation	成分股调整后偏差
-Constituent-adjusted fair · USD	成分股调整后合理价 · 美元
-DISK / DRAM basket returns · USD	DISK / DRAM 篮子涨跌幅 · 美元
-DISK basket − DRAM basket	DISK 篮子减 DRAM 篮子
+DISK synthetic NAV comparison	DISK 合成净值比较
+Synthetic NAV discount	合成净值折价
+Synthetic NAV · USD	合成净值 · 美元
+Buy at ask	按卖价买入
+Positive means DISK is below synthetic NAV.	正值表示 DISK 低于合成净值。
+Base NAV	基准净值
+U.S. close	美股收盘
+Valuation coverage	估值覆盖率
+Cash stocks	现货股票
+Cash stock	现货股票
+Cash balance	现金余额
+Loading synthetic NAV	正在加载合成净值
+Synthetic NAV refresh delayed	合成净值刷新延迟
+Synthetic NAV unavailable	合成净值暂不可用
+Waiting for complete valuations	等待完整估值数据
+Synthetic NAV estimate · indicative	合成净值估计 · 仅供参考
+Waiting for the published NAV base	等待已公布的净值基准
 Quote coverage	报价覆盖率
 Loading constituent quotes	正在加载成分股报价
 Constituent inputs incomplete	成分股数据尚不完整
-Constituent adjustment unavailable	成分股调整暂不可用
-Constituent adjustment · indicative	成分股调整 · 仅供参考
 Waiting for constituent inputs	等待成分股数据
 Waiting for current aligned references	等待当前对齐的参考报价
 Oldest constituent quote	最早成分股报价
 Calculated	计算于
-Constituent inputs and timing	成分股输入与时间
-Basket anchor	篮子基准
+Synthetic NAV inputs and timing	合成净值输入与时间
+Published NAV	已公布净值
+DISK holdings	DISK 持仓
+Base valuation	基准估值时点
+Stock / weight	股票 / 权重
+NAV-date cash valuation · USD	净值日现货估值 · 美元
+Current value · USD	当前估值 · 美元
+Quote time · HKT	报价时间 · 香港时间
+Source / session	来源 / 时段
+NAV FX	净值基准汇率
 Holdings dates	持仓日期
-Adjusted fair = DISK cash close × [DRAM current / anchor + DISK basket return − DRAM basket return]. Positive deviation means Bitget DISK is above the adjusted fair.	调整后合理价 = DISK 现货收盘 × [DRAM 当前价 / 基准价 + DISK 篮子收益 − DRAM 篮子收益]。正偏差表示 Bitget DISK 高于调整后合理价。
-The price anchor retains the ETF closing premium or discount. The adjusted fair is a relative-price reference.	价格锚延续 ETF 收盘时的折溢价，调整后合理价用于参考相对价格。
-Basket returns include FX and use fixed disclosed exposures, with stock returns as swap proxies. Quote times and delays can differ.	篮子收益计入汇率，按固定披露敞口计算，互换收益以标的股票收益代理。各股报价时间和延时可能不同。
+Synthetic NAV = base NAV × [cash weight + Σ(stock weight × current USD price / NAV-date cash valuation price)], divided by the total disclosed weight.	合成净值 = 基准净值 × [现金权重 + Σ(股票权重 × 当前美元价格 / 净值日现货美元估值)] ÷ 披露权重合计。
+Foreign holdings start from their local cash valuation marks at the NAV date, converted using NAV-time FX. Current perpetual prices revalue those older marks directly.	海外持仓以净值日当地现货估值及净值时点汇率为基准，再用当前永续价格直接重估这些旧估值。
+This is a synthetic NAV estimate, not an official intraday NAV. Perpetual prices and stock proxies for swaps can differ from the fund's valuation.	此为合成净值估计，并非官方盘中净值。永续价格及互换的标的股票代理估值可能与基金估值不同。
+Published holdings are a dated proxy for the NAV portfolio. Holdings dates and valuation dates may differ.	公布的持仓用于近似净值投资组合，持仓日期与估值日期可能不同。
+Discount = (1 − Bitget price / synthetic NAV) × 100. Buy-at-ask and bid comparisons exclude fees, funding and slippage. USD ≈ USDT.	折价 =（1 − Bitget 价格 / 合成净值）× 100。按卖价买入及买价比较均未计手续费、资金费和滑点。USD ≈ USDT。
+Quote times are preserved. Verified closed-market references keep their reported time; the calculation time does not make them new trades.	保留原始报价时间。经核实的休市参考价仍显示其原有时间，计算时间不代表新的成交时间。
+Bitget stock perpetual bid/ask midpoint · USD(T)	Bitget 股票永续买卖中间价 · USD(T)
+Naver Korean after-hours cash trade	Naver 韩国盘后现货成交价
+Naver KRX cash trade	Naver 韩国现货成交价
+Tencent mainland cash quote · provider clock	腾讯大陆股票报价 · 行情商时间
+TWSE / TPEx cash trade	台湾交易所 / 柜买中心现货成交价
+Yahoo local cash trade · delayed	Yahoo 当地现货成交价 · 延时
+Local market closed · verified completed-session reference	当地市场已收盘 · 已核实完整交易时段参考价
+Local lunch break · last actual trade	当地午间休市 · 最近实际成交价
+Published portfolio weights are an estimate; fund valuation marks can differ.	公布的持仓权重用于估计，基金实际估值可能不同。
+Last verified dated issuer NAV and portfolio retained.	沿用最近已核实且标明日期的官方净值及持仓。
+Issuer NAV temporarily unavailable; last dated reference retained.	官方净值暂不可用，沿用最近已标明日期的参考值。
+Dated historical valuation references only. Holdings date and reported valuation marks can differ; weights are a disclosed-portfolio estimate, not confirmed intraday fund accounts.	历史数据仅作估值基准。持仓日期与披露估值可能不同；权重取自公布的持仓，并非已核实的基金盘中账目。
+NAV-date cash valuation reference unavailable	净值日现货估值基准暂不可用
+Current constituent price unavailable	成分股当前价格暂不可用
+Stock perpetual quote expired	股票永续报价已过期
+Current FX unavailable or expired	当前汇率不可用或已过期
 The selected predictor explains the paired contract's move. Live midpoint, theoretical return and deviation refresh every 10 seconds; the historical curve remains aligned to one-minute candles.	使用所选预测变量解释配对合约涨跌幅。实时中间价、理论收益及偏离每 10 秒刷新，历史曲线保持与一分钟 K 线对齐。
 The saved Posley login has expired. Connect Posley again.	保存的 Posley 登录已过期，请重新连接 Posley。
 Korean, Japanese and Taiwanese stock cross-venue basis	韩国、日本及台湾股票跨市场基差

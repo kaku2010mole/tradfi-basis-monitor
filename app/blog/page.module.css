@@ -28,6 +28,14 @@
 .constituentProvenance details p { margin-top:6px; }
 .constituentHoldings { display:flex; flex-wrap:wrap; gap:5px 12px; }
 .constituentHoldings a { color:#087f5b; text-underline-offset:2px; }
+.diskFairPanel .hedgeGrid strong.navDiscount { color:#0a7657; background:transparent; }
+.diskFairPanel .hedgeGrid strong.navPremium { color:#b83b38; background:transparent; }
+.navInputsScroll { margin-top:10px; overflow-x:auto; }
+.navInputsTable { width:100%; min-width:820px; border-collapse:collapse; text-align:left; font-size:11px; }
+.navInputsTable th,.navInputsTable td { padding:8px 10px; vertical-align:top; border-bottom:1px solid #e1ebe5; }
+.navInputsTable th { color:#315a49; font-weight:750; }
+.navInputsTable td { font-variant-numeric:tabular-nums; }
+.navInputsTable small { display:block; margin-top:2px; color:#698075; font-size:10px; }
 .hedgeHeader { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; padding:18px 20px; background:linear-gradient(110deg,#eaf8f0,#f7fbf8 68%); }
 .hedgeHeader>div>span,.hedgeGrid span { display:block; color:#587f6f; font:850 9px/1.2 monospace; letter-spacing:.11em; }
 .hedgeHeader h2 { margin:6px 0 5px; font-size:clamp(21px,3vw,30px); letter-spacing:-.04em; }

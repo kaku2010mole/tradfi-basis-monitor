@@ -4,7 +4,7 @@ import {
   type DiskBook, type DiskCashAnchor, type DramReference,
 } from "./diskCashModel";
 import { posleyAdrSnapshot } from "./posleyAdr";
-import { getDiskConstituentSnapshot } from "./diskConstituentMarket";
+import { getDiskSyntheticNavSnapshot } from "./diskSyntheticNavMarket";
 
 type Cache<T> = { value: T | null; retryAt: number; pending?: Promise<T | null> };
 const cache = <T>(): Cache<T> => ({ value: null, retryAt: 0 });
@@ -89,8 +89,10 @@ async function cashAnchor(session: { date: string; at: number }) {
 }
 
 export async function getDiskCashModel() {
+  // Start the independent NAV refresh even when DRAM or its close is unavailable.
+  getDiskSyntheticNavSnapshot();
   const session = latestDiskCashClose(Date.now());
-  if (!session) return diskCashSnapshot(Date.now(), null, null, null);
+  if (!session) return { ...diskCashSnapshot(Date.now(), null, null, null), syntheticNav: getDiskSyntheticNavSnapshot() };
   if (closeCache.at !== session.at) closeCache = { at: session.at, cash: cache(), perp: cache() };
   const slot = closeCache;
   const [anchor, books, futu] = await Promise.all([
@@ -120,6 +122,5 @@ export async function getDiskCashModel() {
   const quote = books.find((item) => item.symbol === "DISKUSDT");
   const mid = bitgetMidpoint(quote);
   const book = mid ? { mid, bid: Number(quote?.bidPr), ask: Number(quote?.askPr), at: Number(quote?.ts) } : null;
-  const constituents = getDiskConstituentSnapshot(session);
-  return diskCashSnapshot(Date.now(), anchor, book, reference, constituents);
+  return { ...diskCashSnapshot(Date.now(), anchor, book, reference), syntheticNav: getDiskSyntheticNavSnapshot() };
 }
