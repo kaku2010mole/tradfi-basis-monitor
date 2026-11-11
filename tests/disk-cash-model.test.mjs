@@ -61,6 +61,25 @@ test("the fitted DRAM return implies a DISK fair price and distinct bid and ask 
   assert.equal(model.diskCashSnapshot(201, anchor, book, null).fair, null);
 });
 
+test("constituent adjustment removes the basket difference without adding the beta model twice", () => {
+  const at = Date.parse("2026-11-11T02:00:00Z");
+  const anchor = { date: "2026-11-10", at: Date.parse("2026-11-10T21:00:00Z"), disk: 23.92, dram: 40.64 };
+  const reference = { source: "futu", price: 42.02, base: 40.64, at };
+  const book = { bid: 24.62, ask: 24.66, mid: 24.64, at };
+  const basket = { status: "ready", anchorAt: anchor.at, calculatedAt: at, diskReturn: .02082397927252452, dramReturn: .02134237337442592 };
+  const result = model.diskCashSnapshot(at, anchor, book, reference, basket);
+  assert.equal(result.constituentFair.toFixed(6), "24.719844");
+  assert.equal(result.constituentDeviation.toFixed(6), "-0.322996");
+  assert.ok(result.constituentBidDeviation < result.constituentDeviation && result.constituentDeviation < result.constituentAskDeviation);
+  assert.equal(result.fair, model.diskCashSnapshot(at, anchor, book, reference).fair);
+  const equal = model.diskCashSnapshot(at, anchor, book, reference, { ...basket, diskReturn: .02, dramReturn: .02 });
+  assert.ok(Math.abs(equal.constituentFair - anchor.disk * reference.price / reference.base) < 1e-10);
+  for (const invalid of [
+    { ...basket, status: "partial" }, { ...basket, diskReturn: null }, { ...basket, dramReturn: NaN },
+    { ...basket, anchorAt: anchor.at - 86400000 }, { ...basket, calculatedAt: at - 120001 },
+  ]) assert.equal(model.diskCashSnapshot(at, anchor, book, reference, invalid).constituentDeviation, null);
+});
+
 test("the Blog quote uses a fresh DRAM cash book from the existing office relay", async () => {
   const now = Date.parse("2026-11-10T01:50:00Z");
   const at = Date.parse("2026-11-09T21:00:00Z");

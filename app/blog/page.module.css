@@ -20,6 +20,14 @@
 .diskFairPanel { margin-top:20px; }
 .diskFairPanel .hedgeGrid strong.positiveError { color:#0a7657; }
 .diskFairPanel .hedgeGrid strong.negativeError { color:#a95c19; }
+.constituentGrid { border-top:1px solid #d9e5e0; background:#f5f9f7; }
+.constituentProvenance { padding:11px 20px; border-top:1px solid #e1ebe5; color:#587167; font-size:11px; line-height:1.6; }
+.constituentProvenance p { margin:0; }
+.constituentProvenance p + p,.constituentProvenance details { margin-top:6px; }
+.constituentProvenance summary { width:fit-content; cursor:pointer; font-weight:700; }
+.constituentProvenance details p { margin-top:6px; }
+.constituentHoldings { display:flex; flex-wrap:wrap; gap:5px 12px; }
+.constituentHoldings a { color:#087f5b; text-underline-offset:2px; }
 .hedgeHeader { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; padding:18px 20px; background:linear-gradient(110deg,#eaf8f0,#f7fbf8 68%); }
 .hedgeHeader>div>span,.hedgeGrid span { display:block; color:#587f6f; font:850 9px/1.2 monospace; letter-spacing:.11em; }
 .hedgeHeader h2 { margin:6px 0 5px; font-size:clamp(21px,3vw,30px); letter-spacing:-.04em; }
