@@ -645,7 +645,7 @@ function DiskFairPanel() {
     };
   }, []);
 
-  const { anchor, book, reference, fair, deviation, bidDeviation, askDeviation, syntheticNav } = snapshot ?? {};
+  const { anchor, book, reference, fair, syntheticNav } = snapshot ?? {};
   const navInputsCurrent = !delayed && syntheticNav?.calculatedAt != null
     && syntheticNav.calculatedAt <= checkedAt + 5_000
     && checkedAt - syntheticNav.calculatedAt <= DISK_SYNTHETIC_NAV_MAX_SNAPSHOT_AGE;
@@ -654,6 +654,11 @@ function DiskFairPanel() {
   const bookCurrent = !delayed && book && Number.isFinite(book.at) && book.at <= checkedAt + 5_000
     && checkedAt - book.at <= 30_000 && Number.isFinite(book.bid) && Number.isFinite(book.ask)
     && Number.isFinite(book.mid) && book.mid > 0 && book.bid > 0 && book.ask >= book.bid;
+  const betaDiscount = bookCurrent ? diskSyntheticNavDiscount(book.mid, fair) : null;
+  const betaAskDiscount = bookCurrent ? diskSyntheticNavDiscount(book.ask, fair) : null;
+  const betaBidDiscount = bookCurrent ? diskSyntheticNavDiscount(book.bid, fair) : null;
+  const betaDiscountStatus = delayed ? "Refresh delayed"
+    : !bookCurrent ? "Waiting for fresh Bitget BBO" : "A current DRAM reference is required";
   const nav = navReady ? syntheticNav.nav : null;
   const navDiscount = bookCurrent ? diskSyntheticNavDiscount(book.mid, nav) : null;
   const navAskDiscount = bookCurrent ? diskSyntheticNavDiscount(book.ask, nav) : null;
@@ -675,7 +680,12 @@ function DiskFairPanel() {
       <div><span>DISK CASH FAIR VALUE · DRAM MODEL</span><h2>Bitget DISK vs. fair value</h2><p>{status}{snapshot ? ` · ${formatTime(snapshot.at, true)} HKT` : ""}</p></div>
     </div>
     <div className={styles.hedgeGrid}>
-      <div><span>BETA MODEL DEVIATION</span><strong className={deviation == null ? "" : deviation >= 0 ? styles.positiveError : styles.negativeError}>{deviation == null ? "—" : formatPct(deviation, 3)}</strong><small>{bidDeviation != null && askDeviation != null ? `Bid ${formatPct(bidDeviation, 3)} · Ask ${formatPct(askDeviation, 3)}` : "Bitget midpoint ÷ model fair value − 1"}</small></div>
+      <div>
+        <span>BETA MODEL DISCOUNT</span>
+        <strong className={betaDiscount == null ? "" : betaDiscount >= 0 ? styles.navDiscount : styles.navPremium}>{betaDiscount == null ? "—" : formatPct(betaDiscount, 3)}</strong>
+        <small>{betaAskDiscount != null && betaBidDiscount != null ? `Buy at ask ${formatPct(betaAskDiscount, 3)} · Bid ${formatPct(betaBidDiscount, 3)}` : betaDiscountStatus}</small>
+        <small>Positive = discount; negative = premium.</small>
+      </div>
       <div><span>DISK MODEL FAIR VALUE · USD</span><strong>{fair == null ? "—" : `$${fair.toFixed(3)}`}</strong><small>{reference ? `DRAM ${reference.price.toFixed(3)} vs. ${reference.base.toFixed(3)} at anchor · ${formatPct((reference.price / reference.base - 1) * 100)} · ${formatTime(reference.at, true)} HKT` : "A current DRAM reference is required"}</small></div>
       <div><span>BITGET DISK BID / ASK · USDT</span><strong>{book ? `${book.bid.toFixed(3)} / ${book.ask.toFixed(3)}` : "—"}</strong><small>{book ? `Mid ${book.mid.toFixed(3)} · ${formatTime(book.at, true)} HKT` : "A fresh two-sided quote is required"}</small></div>
     </div>
@@ -684,7 +694,7 @@ function DiskFairPanel() {
         <span>SYNTHETIC NAV DISCOUNT</span>
         <strong className={navDiscount == null ? "" : navDiscount >= 0 ? styles.navDiscount : styles.navPremium}>{navDiscount == null ? "—" : formatPct(navDiscount, 3)}</strong>
         <small>{navAskDiscount != null && navBidDiscount != null ? `Buy at ask ${formatPct(navAskDiscount, 3)} · Bid ${formatPct(navBidDiscount, 3)}` : discountStatus}</small>
-        <small>Positive means DISK is below synthetic NAV.</small>
+        <small>Positive = discount; negative = premium.</small>
       </div>
       <div>
         <span>SYNTHETIC NAV · USD</span>
