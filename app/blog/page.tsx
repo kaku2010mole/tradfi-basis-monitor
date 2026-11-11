@@ -34,6 +34,7 @@ import {
 import { leveragedKoreanHedge } from "../lib/leveragedKoreanHedge";
 import { bitgetBooks, bitgetLivePrice, bitgetMidpoint, bitgetSeries, relativeUniverse, type BitgetBook } from "../lib/bitgetRelativeMarket";
 import type { DiskCashSnapshot } from "../lib/diskCashModel";
+import { DISK_SYNTHETIC_NAV_MAX_SNAPSHOT_AGE, diskSyntheticNavDiscount } from "../lib/diskSyntheticNav";
 import styles from "./page.module.css";
 
 type Analysis = {
@@ -610,10 +611,13 @@ function ResidualChart({ points }: { points: ProjectionPoint[] }) {
 function DiskFairPanel() {
   const [snapshot, setSnapshot] = useState<DiskCashSnapshot | null>(null);
   const [delayed, setDelayed] = useState(false);
+  const [checkedAt, setCheckedAt] = useState(() => Date.now());
   useEffect(() => {
     let controller: AbortController | null = null;
     const refresh = async () => {
-      if (document.hidden || controller) return;
+      if (document.hidden) return;
+      setCheckedAt(Date.now());
+      if (controller) return;
       const request = new AbortController();
       controller = request;
       const timeout = window.setTimeout(() => request.abort(), 13_000);
@@ -621,7 +625,7 @@ function DiskFairPanel() {
         const response = await fetch("/api/blog/disk-fair", { cache: "no-store", signal: request.signal });
         if (!response.ok) throw new Error("DISK cash model unavailable");
         const data: DiskCashSnapshot = await response.json();
-        if (!request.signal.aborted) { setSnapshot(data); setDelayed(false); }
+        if (!request.signal.aborted) { setSnapshot(data); setCheckedAt(Date.now()); setDelayed(false); }
       } catch {
         if (controller === request) setDelayed(true);
       } finally {
@@ -641,16 +645,26 @@ function DiskFairPanel() {
     };
   }, []);
 
-  const { anchor, book, reference, fair, deviation, bidDeviation, askDeviation, constituents,
-    constituentFair, constituentDeviation, constituentBidDeviation, constituentAskDeviation } = snapshot ?? {};
-  const basketReady = !delayed && constituents?.status === "ready" && constituentFair != null;
-  const basketDelta = basketReady && constituents.diskReturn !== null && constituents.dramReturn !== null
-    ? (constituents.diskReturn - constituents.dramReturn) * 100 : null;
-  const basketStatus = delayed ? "Refresh delayed"
-    : !constituents || constituents.status === "loading" ? "Loading constituent quotes"
-    : constituents.status === "partial" ? "Constituent inputs incomplete"
-    : constituents.status === "unavailable" ? "Constituent adjustment unavailable"
-    : !basketReady ? "Waiting for current aligned references" : "Constituent adjustment · indicative";
+  const { anchor, book, reference, fair, deviation, bidDeviation, askDeviation, syntheticNav } = snapshot ?? {};
+  const navInputsCurrent = !delayed && syntheticNav?.calculatedAt != null
+    && syntheticNav.calculatedAt <= checkedAt + 5_000
+    && checkedAt - syntheticNav.calculatedAt <= DISK_SYNTHETIC_NAV_MAX_SNAPSHOT_AGE;
+  const navReady = navInputsCurrent && syntheticNav.status === "ready"
+    && typeof syntheticNav.nav === "number" && Number.isFinite(syntheticNav.nav) && syntheticNav.nav > 0;
+  const bookCurrent = !delayed && book && Number.isFinite(book.at) && book.at <= checkedAt + 5_000
+    && checkedAt - book.at <= 30_000 && Number.isFinite(book.bid) && Number.isFinite(book.ask)
+    && Number.isFinite(book.mid) && book.mid > 0 && book.bid > 0 && book.ask >= book.bid;
+  const nav = navReady ? syntheticNav.nav : null;
+  const navDiscount = bookCurrent ? diskSyntheticNavDiscount(book.mid, nav) : null;
+  const navAskDiscount = bookCurrent ? diskSyntheticNavDiscount(book.ask, nav) : null;
+  const navBidDiscount = bookCurrent ? diskSyntheticNavDiscount(book.bid, nav) : null;
+  const navStatus = delayed ? "Refresh delayed"
+    : !syntheticNav || syntheticNav.status === "loading" ? "Loading synthetic NAV"
+    : syntheticNav.calculatedAt != null && !navInputsCurrent ? "Synthetic NAV refresh delayed"
+    : syntheticNav.status === "unavailable" ? "Synthetic NAV unavailable"
+    : syntheticNav.status === "partial" ? "Constituent inputs incomplete"
+    : !navReady ? "Waiting for complete valuations" : "Synthetic NAV estimate · indicative";
+  const discountStatus = navReady && !bookCurrent ? "Waiting for fresh Bitget BBO" : navStatus;
   const source = reference?.source === "futu" ? "Futu DRAM cash BBO"
     : reference?.source === "yahoo" ? "Yahoo DRAM cash print · indicative"
     : reference ? "Bitget DRAM proxy · indicative" : "Waiting for DRAM reference";
@@ -665,24 +679,54 @@ function DiskFairPanel() {
       <div><span>DISK MODEL FAIR VALUE · USD</span><strong>{fair == null ? "—" : `$${fair.toFixed(3)}`}</strong><small>{reference ? `DRAM ${reference.price.toFixed(3)} vs. ${reference.base.toFixed(3)} at anchor · ${formatPct((reference.price / reference.base - 1) * 100)} · ${formatTime(reference.at, true)} HKT` : "A current DRAM reference is required"}</small></div>
       <div><span>BITGET DISK BID / ASK · USDT</span><strong>{book ? `${book.bid.toFixed(3)} / ${book.ask.toFixed(3)}` : "—"}</strong><small>{book ? `Mid ${book.mid.toFixed(3)} · ${formatTime(book.at, true)} HKT` : "A fresh two-sided quote is required"}</small></div>
     </div>
-    <div className={`${styles.hedgeGrid} ${styles.constituentGrid}`} aria-label="Constituent-adjusted DISK spread">
-      <div><span>CONSTITUENT-ADJUSTED DEVIATION</span><strong className={!basketReady || constituentDeviation == null ? "" : constituentDeviation >= 0 ? styles.positiveError : styles.negativeError}>{basketReady && constituentDeviation != null ? formatPct(constituentDeviation, 3) : "—"}</strong><small>{basketReady && constituentBidDeviation != null && constituentAskDeviation != null ? `Bid ${formatPct(constituentBidDeviation, 3)} · Ask ${formatPct(constituentAskDeviation, 3)}` : basketStatus}</small></div>
-      <div><span>CONSTITUENT-ADJUSTED FAIR · USD</span><strong>{basketReady && constituentFair != null ? `$${constituentFair.toFixed(3)}` : "—"}</strong><small>DISK basket − DRAM basket</small><small>{basketDelta !== null ? `${formatNumber(basketDelta, 3)} pp` : basketStatus}</small></div>
-      <div><span>DISK / DRAM BASKET RETURNS · USD</span><strong>{basketReady && constituents.diskReturn !== null && constituents.dramReturn !== null ? `${formatPct(constituents.diskReturn * 100)} / ${formatPct(constituents.dramReturn * 100)}` : "— / —"}</strong><small>{constituents ? `Quote coverage · DISK ${(constituents.coverage.DISK * 100).toFixed(1)}% · DRAM ${(constituents.coverage.DRAM * 100).toFixed(1)}%` : "Waiting for constituent inputs"}</small></div>
+    <div className={`${styles.hedgeGrid} ${styles.constituentGrid}`} aria-label="DISK synthetic NAV comparison">
+      <div>
+        <span>SYNTHETIC NAV DISCOUNT</span>
+        <strong className={navDiscount == null ? "" : navDiscount >= 0 ? styles.navDiscount : styles.navPremium}>{navDiscount == null ? "—" : formatPct(navDiscount, 3)}</strong>
+        <small>{navAskDiscount != null && navBidDiscount != null ? `Buy at ask ${formatPct(navAskDiscount, 3)} · Bid ${formatPct(navBidDiscount, 3)}` : discountStatus}</small>
+        <small>Positive means DISK is below synthetic NAV.</small>
+      </div>
+      <div>
+        <span>SYNTHETIC NAV · USD</span>
+        <strong>{nav == null ? "—" : `$${nav.toFixed(3)}`}</strong>
+        <small>{syntheticNav?.base ? `Base NAV $${syntheticNav.base.nav.toFixed(4)} · ${syntheticNav.base.date} U.S. close` : "Waiting for the published NAV base"}</small>
+        <small>{navStatus}</small>
+      </div>
+      <div>
+        <span>VALUATION COVERAGE</span>
+        <strong>{navInputsCurrent ? `${(syntheticNav.coverage.total * 100).toFixed(1)}%` : "—"}</strong>
+        <small>{navInputsCurrent ? `Perpetuals ${(syntheticNav.coverage.perp * 100).toFixed(1)}% · Cash stocks ${(syntheticNav.coverage.cash * 100).toFixed(1)}%` : "Waiting for constituent inputs"}</small>
+        <small>{navInputsCurrent ? `Cash balance ${(syntheticNav.coverage.cashBalance * 100).toFixed(1)}%` : navStatus}</small>
+      </div>
     </div>
     <div className={styles.constituentProvenance}>
-      <p>{basketStatus}{constituents?.oldestQuoteAt ? ` · Oldest constituent quote ${formatTime(constituents.oldestQuoteAt, true)} HKT` : ""}{constituents?.calculatedAt ? ` · Calculated ${formatTime(constituents.calculatedAt, true)} HKT` : ""}</p>
+      <p>{navStatus}{syntheticNav?.oldestQuoteAt ? ` · Oldest constituent quote ${formatTime(syntheticNav.oldestQuoteAt, true)} HKT` : ""}{syntheticNav?.calculatedAt ? ` · Calculated ${formatTime(syntheticNav.calculatedAt, true)} HKT` : ""}</p>
       <details>
-        <summary>Constituent inputs and timing</summary>
-        <p>Adjusted fair = DISK cash close × [DRAM current / anchor + DISK basket return − DRAM basket return]. Positive deviation means Bitget DISK is above the adjusted fair.</p>
-        <p>The price anchor retains the ETF closing premium or discount. The adjusted fair is a relative-price reference.</p>
-        <p>{constituents?.anchorAt ? `Basket anchor ${formatTime(constituents.anchorAt, true)} HKT. ` : ""}Basket returns include FX and use fixed disclosed exposures, with stock returns as swap proxies. Quote times and delays can differ.</p>
-        {constituents?.holdings && <p className={styles.constituentHoldings}>
-          <span>Holdings dates</span>
-          <a href={constituents.holdings.DISK.source} target="_blank" rel="noreferrer">DISK {constituents.holdings.DISK.asOf}</a>
-          <a href={constituents.holdings.DRAM.source} target="_blank" rel="noreferrer">DRAM {constituents.holdings.DRAM.asOf}</a>
+        <summary>Synthetic NAV inputs and timing</summary>
+        <p>Synthetic NAV = base NAV × [cash weight + Σ(stock weight × current USD price / NAV-date cash valuation price)], divided by the total disclosed weight.</p>
+        <p>Foreign holdings start from their local cash valuation marks at the NAV date, converted using NAV-time FX. Current perpetual prices revalue those older marks directly.</p>
+        <p>This is a synthetic NAV estimate, not an official intraday NAV. Perpetual prices and stock proxies for swaps can differ from the fund&apos;s valuation.</p>
+        <p>Published holdings are a dated proxy for the NAV portfolio. Holdings dates and valuation dates may differ.</p>
+        <p>Discount = (1 − Bitget price / synthetic NAV) × 100. Buy-at-ask and bid comparisons exclude fees, funding and slippage. USD ≈ USDT.</p>
+        <p>Quote times are preserved. Verified closed-market references keep their reported time; the calculation time does not make them new trades.</p>
+        {syntheticNav?.base && <p className={styles.constituentHoldings}>
+          <a href={syntheticNav.base.source} target="_blank" rel="noreferrer">Published NAV · {syntheticNav.base.date}</a>
+          <a href={syntheticNav.base.holdingsSource} target="_blank" rel="noreferrer">DISK holdings · {syntheticNav.base.holdingsAsOf}</a>
+          <span>Base valuation {formatTime(syntheticNav.base.at, true)} HKT</span>
         </p>}
-        {constituents && constituents.reasons.length > 0 && <p>{constituents.reasons.join(" · ")}</p>}
+        {navInputsCurrent && syntheticNav.rows.length > 0 && <div className={styles.navInputsScroll}>
+          <table className={styles.navInputsTable}>
+            <thead><tr><th>Stock / weight</th><th>NAV-date cash valuation · USD</th><th>Current value · USD</th><th>Quote time · HKT</th><th>Source / session</th></tr></thead>
+            <tbody>{syntheticNav.rows.map((row) => <tr key={row.symbol}>
+              <td>{row.symbol}<small>{(row.weight * 100).toFixed(2)}%</small></td>
+              <td>{row.baseUsd == null ? "—" : `$${row.baseUsd.toFixed(4)}`}<small>{row.baseNative != null ? `${row.baseNative.toFixed(3)} ${row.currency}` : "—"}{row.currency !== "USD" && row.baseFxPrice != null ? ` / FX ${row.baseFxPrice.toFixed(4)}` : ""}</small><small>{row.baseAt ? `${formatTime(row.baseAt, true)} HKT` : ""}{row.currency !== "USD" && row.baseFxAt ? ` · NAV FX ${formatTime(row.baseFxAt, true)} HKT` : ""}</small></td>
+              <td>{row.currentUsd == null ? "—" : `$${row.currentUsd.toFixed(4)}`}<small>{row.sourceKind === "perp" ? `Perpetual · ${row.perpSymbol ?? row.symbol}` : `Cash stock · ${row.currency}`}</small></td>
+              <td>{row.quoteAt ? formatTime(row.quoteAt, true) : "—"}<small>{row.sourceKind === "cash" && row.fxAt ? `FX ${formatTime(row.fxAt, true)} HKT` : ""}</small></td>
+              <td>{row.source ?? "—"}<small>{row.reason ?? row.reference ?? "Current quote"}</small></td>
+            </tr>)}</tbody>
+          </table>
+        </div>}
+        {syntheticNav && syntheticNav.reasons.length > 0 && <p>{syntheticNav.reasons.join(" · ")}</p>}
       </details>
     </div>
     <p className={styles.hedgeCaveat}>{anchor ? `U.S. cash close ${anchor.date} · DISK $${anchor.disk.toFixed(2)} · DRAM $${anchor.dram.toFixed(2)}. ` : ""}β {DISK_DRAM_BETA.toFixed(4)} from 60 cash sessions through {DISK_DRAM_SAMPLE_END}. The model measures DRAM&apos;s move from the latest completed U.S. cash close. Bitget proxy returns use the perpetual&apos;s price at the same close time. USD ≈ USDT. Off-hours estimates are indicative.</p>
