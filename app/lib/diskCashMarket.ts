@@ -4,6 +4,7 @@ import {
   type DiskBook, type DiskCashAnchor, type DramReference,
 } from "./diskCashModel";
 import { posleyAdrSnapshot } from "./posleyAdr";
+import { getDiskConstituentSnapshot } from "./diskConstituentMarket";
 
 type Cache<T> = { value: T | null; retryAt: number; pending?: Promise<T | null> };
 const cache = <T>(): Cache<T> => ({ value: null, retryAt: 0 });
@@ -119,5 +120,6 @@ export async function getDiskCashModel() {
   const quote = books.find((item) => item.symbol === "DISKUSDT");
   const mid = bitgetMidpoint(quote);
   const book = mid ? { mid, bid: Number(quote?.bidPr), ask: Number(quote?.askPr), at: Number(quote?.ts) } : null;
-  return diskCashSnapshot(Date.now(), anchor, book, reference);
+  const constituents = getDiskConstituentSnapshot(session);
+  return diskCashSnapshot(Date.now(), anchor, book, reference, constituents);
 }

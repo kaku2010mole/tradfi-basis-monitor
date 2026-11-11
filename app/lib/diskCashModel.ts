@@ -1,5 +1,6 @@
 import { dayKey, shiftDay, tradingDay, usClose } from "./smicOpening";
 import { DISK_DRAM_BETA } from "./relativeValue";
+import type { DiskConstituentSnapshot } from "./diskConstituentMarket";
 
 const US_ZONE = "America/New_York";
 const MINUTE = 60_000;
@@ -21,6 +22,11 @@ export type DiskCashSnapshot = {
   deviation: number | null;
   bidDeviation: number | null;
   askDeviation: number | null;
+  constituents?: DiskConstituentSnapshot;
+  constituentFair: number | null;
+  constituentDeviation: number | null;
+  constituentBidDeviation: number | null;
+  constituentAskDeviation: number | null;
 };
 
 type YahooEtfChart = {
@@ -88,8 +94,24 @@ export function diskFairValue(anchor: DiskCashAnchor, reference: DramReference) 
 
 export function diskCashSnapshot(
   at: number, anchor: DiskCashAnchor | null, book: DiskBook | null, reference: DramReference | null,
+  constituents?: DiskConstituentSnapshot,
 ): DiskCashSnapshot {
   const fair = anchor && reference ? diskFairValue(anchor, reference) : null;
   const deviation = (price: number | undefined) => fair && isPrice(price) ? (price / fair - 1) * 100 : null;
-  return { at, anchor, book, reference, fair, deviation: deviation(book?.mid), bidDeviation: deviation(book?.bid), askDeviation: deviation(book?.ask) };
+  const currentBasket = anchor && reference && constituents?.status === "ready"
+    && constituents.anchorAt === anchor.at && typeof constituents.calculatedAt === "number" && constituents.calculatedAt <= at + 5_000
+    && at - constituents.calculatedAt <= 120_000
+    && Number.isFinite(constituents.diskReturn) && Number.isFinite(constituents.dramReturn)
+    && reference.at >= anchor.at && isPrice(reference.price) && isPrice(reference.base);
+  // This compares actual return differences with the constituent return difference.
+  // It is an independent fair-price scenario, so the fitted beta is not applied twice.
+  const adjusted = currentBasket
+    ? anchor.disk * (reference.price / reference.base + constituents.diskReturn! - constituents.dramReturn!) : null;
+  const constituentFair = isPrice(adjusted) ? adjusted : null;
+  const adjustedDeviation = (price: number | undefined) => constituentFair && isPrice(price) ? (price / constituentFair - 1) * 100 : null;
+  return {
+    at, anchor, book, reference, fair, deviation: deviation(book?.mid), bidDeviation: deviation(book?.bid), askDeviation: deviation(book?.ask),
+    constituents, constituentFair, constituentDeviation: adjustedDeviation(book?.mid),
+    constituentBidDeviation: adjustedDeviation(book?.bid), constituentAskDeviation: adjustedDeviation(book?.ask),
+  };
 }

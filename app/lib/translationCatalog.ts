@@ -1251,6 +1251,27 @@ Three-venue carry & basis	三市场资金费套利及基差
 Funding & Basis	资金费率及基差
 HKEX pre-open / cross-venue basis	港交所盘前 / 跨市场基差
 Ten-second relative value	每十秒更新的相对价值
+Beta model deviation	β 模型偏差
+Constituent-adjusted DISK spread	DISK 成分股调整后价差
+Constituent-adjusted deviation	成分股调整后偏差
+Constituent-adjusted fair · USD	成分股调整后合理价 · 美元
+DISK / DRAM basket returns · USD	DISK / DRAM 篮子涨跌幅 · 美元
+DISK basket − DRAM basket	DISK 篮子减 DRAM 篮子
+Quote coverage	报价覆盖率
+Loading constituent quotes	正在加载成分股报价
+Constituent inputs incomplete	成分股数据尚不完整
+Constituent adjustment unavailable	成分股调整暂不可用
+Constituent adjustment · indicative	成分股调整 · 仅供参考
+Waiting for constituent inputs	等待成分股数据
+Waiting for current aligned references	等待当前对齐的参考报价
+Oldest constituent quote	最早成分股报价
+Calculated	计算于
+Constituent inputs and timing	成分股输入与时间
+Basket anchor	篮子基准
+Holdings dates	持仓日期
+Adjusted fair = DISK cash close × [DRAM current / anchor + DISK basket return − DRAM basket return]. Positive deviation means Bitget DISK is above the adjusted fair.	调整后合理价 = DISK 现货收盘 × [DRAM 当前价 / 基准价 + DISK 篮子收益 − DRAM 篮子收益]。正偏差表示 Bitget DISK 高于调整后合理价。
+The price anchor retains the ETF closing premium or discount. The adjusted fair is a relative-price reference.	价格锚延续 ETF 收盘时的折溢价，调整后合理价用于参考相对价格。
+Basket returns include FX and use fixed disclosed exposures, with stock returns as swap proxies. Quote times and delays can differ.	篮子收益计入汇率，按固定披露敞口计算，互换收益以标的股票收益代理。各股报价时间和延时可能不同。
 The selected predictor explains the paired contract's move. Live midpoint, theoretical return and deviation refresh every 10 seconds; the historical curve remains aligned to one-minute candles.	使用所选预测变量解释配对合约涨跌幅。实时中间价、理论收益及偏离每 10 秒刷新，历史曲线保持与一分钟 K 线对齐。
 The saved Posley login has expired. Connect Posley again.	保存的 Posley 登录已过期，请重新连接 Posley。
 Korean, Japanese and Taiwanese stock cross-venue basis	韩国、日本及台湾股票跨市场基差

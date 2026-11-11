@@ -641,7 +641,16 @@ function DiskFairPanel() {
     };
   }, []);
 
-  const { anchor, book, reference, fair, deviation, bidDeviation, askDeviation } = snapshot ?? {};
+  const { anchor, book, reference, fair, deviation, bidDeviation, askDeviation, constituents,
+    constituentFair, constituentDeviation, constituentBidDeviation, constituentAskDeviation } = snapshot ?? {};
+  const basketReady = !delayed && constituents?.status === "ready" && constituentFair != null;
+  const basketDelta = basketReady && constituents.diskReturn !== null && constituents.dramReturn !== null
+    ? (constituents.diskReturn - constituents.dramReturn) * 100 : null;
+  const basketStatus = delayed ? "Refresh delayed"
+    : !constituents || constituents.status === "loading" ? "Loading constituent quotes"
+    : constituents.status === "partial" ? "Constituent inputs incomplete"
+    : constituents.status === "unavailable" ? "Constituent adjustment unavailable"
+    : !basketReady ? "Waiting for current aligned references" : "Constituent adjustment · indicative";
   const source = reference?.source === "futu" ? "Futu DRAM cash BBO"
     : reference?.source === "yahoo" ? "Yahoo DRAM cash print · indicative"
     : reference ? "Bitget DRAM proxy · indicative" : "Waiting for DRAM reference";
@@ -652,11 +661,31 @@ function DiskFairPanel() {
       <div><span>DISK CASH FAIR VALUE · DRAM MODEL</span><h2>Bitget DISK vs. fair value</h2><p>{status}{snapshot ? ` · ${formatTime(snapshot.at, true)} HKT` : ""}</p></div>
     </div>
     <div className={styles.hedgeGrid}>
-      <div><span>MIDPOINT DEVIATION</span><strong className={deviation == null ? "" : deviation >= 0 ? styles.positiveError : styles.negativeError}>{deviation == null ? "—" : formatPct(deviation, 3)}</strong><small>{bidDeviation != null && askDeviation != null ? `Bid ${formatPct(bidDeviation, 3)} · Ask ${formatPct(askDeviation, 3)}` : "Bitget midpoint ÷ model fair value − 1"}</small></div>
+      <div><span>BETA MODEL DEVIATION</span><strong className={deviation == null ? "" : deviation >= 0 ? styles.positiveError : styles.negativeError}>{deviation == null ? "—" : formatPct(deviation, 3)}</strong><small>{bidDeviation != null && askDeviation != null ? `Bid ${formatPct(bidDeviation, 3)} · Ask ${formatPct(askDeviation, 3)}` : "Bitget midpoint ÷ model fair value − 1"}</small></div>
       <div><span>DISK MODEL FAIR VALUE · USD</span><strong>{fair == null ? "—" : `$${fair.toFixed(3)}`}</strong><small>{reference ? `DRAM ${reference.price.toFixed(3)} vs. ${reference.base.toFixed(3)} at anchor · ${formatPct((reference.price / reference.base - 1) * 100)} · ${formatTime(reference.at, true)} HKT` : "A current DRAM reference is required"}</small></div>
       <div><span>BITGET DISK BID / ASK · USDT</span><strong>{book ? `${book.bid.toFixed(3)} / ${book.ask.toFixed(3)}` : "—"}</strong><small>{book ? `Mid ${book.mid.toFixed(3)} · ${formatTime(book.at, true)} HKT` : "A fresh two-sided quote is required"}</small></div>
     </div>
-    <p className={styles.hedgeCaveat}>{anchor ? `U.S. cash close ${anchor.date} · DISK $${anchor.disk.toFixed(2)} · DRAM $${anchor.dram.toFixed(2)}. ` : ""}β {DISK_DRAM_BETA.toFixed(4)} from 60 cash sessions through {DISK_DRAM_SAMPLE_END}. The model measures DRAM's move from the latest completed U.S. cash close. Bitget proxy returns use the perpetual's price at the same close time. USD ≈ USDT. Off-hours estimates are indicative.</p>
+    <div className={`${styles.hedgeGrid} ${styles.constituentGrid}`} aria-label="Constituent-adjusted DISK spread">
+      <div><span>CONSTITUENT-ADJUSTED DEVIATION</span><strong className={!basketReady || constituentDeviation == null ? "" : constituentDeviation >= 0 ? styles.positiveError : styles.negativeError}>{basketReady && constituentDeviation != null ? formatPct(constituentDeviation, 3) : "—"}</strong><small>{basketReady && constituentBidDeviation != null && constituentAskDeviation != null ? `Bid ${formatPct(constituentBidDeviation, 3)} · Ask ${formatPct(constituentAskDeviation, 3)}` : basketStatus}</small></div>
+      <div><span>CONSTITUENT-ADJUSTED FAIR · USD</span><strong>{basketReady && constituentFair != null ? `$${constituentFair.toFixed(3)}` : "—"}</strong><small>DISK basket − DRAM basket</small><small>{basketDelta !== null ? `${formatNumber(basketDelta, 3)} pp` : basketStatus}</small></div>
+      <div><span>DISK / DRAM BASKET RETURNS · USD</span><strong>{basketReady && constituents.diskReturn !== null && constituents.dramReturn !== null ? `${formatPct(constituents.diskReturn * 100)} / ${formatPct(constituents.dramReturn * 100)}` : "— / —"}</strong><small>{constituents ? `Quote coverage · DISK ${(constituents.coverage.DISK * 100).toFixed(1)}% · DRAM ${(constituents.coverage.DRAM * 100).toFixed(1)}%` : "Waiting for constituent inputs"}</small></div>
+    </div>
+    <div className={styles.constituentProvenance}>
+      <p>{basketStatus}{constituents?.oldestQuoteAt ? ` · Oldest constituent quote ${formatTime(constituents.oldestQuoteAt, true)} HKT` : ""}{constituents?.calculatedAt ? ` · Calculated ${formatTime(constituents.calculatedAt, true)} HKT` : ""}</p>
+      <details>
+        <summary>Constituent inputs and timing</summary>
+        <p>Adjusted fair = DISK cash close × [DRAM current / anchor + DISK basket return − DRAM basket return]. Positive deviation means Bitget DISK is above the adjusted fair.</p>
+        <p>The price anchor retains the ETF closing premium or discount. The adjusted fair is a relative-price reference.</p>
+        <p>{constituents?.anchorAt ? `Basket anchor ${formatTime(constituents.anchorAt, true)} HKT. ` : ""}Basket returns include FX and use fixed disclosed exposures, with stock returns as swap proxies. Quote times and delays can differ.</p>
+        {constituents?.holdings && <p className={styles.constituentHoldings}>
+          <span>Holdings dates</span>
+          <a href={constituents.holdings.DISK.source} target="_blank" rel="noreferrer">DISK {constituents.holdings.DISK.asOf}</a>
+          <a href={constituents.holdings.DRAM.source} target="_blank" rel="noreferrer">DRAM {constituents.holdings.DRAM.asOf}</a>
+        </p>}
+        {constituents && constituents.reasons.length > 0 && <p>{constituents.reasons.join(" · ")}</p>}
+      </details>
+    </div>
+    <p className={styles.hedgeCaveat}>{anchor ? `U.S. cash close ${anchor.date} · DISK $${anchor.disk.toFixed(2)} · DRAM $${anchor.dram.toFixed(2)}. ` : ""}β {DISK_DRAM_BETA.toFixed(4)} from 60 cash sessions through {DISK_DRAM_SAMPLE_END}. The model measures DRAM&apos;s move from the latest completed U.S. cash close. Bitget proxy returns use the perpetual&apos;s price at the same close time. USD ≈ USDT. Off-hours estimates are indicative.</p>
   </section>;
 }
 
@@ -1279,7 +1308,7 @@ export default function RelativeValueBlog({ dedicatedProduct }: { dedicatedProdu
 
           {cashCalibration ? <section className={styles.methodPanel}>
             <div><span>CASH BETA CALIBRATION</span><h3>{cashCalibration.predictor} → {cashCalibration.target}</h3><p>Fixed β {analysis.model.beta.toFixed(4)} from {cashCalibration.samples} cash close-to-close returns, {cashCalibration.start} to {cashCalibration.end}, with zero intercept.</p></div>
-            <div><span>PREDICTION EQUATION</span><h3>{selected.asset2.symbol} theoretical return = β × {selected.asset1.symbol}{selected.predictorFx ? " KRW" : ""} return</h3><p>{selected.predictorFx ? "USD/KRW converts the predictor to KRW before applying β. " : ""}Contract returns are measured from the selected anchor. Prediction error is the target's actual return minus its theoretical return, in percentage points.</p></div>
+            <div><span>PREDICTION EQUATION</span><h3>{selected.asset2.symbol} theoretical return = β × {selected.asset1.symbol}{selected.predictorFx ? " KRW" : ""} return</h3><p>{selected.predictorFx ? "USD/KRW converts the predictor to KRW before applying β. " : ""}Contract returns are measured from the selected anchor. Prediction error is the target&apos;s actual return minus its theoretical return, in percentage points.</p></div>
           </section> : <section className={styles.methodPanel}>
             <div><span>{analysis.model.method === "reference" ? "RULE VALIDATION" : "MODEL TRAINING"}</span><h3>{formulaOnly ? "The supplied beta runs without a minimum history requirement." : "The backtest never refits on its own result."}</h3><p>{formulaOnly ? "This contract is too new for a meaningful holdout test, so the engine skips regression and applies the supplied leverage multiplier directly. Validation metrics will appear automatically once enough aligned hourly history exists." : analysis.model.method === "reference" ? "This relationship has an explicit beta, so the site does not fit a coefficient. The preceding 45-day hourly history and holdout sample only test how reliably the zero-intercept structural formula behaved before the selected backtest." : "The coefficient is estimated from a 45-day hourly history ending three days before the selected backtest. The final 25% is kept out of training and reports correlation, R², error and coefficient drift."}</p></div>
             <div><span>PREDICTION EQUATION</span><h3>{selected.predictorFx ? `${selected.asset2.symbol} price = P₀ × {1 + β × [(${selected.asset1.symbol}ₜ / ${selected.asset1.symbol}₀) × (USD/KRWₜ / USD/KRW₀) − 1]}.` : analysis.model.method === "reference" ? `${selected.asset2.symbol} = locked β × ${selected.asset1.symbol}.` : `${selected.asset2.symbol} = α × time + fitted β × ${selected.asset1.symbol}.`}</h3><p>{selected.predictorFx ? `Only the FX change between the selected anchor and each observation is used. β ${analysis.model.beta.toFixed(2)}× is the selected scenario; verify the issuer's daily factor because the product is Max 2×, not necessarily fixed 2×.` : `The engine works in log-return space. It converts ${selected.asset1.symbol}'s cumulative move over the selected period into ${selected.asset2.symbol}'s theoretical move, then compares that number with ${selected.asset2.symbol}'s actual return. Funding, liquidity and oracle timing remain outside the formula.`}</p></div>

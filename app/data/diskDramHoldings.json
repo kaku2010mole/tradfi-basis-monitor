@@ -1,0 +1,229 @@
+{
+  "DISK": {
+    "asOf": "2026-11-09",
+    "source": "https://temaetfs.com/hubfs/Website/Holdings/DISK-holdings-11092026.csv",
+    "holdings": [
+      {
+        "symbol": "000660.KS",
+        "currency": "KRW",
+        "name": "SK HYNIX INC",
+        "weight": 0.1779,
+        "quantity": 9135.0
+      },
+      {
+        "symbol": "SNDK",
+        "currency": "USD",
+        "name": "SANDISK CORP",
+        "weight": 0.1526,
+        "quantity": 8260.0
+      },
+      {
+        "symbol": "285A.T",
+        "currency": "JPY",
+        "name": "KIOXIA HOLDINGS CORP",
+        "weight": 0.1298,
+        "quantity": 105800.0
+      },
+      {
+        "symbol": "MU",
+        "currency": "USD",
+        "name": "MICRON TECHNOLOGY INC",
+        "weight": 0.0865,
+        "quantity": 5555.0
+      },
+      {
+        "symbol": "688825.SS",
+        "currency": "CNY",
+        "proxy": true,
+        "name": "CHANGXIN MEMORY TECHNOLOGIES-SWAP-MREX-L",
+        "weight": 0.0666,
+        "quantity": 511000.0
+      },
+      {
+        "symbol": "005930.KS",
+        "currency": "KRW",
+        "name": "SAMSUNG ELECTRONICS CO LTD",
+        "weight": 0.0544,
+        "quantity": 17040.0
+      },
+      {
+        "symbol": "402340.KS",
+        "currency": "KRW",
+        "name": "SK SQUARE CO LTD",
+        "weight": 0.0522,
+        "quantity": 4278.0
+      },
+      {
+        "symbol": "2408.TW",
+        "currency": "TWD",
+        "name": "NANYA TECHNOLOGY CORP",
+        "weight": 0.0461,
+        "quantity": 184522.0
+      },
+      {
+        "symbol": "AEHR",
+        "currency": "USD",
+        "name": "AEHR TEST SYSTEMS",
+        "weight": 0.0459,
+        "quantity": 35893.0
+      },
+      {
+        "symbol": "2344.TW",
+        "currency": "TWD",
+        "name": "WINBOND ELECTRONICS CORP",
+        "weight": 0.0397,
+        "quantity": 450839.0
+      },
+      {
+        "symbol": "WDC",
+        "currency": "USD",
+        "name": "WESTERN DIGITAL CORP",
+        "weight": 0.0375,
+        "quantity": 6036.0
+      },
+      {
+        "symbol": "STX",
+        "currency": "USD",
+        "name": "SEAGATE TECHNOLOGY HOLDINGS PLC",
+        "weight": 0.0364,
+        "quantity": 3376.0
+      },
+      {
+        "symbol": "001309.SZ",
+        "currency": "CNY",
+        "name": "SHENZHEN TECHWINSEMI TECHNOLOGY CO LTD",
+        "weight": 0.0166,
+        "quantity": 26673.0
+      },
+      {
+        "symbol": "688525.SS",
+        "currency": "CNY",
+        "name": "BIWIN STORAGE TECHNOLOGY CO LTD",
+        "weight": 0.0156,
+        "quantity": 37147.0
+      },
+      {
+        "symbol": "5289.TWO",
+        "currency": "TWD",
+        "name": "INNODISK CORP",
+        "weight": 0.014,
+        "quantity": 21963.0
+      },
+      {
+        "symbol": "2337.TW",
+        "currency": "TWD",
+        "name": "MACRONIX INTERNATIONAL CO LTD",
+        "weight": 0.0122,
+        "quantity": 228846.0
+      },
+      {
+        "symbol": "SKHY",
+        "currency": "USD",
+        "name": "SK HYNIX INC",
+        "weight": 0.008,
+        "quantity": 2879.0
+      }
+    ],
+    "cashWeight": 0.0079,
+    "warning": "Published holdings date may differ from valuation time; independent cash-price anchors are used."
+  },
+  "DRAM": {
+    "asOf": "2026-11-10",
+    "source": "https://www.roundhillinvestments.com/assets/data/FilepointRoundhill.40RU.RU_Holdings_11102026.csv",
+    "holdings": [
+      {
+        "symbol": "000660.KS",
+        "currency": "KRW",
+        "name": "SK hynix Inc",
+        "weight": 0.22165896071875313,
+        "quantity": 3796440.0
+      },
+      {
+        "symbol": "005930.KS",
+        "currency": "KRW",
+        "name": "Samsung Electronics Co Ltd",
+        "weight": 0.2718387310296624,
+        "quantity": 28370724.0
+      },
+      {
+        "symbol": "005935.KS",
+        "currency": "KRW",
+        "name": "Samsung Electronics Co Ltd",
+        "weight": 0.001277429113664964,
+        "quantity": 166776.0
+      },
+      {
+        "symbol": "2344.TW",
+        "currency": "TWD",
+        "name": "Winbond Electronics Corp",
+        "weight": 0.012210095394854365,
+        "quantity": 46272370.0
+      },
+      {
+        "symbol": "2408.TW",
+        "currency": "TWD",
+        "name": "Nanya Technology Corp",
+        "weight": 0.025924861978665795,
+        "quantity": 34630131.0
+      },
+      {
+        "symbol": "285A.T",
+        "currency": "JPY",
+        "name": "Kioxia Holdings Corp",
+        "weight": 0.023643228924677614,
+        "quantity": 6422067.0
+      },
+      {
+        "symbol": "MU",
+        "currency": "USD",
+        "name": "MICRON TECHNOLOGY INC",
+        "weight": 0.26443455621129813,
+        "quantity": 5660185.0
+      },
+      {
+        "symbol": "603986.SS",
+        "currency": "CNY",
+        "name": "GigaDevice Semiconductor Inc",
+        "weight": 0.009570710398028584,
+        "quantity": 4050132.0
+      },
+      {
+        "symbol": "688825.SS",
+        "currency": "CNY",
+        "proxy": true,
+        "name": "CXMT CORPORATION",
+        "weight": 0.05516477485380375,
+        "quantity": 141146954.0
+      },
+      {
+        "symbol": "SKHY",
+        "currency": "USD",
+        "name": "SK hynix Inc",
+        "weight": 0.007100822069092583,
+        "quantity": 850000.0
+      },
+      {
+        "symbol": "SNDK",
+        "currency": "USD",
+        "name": "Sandisk Corp",
+        "weight": 0.03437803723572504,
+        "quantity": 620446.0
+      },
+      {
+        "symbol": "STX",
+        "currency": "USD",
+        "name": "Seagate Technology Holdings PLC",
+        "weight": 0.038036705252498734,
+        "quantity": 1176913.0
+      },
+      {
+        "symbol": "WDC",
+        "currency": "USD",
+        "name": "Western Digital Corp",
+        "weight": 0.033955430349347684,
+        "quantity": 1822331.0
+      }
+    ],
+    "cashWeight": 0.0008056564699272517
+  }
+}
