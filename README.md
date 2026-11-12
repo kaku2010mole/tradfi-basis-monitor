@@ -4,6 +4,27 @@ A clean full-stack starter running on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
 Drizzle support.
 
+## Bitget TradFi funding rankings
+
+`/japan-estimate` now displays the highest and lowest ten Bitget USDT-M TradFi
+perpetual funding rates. The default ranking uses each contract's original
+per-settlement rate; the comparison toggle ranks `rate × 8 / intervalHours`.
+Search and asset filters apply before ranking. Next funding times use HKT.
+
+`/api/tradfi-funding` is protected by the existing site login. It uses Bitget v3
+`instruments` and `current-fund-rate`, including only online perpetuals marked
+`isRwa=YES`. Some real-world stocks carry `instrumentType=crypto`, so that field
+does not override Bitget's RWA flag. Metadata is shared for 15 minutes; current
+funding is shared for 15 seconds with concurrent requests coalesced and failed
+requests backed off. Browser polling runs every 20 seconds while visible.
+Failures retain the last successful rates and their original exchange timestamp,
+explicitly marked stale. Empty or malformed funding never becomes zero; unknown
+intervals remain unavailable in the 8h ranking. Dividends are flagged separately.
+The previous Japan estimate API remains available for existing integrations.
+
+Validation: `node --test tests/tradfi-funding.test.mjs`; after `npm run build`,
+run `node --test tests/tradfi-funding-api.test.mjs tests/japan-estimate-api.test.mjs`.
+
 ## Prerequisites
 
 - Node.js `>=22.13.0`
