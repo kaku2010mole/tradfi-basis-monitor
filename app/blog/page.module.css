@@ -341,3 +341,255 @@
 .fxSummary>div{padding:18px 20px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:7px;min-width:0}.fxSummary>div:last-child{border-right:0}.fxSummary span{font:700 10px/1.3 var(--mono);letter-spacing:.08em;color:var(--muted)}.fxSummary strong{font:700 clamp(20px,2vw,30px)/1 var(--mono);color:var(--ink)}.fxSummary small{font:500 10px/1.4 var(--mono);color:var(--muted)}
 .fxLine{fill:none;stroke:#b7791f;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.fxDot{fill:#fff;stroke:#b7791f;stroke-width:3}
 @media(max-width:760px){.fxSummary{grid-template-columns:repeat(2,minmax(0,1fr))}.fxSummary>div:nth-child(2){border-right:0}.fxSummary>div:nth-child(-n+2){border-bottom:1px solid var(--line)}}
+
+:global(html[data-theme="dark"]) .shell {
+  --ink: var(--theme-text);
+  --muted: var(--theme-muted);
+  --line: var(--theme-border);
+  --paper: var(--theme-bg);
+  --panel: var(--theme-panel);
+  --green: var(--theme-positive);
+  --mint: var(--theme-positive);
+  --blue: var(--theme-blue);
+  --red: var(--theme-negative);
+  background: var(--theme-bg);
+}
+
+:global(html[data-theme="dark"]) :is(.connection, .universeStrip, .relationships, .controls, .hedgePanel, .sourceSelector, .fairPanel, .modelPanel, .fxSummary, .methodPanel > div, .sourceGrid a) {
+  background: var(--theme-panel);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.hedgeHeader, .constituentGrid, .constituentHedge, .pairManager, .scanBreakdown, .pairLiveControls, .quickWindows, .windowRule, .sources) {
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.hedgeGrid > div, .hedgeCaveat, .constituentProvenance, .navInputsTable th, .navInputsTable td, .constituentHedgeTable th, .constituentHedgeTable td, .neutralPanel > div, .scanBreakdown > div) {
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.hedgeGrid strong, .constituentHedgeHeader strong, .navInputsTable th, .constituentHedgeTable th, .constituentHedgeHeader label) {
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.universeStrip span, .sectionLabel span, .sectionLabel small, .scanBreakdown > span, .panelHead span, .methodPanel span, .sources > div:first-child span, .hedgeHeader > div > span, .hedgeGrid span, .hedgeHeader p, .hedgeHeader label, .hedgeGrid small, .hedgeCaveat, .hedgeUnavailable, .constituentProvenance, .navInputsTable small, .constituentHedgeHeader small, .constituentHedgeTable small, .constituentHedgeNote, .constituentHedgeEmpty, .relationshipTitle i, .relationshipMeta b, .pendingError, .controls label, .scanBreakdown p, .pairLiveStatus small, .metricGrid span, .metricGrid small, .predictionGrid span, .predictionGrid small, .modelHead > div > span, .modelMetrics span, .modelMetrics small, .legend span, .fairLegend, .fairCaveat, .sourceSelector > div:first-child span, .fairHead span, .footer) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.hedgeHeader input, .constituentHedgeHeader input, .pairManager input, .pairManager select, .controls input, .sectionLabel button, .pairManager .restoreButton, .historyToggle, .historyModeBar button, .sourceOptions, .removeRelationship) {
+  color: var(--theme-text);
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+  color-scheme: dark;
+}
+
+:global(html[data-theme="dark"]) :is(.runButton, .hedgeHeader button, .pairManager .addPairButton, .sourceOptions .sourceActive) {
+  color: var(--theme-positive);
+  background: var(--theme-positive-bg);
+}
+
+:global(html[data-theme="dark"]) :is(.hedgeCaveat a, .constituentHoldings a, .sourceSelector > a, .pairLiveStatus span) {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .sourceOptions button {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .sourceOptions .sourceActive {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) :is(.relationshipItem > button:first-child:hover, .historyToggle:hover, .historyModeBar button:hover) {
+  background: var(--theme-hover);
+}
+
+:global(html[data-theme="dark"]) .relationshipList .activeRelationship {
+  color: var(--theme-positive);
+  background: var(--theme-positive-bg);
+  border-color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .activeRelationship span {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .positiveError {
+  color: var(--theme-negative);
+  background: var(--theme-negative-bg);
+}
+
+:global(html[data-theme="dark"]) .negativeError {
+  color: var(--theme-blue);
+  background: var(--theme-blue-bg);
+}
+
+:global(html[data-theme="dark"]) .diskFairPanel .hedgeGrid strong.positiveError {
+  color: var(--theme-positive);
+  background: var(--theme-positive-bg);
+}
+
+:global(html[data-theme="dark"]) .diskFairPanel .hedgeGrid strong.negativeError {
+  color: var(--theme-warning);
+  background: var(--theme-warning-bg);
+}
+
+:global(html[data-theme="dark"]) .diskFairPanel .hedgeGrid strong.navDiscount {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .diskFairPanel .hedgeGrid strong.navPremium {
+  color: var(--theme-negative);
+}
+
+:global(html[data-theme="dark"]) :is(.releaseBadge, .errorSnapshot) {
+  color: var(--theme-purple);
+  background: var(--theme-purple-bg);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.quickWindows .anchorWindow, .quickWindows button > small, .historyModeBar span, .errorSnapshot span) {
+  color: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) .quickWindows button {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .quickWindows .activeWindow {
+  color: var(--theme-text);
+  background: var(--theme-purple-bg);
+}
+
+:global(html[data-theme="dark"]) .quickWindows .activeWindow small {
+  color: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) .errorBox {
+  background: var(--theme-negative-bg);
+  border-color: var(--theme-negative);
+}
+
+:global(html[data-theme="dark"]) :is(.errorBox strong, .errorBox span) {
+  color: var(--theme-negative);
+}
+
+:global(html[data-theme="dark"]) .errorBox button {
+  background: var(--theme-raised);
+  color: var(--theme-negative);
+}
+
+:global(html[data-theme="dark"]) :is(.fairHead, .neutralPanel, .predictionGrid .theoryMetric, .errorChartPanel) {
+  background: linear-gradient(120deg, var(--theme-purple-bg), var(--theme-panel));
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.fairHead h2, .predictionGrid .theoryMetric strong, .neutralPanel span) {
+  color: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) :is(.fairHead p, .fairHead > div:last-child small, .neutralIntro p, .neutralLeg small, .neutralRatio small, .shareEquation small, .neutralPreset > b, .heroCopy small, .signal > span, .signal small) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .fairHead > div:last-child {
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.neutralPreset, .neutralRatio, .constituentHedgeTable tfoot) {
+  background: var(--theme-raised);
+}
+
+:global(html[data-theme="dark"]) .neutralPrimary {
+  background: var(--theme-purple-bg);
+}
+
+:global(html[data-theme="dark"]) .validated {
+  color: var(--theme-positive) !important;
+}
+
+:global(html[data-theme="dark"]) .usable {
+  color: var(--theme-warning) !important;
+}
+
+:global(html[data-theme="dark"]) .weak {
+  color: var(--theme-negative) !important;
+}
+
+:global(html[data-theme="dark"]) .locked {
+  color: var(--theme-purple) !important;
+}
+
+:global(html[data-theme="dark"]) .modelHead > b.validated {
+  background: var(--theme-positive-bg);
+}
+
+:global(html[data-theme="dark"]) .modelHead > b.usable {
+  background: var(--theme-warning-bg);
+}
+
+:global(html[data-theme="dark"]) .modelHead > b.weak {
+  background: var(--theme-negative-bg);
+}
+
+:global(html[data-theme="dark"]) .modelHead > b.locked {
+  background: var(--theme-purple-bg);
+}
+
+:global(html[data-theme="dark"]) .gridLine {
+  stroke: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.zeroLine, .inspectionLine) {
+  stroke: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .axisText {
+  fill: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .normalBand {
+  fill: var(--theme-positive-bg);
+}
+
+:global(html[data-theme="dark"]) .errorBand {
+  fill: var(--theme-purple-bg);
+}
+
+:global(html[data-theme="dark"]) :is(.theoreticalLine, .residualLine, .predictionErrorLine) {
+  stroke: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) :is(.inspectionDotTheory, .liveDot, .errorLiveDot) {
+  fill: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) :is(.inspectionDotA, .inspectionDotB, .inspectionDotTheory, .liveDot, .hotDot, .errorLiveDot, .errorHotDot) {
+  stroke: var(--theme-panel);
+}
+
+:global(html[data-theme="dark"]) .legendTheory {
+  background: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) :is(.chartInspector:focus, .fxLine, .fxDot) {
+  stroke: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .fxDot {
+  fill: var(--theme-panel);
+}
+
+:global(html[data-theme="dark"]) .chartTooltip rect {
+  fill: var(--theme-raised);
+  stroke: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .chartTooltip text {
+  fill: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .chartTooltip .chartTooltipValue {
+  fill: var(--theme-text);
+}

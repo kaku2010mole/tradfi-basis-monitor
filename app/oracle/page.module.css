@@ -286,3 +286,163 @@
 @media(max-width:1100px){.liquidationWorkspace{grid-template-columns:220px minmax(0,1fr)}.liquidationMetrics{grid-template-columns:1fr 1fr}.liquidationMetrics>div{border-bottom:1px solid rgba(155,181,204,.1)}.liquidationMetrics>div:nth-child(even){border-right:0}.liquidationMetrics>div:nth-last-child(-n+2){border-bottom:0}.liquidationLegend small{width:100%;margin-left:0}}
 @media(max-width:720px){.liquidationPanel{border-radius:10px}.liquidationHero{align-items:flex-start;min-height:0;padding:18px}.liquidationHero h2{font-size:26px}.liquidationWorkspace{grid-template-columns:1fr}.liquidationSidebar{display:grid;grid-template-columns:1fr 1fr;border-right:0;border-bottom:1px solid rgba(155,181,204,.12)}.liquidationSideSection:first-child{grid-column:1/-1}.liquidationSideSection{border-right:1px solid rgba(155,181,204,.1)}.liquidationContractList{grid-template-columns:1fr 1fr}.liquidationMetrics{grid-template-columns:1fr 1fr}.liquidationMetrics>div{min-height:70px;padding:11px 12px}.liquidationMetrics strong{font-size:15px}.liquidationLegend{gap:10px;padding:10px 12px}.liquidationCanvasWrap{height:390px;min-height:350px;padding:2px 2px 0}.liquidationFooter{padding:10px 14px 14px}}
 @media(max-width:460px){.liquidationSidebar{grid-template-columns:1fr}.liquidationSideSection:first-child{grid-column:auto}.liquidationSideSection{border-right:0}.liquidationContractList{grid-template-columns:1fr}.liquidationMetrics strong{font-size:13px}.liquidationCanvasWrap{height:350px;min-height:330px}}
+
+:global(html[data-theme="dark"]) .shell {
+  --ink: var(--theme-text);
+  --muted: var(--theme-muted);
+  --line: var(--theme-border);
+  --panel: var(--theme-panel);
+  --blue: var(--theme-blue);
+  --green: var(--theme-positive);
+  --red: var(--theme-negative);
+  --binance: var(--theme-warning);
+  --binance-soft: var(--theme-warning-bg);
+  --hyper: var(--theme-positive);
+  --hyper-soft: var(--theme-positive-bg);
+  background: var(--theme-bg);
+}
+
+:global(html[data-theme="dark"]) :is(.links span, .pairManager, .sheinSpotlight, .quoteCard, .cardTop, .neutralStrip) {
+  background: var(--theme-panel);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.defaultPairs, .rankBadge, .side > header b, .actionLine, .cardPrices div, .executableBar, .neutralStrip button, .sheinFooter, .customPairs button) {
+  color: var(--theme-text);
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.controlBar label div, .controlBar input, .controlBar .secondaryButton, .pairForm input, .pairForm select, .historyControls input, .defaultPairs span, .customPairs > span, .sheinFooter button) {
+  color: var(--theme-text);
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+  color-scheme: dark;
+}
+
+:global(html[data-theme="dark"]) :is(.controlBar button, .historyControls button, .pairForm button) {
+  color: var(--theme-blue);
+  background: var(--theme-blue-bg);
+}
+
+:global(html[data-theme="dark"]) .controlBar .secondaryButton {
+  color: var(--theme-text);
+  background: var(--theme-raised);
+}
+
+:global(html[data-theme="dark"]) :is(.links .binanceLink, .binanceBadge, .binanceCard .cardTop small) {
+  color: var(--theme-warning);
+  background: var(--theme-warning-bg);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.links .hyperliquidLink, .hyperliquidBadge, .hyperliquidCard .cardTop small, .pinnedTag) {
+  color: var(--theme-positive);
+  background: var(--theme-positive-bg);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .sheinHeroPrice {
+  background: linear-gradient(135deg, var(--theme-positive-bg), var(--theme-panel));
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .sheinHeroPrice strong {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .sheinPrices strong {
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.sheinPrices > div, .cardPrices, .sheinFooter) {
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.sheinHeroPrice span, .sheinPrices span, .sheinHeroPrice small, .sheinPrices small, .sheinFooter, .defaultPairs span b, .customPairs > span b, .customPairs button, .sideHeading small, .rankBadge, .actionDeviation span, .neutralDeviation b, .actionLine span, .cardPrices span, .activePrice span, .neutralStrip button i, .footer) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .actionLine strong {
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) .positiveSide {
+  border-top-color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .negativeSide {
+  border-top-color: var(--theme-blue);
+}
+
+:global(html[data-theme="dark"]) :is(.positiveSide .sideHeading > span, .positiveSide .sideHeading strong, .sellDeviation b) {
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) :is(.negativeSide .sideHeading > span, .negativeSide .sideHeading strong, .buyDeviation b) {
+  color: var(--theme-blue);
+}
+
+:global(html[data-theme="dark"]) .sellCard .cardPrices .activePrice {
+  background: var(--theme-warning-bg);
+  box-shadow: inset 0 -2px var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .buyCard .cardPrices .activePrice {
+  background: var(--theme-blue-bg);
+  box-shadow: inset 0 -2px var(--theme-blue);
+}
+
+:global(html[data-theme="dark"]) :is(.sellCard .executableBar, .buyCard .executableBar) {
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .neutralStrip .activeNeutral {
+  color: var(--theme-blue);
+  background: var(--theme-blue-bg);
+  border-color: var(--theme-blue);
+}
+
+:global(html[data-theme="dark"]) .staleCard {
+  background: var(--theme-warning-bg);
+  border-color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .staleCard footer span:last-child {
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .warningText {
+  color: var(--theme-warning) !important;
+}
+
+:global(html[data-theme="dark"]) .quoteCard:hover {
+  border-color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .binanceCard.selectedCard {
+  border-color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .hyperliquidCard.selectedCard {
+  border-color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .tooltip {
+  color: var(--theme-muted);
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .chartWrap svg text {
+  fill: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.depthHeader p:last-child, .recorderStatus small, .depthAxis label, .depthAxis label > div span, .depthMetrics span, .depthScaleLegend > div:first-child small, .depthScaleBands small, .depthGestureHelp, .timeNavigator > div, .historyDataPanel span, .historyDataPanel > small, .depthFooter, .liquidationSectionTitle, .liquidationContractRow > button:first-child small, .liquidationRangeField, .liquidationRangeEnds, .liquidationMetrics span, .liquidationMetrics small, .liquidationLegend small) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.depthAxis input, .depthAxis select, .liquidationPairForm input) {
+  color-scheme: dark;
+}

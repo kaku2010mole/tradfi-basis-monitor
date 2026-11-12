@@ -71,3 +71,15 @@
 @media (prefers-reduced-motion: reduce) {
   .broadcast, .beacon i, .sweep { animation: none; }
 }
+
+:global(html[data-theme="dark"]) .broadcast {
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .45);
+}
+
+:global(html[data-theme="dark"]) .positive {
+  border-color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .negative {
+  border-color: var(--theme-negative);
+}

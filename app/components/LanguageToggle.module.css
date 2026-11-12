@@ -3,3 +3,7 @@
 .toggle:focus-visible{outline:2px solid #11875f;outline-offset:3px}
 .toggle[aria-pressed="true"]{background:#173c2b;color:#fff;border-color:#173c2b}
 @media(max-width:560px){.toggle{min-width:38px;padding:0 7px;gap:4px}.toggle svg{width:14px;height:14px}.toggle span{font-size:10px}}
+
+:global(html[data-theme="dark"]) .toggle { background: var(--theme-raised); border-color: var(--theme-border); color: var(--theme-text); }
+:global(html[data-theme="dark"]) .toggle:hover { background: var(--theme-hover); }
+:global(html[data-theme="dark"]) .toggle[aria-pressed="true"] { background: var(--theme-positive-bg); border-color: var(--theme-positive); color: var(--theme-positive); }

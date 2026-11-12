@@ -189,3 +189,138 @@
 @media(max-width:1180px){.filters{grid-template-columns:1fr 180px auto auto}.filters>p{grid-column:1/-1;text-align:left}.stats{grid-template-columns:repeat(3,1fr)}.accountSummary{grid-template-columns:1fr 1fr}.accountBody{grid-template-columns:1fr}.periodTableHead,.periodRow{grid-template-columns:120px minmax(190px,1.4fr) repeat(3,minmax(84px,.65fr))}.venueNumbers{grid-template-columns:1fr 1fr}.venueNumbers>div:nth-child(2){border-right:0}.venueNumbers>div:nth-child(-n+2){border-bottom:1px solid #e3e8ef}}
 @media(max-width:760px){.shell{padding:17px 10px 30px}.topbar{display:grid;gap:16px}.topActions{align-items:flex-start;flex-direction:column-reverse}.connections{justify-content:flex-start}.topbar h1{font-size:43px}.stats{grid-template-columns:1fr 1fr}.stats article{min-height:105px;padding:14px}.stats strong{font-size:26px}.accountHeader{align-items:flex-start;flex-direction:column;padding:18px 15px}.accountHeaderActions{width:100%;justify-content:space-between}.accountSummary{grid-template-columns:1fr 1fr}.accountSummary article{min-height:112px;padding:15px 13px}.accountSummary .accountNet{grid-column:1/-1}.periodHead{align-items:flex-start;flex-direction:column;padding:16px 13px 12px}.periodToggle{width:100%}.periodToggle button{flex:1}.periodTable{overflow-x:auto}.periodTableHead,.periodRow{width:720px;padding:0 13px}.accountControls{align-items:flex-start;flex-direction:column}.accountWindows{width:100%}.accountWindows button{flex:1}.accountChartPanel,.coinBreakdown{padding:15px 12px 9px}.filters{grid-template-columns:1fr 1fr}.filters .matchToggle,.filters>button{width:100%}.venueComparisons{grid-template-columns:1fr}.historyHead{align-items:flex-start;flex-direction:column;padding:17px 14px 8px}.historyWindows{width:100%}.historyWindows button{flex:1}.inlineHistory>footer{padding:9px 14px 15px}.chartWrap{padding:0 3px 6px}}
 @media(max-width:480px){.connections{display:grid;width:100%}.connections span{justify-content:flex-start}.stats{grid-template-columns:1fr 1fr}.accountSummary strong,.accountSummary .accountNet strong{font-size:22px}.accountSectionTitle small{display:none}.accountLedger>summary{align-items:flex-start;flex-direction:column}.accountFoot{flex-direction:column;gap:4px}.filters{grid-template-columns:1fr}.cardHead{align-items:flex-start}.cardHead>span{min-width:105px;font-size:12px}.spreadLane{padding:13px 11px}.spreadHeroes{grid-template-columns:1fr 1fr}.spreadHeroes>div{padding:10px 8px}.spreadHeroes strong{font-size:18px}.tradeDirection{align-items:flex-start;flex-direction:column}.tradeDirection strong{text-align:left}.cardFooter{align-items:flex-start;flex-direction:column}.cardFooter>button{width:100%;justify-content:space-between}.historyWindows button{min-width:0}.inlineHistory>footer{flex-direction:column;gap:4px}}
+
+:global(html[data-theme="dark"]) .shell {
+  --ink: var(--theme-text);
+  --muted: var(--theme-muted);
+  --line: var(--theme-border);
+  --panel: var(--theme-panel);
+  --purple: var(--theme-purple);
+  --purple-soft: var(--theme-purple-bg);
+  --green: var(--theme-positive);
+  --red: var(--theme-negative);
+  background: var(--theme-bg);
+}
+
+:global(html[data-theme="dark"]) :is(.connections span, .stats article, .accountPanel, .accountSummary article, .periodPanel, .accountWindows, .accountChartPanel, .coinBreakdown, .accountLedger, .filters, .marketCard, .cardHead, .spreadHeroes>div, .venueNumbers, .cardFooter, .inlineHistory) {
+  background: var(--theme-panel);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.accountPanel, .accountHeader, .periodPanel, .periodTable, .periodRow, .accountControls, .accountWindows, .coinRows, .coinRows>div, .accountLedger, .ledgerScroll, .ledgerScroll td, .accountFoot, .priceGrid, .priceGrid>div, .spreadHeroes>div, .venueNumbers, .venueNumbers>div) {
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.accountSummary, .accountBody) {
+  background: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .accountSummary .accountNet {
+  background: linear-gradient(145deg, var(--theme-purple-bg), var(--theme-panel));
+}
+
+:global(html[data-theme="dark"]) .accountSummary .nextFundingEstimate {
+  background: linear-gradient(145deg, var(--theme-positive-bg), var(--theme-panel));
+}
+
+:global(html[data-theme="dark"]) :is(.periodToggle, .periodTableHead, .periodNet, .accountControls, .forecastNote, .ledgerScroll th, .accountFoot, .filters .matchToggle, .spreadLane, .noComparison, .historyWindows) {
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.accountSummary span, .accountSummary small, .periodToggle button, .periodTableHead, .periodRow>span:first-child small, .accountWindows button, .accountSectionTitle span, .accountSectionTitle small, .coinRows small, .forecastNote, .accountLedger>summary small, .ledgerScroll th, .accountLedger>footer, .accountFoot, .filters label, .cardHead>div small, .rateMeta b, .priceGrid span, .comparison span, .spreadLane>header span, .spreadHeroes span, .spreadHeroes small, .venueNumbers dt, .venueNumbers small, .cardFooter>div, .historyWindows button, .inlineHistory>footer, .footer) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.filters input[type="text"], .filters input:not([type]), .filters select) {
+  background: var(--theme-raised);
+  color: var(--theme-text);
+  border-color: var(--theme-border);
+  color-scheme: dark;
+}
+
+:global(html[data-theme="dark"]) .filters>button {
+  background: var(--theme-purple-bg);
+  color: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) :is(.accountWindows .activeAccountWindow, .historyWindows .activeWindow, .cardFooter>button i) {
+  background: var(--theme-purple);
+  color: var(--theme-bg);
+}
+
+:global(html[data-theme="dark"]) .periodToggle .activePeriod {
+  background: var(--theme-purple-bg);
+  color: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) .marketCard:hover {
+  border-color: #536575;
+}
+
+:global(html[data-theme="dark"]) .positiveFunding {
+  background: var(--theme-positive-bg);
+}
+
+:global(html[data-theme="dark"]) .negativeFunding {
+  background: var(--theme-negative-bg);
+}
+
+:global(html[data-theme="dark"]) .spreadLane>header em {
+  background: var(--theme-positive-bg);
+  color: var(--theme-positive);
+  border-color: #315c4c;
+}
+
+:global(html[data-theme="dark"]) .unavailableLane>header em {
+  background: var(--theme-raised);
+  color: var(--theme-muted);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .comparison {
+  background: linear-gradient(110deg, var(--theme-purple-bg), var(--theme-panel));
+  border-color: #51436f;
+}
+
+:global(html[data-theme="dark"]) .hyperComparison {
+  background: linear-gradient(110deg, var(--theme-positive-bg), var(--theme-panel));
+  border-color: #315c4c;
+}
+
+:global(html[data-theme="dark"]) .noComparison {
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .cardFooter>button {
+  background: var(--theme-purple-bg);
+  color: var(--theme-purple);
+  border-color: #51436f;
+}
+
+:global(html[data-theme="dark"]) .accountLedger>summary span::before {
+  background: var(--theme-purple-bg);
+}
+
+:global(html[data-theme="dark"]) :is(.tooltip, .accountTooltip) {
+  background: var(--theme-raised);
+  color: var(--theme-muted);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .plotBackground {
+  fill: var(--theme-bg);
+}
+
+:global(html[data-theme="dark"]) :is(.accountGridLine, .gridLine) {
+  stroke: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.accountAxisText, .axisText) {
+  fill: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.accountDot, .positiveDot, .negativeDot) {
+  stroke: var(--theme-panel);
+}

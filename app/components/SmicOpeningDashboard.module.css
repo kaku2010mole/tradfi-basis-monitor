@@ -9,3 +9,88 @@
 @media(max-width:640px){.topbar{height:56px;padding:0 12px}.brand span{font-size:10px}.brand small{font-size:8px}.topActions{gap:9px}.status{font-size:7px;max-width:125px;line-height:1.4}.content{padding:22px 12px}.heading{align-items:flex-start;gap:18px;flex-direction:column;margin-bottom:16px}.heading h1{font-size:33px}.heading p:not(.eyebrow){font-size:11px;line-height:1.6}.nextOpen{display:flex;flex-wrap:wrap;align-items:center;border-left:0;border-top:1px solid #dce3db;padding:12px 0 0;width:100%;gap:6px 12px}.nextOpen small{font-size:8px;width:100%}.nextOpen strong{font-size:19px}.nextOpen span{font-size:9px}.mainGrid{grid-template-columns:1fr;gap:12px}.forecastCard{padding:19px 18px 0}.signalCard{padding:18px}.bigNumber{font-size:59px}.forecastCard>p,.signalCard>p{margin-top:18px}.priceRow{grid-template-columns:1fr 1.3fr;gap:10px;margin-top:20px}.priceRow b{font-size:11px;line-height:1.5}.cardFoot{margin-inline:-18px;padding-inline:18px}.signalNumber{font-size:34px}.signalCard .cardKicker{font-size:8px}.probabilityCard{padding:18px 16px 13px}.sectionHeading{align-items:flex-start;flex-direction:column;gap:10px}.sectionHeading h2{font-size:17px}.cohort{font-size:9px}.probGrid{gap:16px 10px;margin-top:18px}.probGrid strong{font-size:29px}.probGrid .range{font-size:19px}.probGrid small{font-size:8px}.scenarioCard{padding:16px}.scenarioControls{width:100%;flex-wrap:wrap;gap:13px;justify-content:space-between}.scenarioControls input[type=range]{flex:1;min-width:80px}.scenarioControls label{font-size:10px}.scenarioControls input[type=number]{width:78px;height:42px;font-size:16px}.scenarioControls button{height:40px}.stats{gap:8px}.stats>div{padding:13px 11px}.stats span{font-size:9px}.stats b{font-size:23px}.stats small{font-size:8px}.tableCard .sectionHeading{padding:18px 16px 13px}.tableCard>.helper{padding-inline:16px}.tableWrap th,.tableWrap td{padding:11px 12px}.method summary{padding:15px 16px}.footer{flex-direction:column;gap:5px}.notice{font-size:10px;line-height:1.6}}
 .instrumentBar{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 16px;margin-bottom:24px;background:#eaf0e5;border:1px solid #d7e2d2;border-radius:7px}.instrumentBar label{display:flex;align-items:center;gap:14px;font:800 10px monospace;color:#536a59}.instrumentBar select{max-width:100%;font:700 13px monospace;padding:10px 34px 10px 12px;border:1px solid #b9cbb4;border-radius:5px;background:#fbfcf8;color:#172b23;cursor:pointer}.instrumentBar>span{font-size:11px;color:#5b7161}.dualSignals{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.dualSignals .signalCard{min-width:0}.dualSignals .signalNumber{font-size:34px}.probabilityCard .cohort{white-space:normal}.jointTable tr.selected td{background:#e8f2df}.scenarioControls .dualInput{display:grid;gap:5px}.sourceWarning{color:#98691b!important}.jointTable button{border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;text-align:left}.dualForecast .priceRow{max-width:700px}.dualForecast .bigNumber{font-size:clamp(48px,6vw,72px)}
 @media(max-width:760px){.instrumentBar{align-items:stretch;flex-direction:column;gap:9px}.instrumentBar label{flex-direction:column;align-items:stretch;gap:8px}.instrumentBar select{width:100%;font-size:12px}.dualSignals{grid-template-columns:1fr}.dualSignals .signalNumber{font-size:32px}.scenarioControls .dualInput{width:100%;display:flex;justify-content:space-between}.jointTable{min-width:650px}}
+
+:global(html[data-theme="dark"]) .dashboard {
+  background: var(--theme-bg);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.topbar, .signalCard, .probabilityCard, .scenarioCard, .tableCard, .method, .stats > div) {
+  background: var(--theme-panel);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.brand small, .heading p:not(.eyebrow), .nextOpen small, .nextOpen span, .signalCard .cardKicker, .signalCard > p, .quotePair small, .facts dt, .signalCard .source, .probGrid span, .probGrid small, .helper, .scenarioCard p, .scenarioControls label, .stats span, .stats em, .stats small, .tableHint, .method p, .footer, .instrumentBar label, .instrumentBar > span) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.live, .eyebrow, .signalCard .cardKicker b, .up, .method a) {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .down {
+  color: var(--theme-negative);
+}
+
+:global(html[data-theme="dark"]) :is(.stale, .notice) {
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .sourceWarning {
+  color: var(--theme-warning) !important;
+}
+
+:global(html[data-theme="dark"]) .notice {
+  background: var(--theme-warning-bg);
+  border-color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) :is(.nextOpen, .facts, .tableWrap th, .tableWrap td) {
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .forecastCard {
+  background: var(--theme-positive-bg);
+  border-color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) :is(.forecastCard .cardKicker, .forecastCard .up) {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .forecastCard .down {
+  color: var(--theme-negative);
+}
+
+:global(html[data-theme="dark"]) :is(.cohort, .tableWrap th, .instrumentBar) {
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .probBar {
+  background: var(--theme-hover);
+}
+
+:global(html[data-theme="dark"]) :is(.scenarioControls input[type="number"], .instrumentBar select) {
+  background: var(--theme-bg);
+  border-color: var(--theme-border);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) .scenarioControls button {
+  background: var(--theme-positive-bg);
+  border-color: var(--theme-positive);
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .scenarioCard .invalid {
+  color: var(--theme-negative);
+}
+
+:global(html[data-theme="dark"]) .tableWrap td button {
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.tableWrap .selected, .jointTable tr.selected td) {
+  background: var(--theme-positive-bg);
+}

@@ -1,5 +1,24 @@
 .tools { display:flex;align-items:center;justify-content:flex-end;gap:6px;flex:0 0 auto; }
 
+.themeToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #c9dcd1;
+  border-radius: 6px;
+  background: #f2faf5;
+  color: #176347;
+  font: 700 11px/1.2 Arial, "PingFang SC", sans-serif;
+  cursor: pointer;
+}
+
+.themeToggle:hover { background: #e4f4eb; }
+.themeToggle:focus-visible { outline: 2px solid #11875f; outline-offset: 3px; }
+
 .switcher {
   position: relative;
   z-index: 30;
@@ -66,6 +85,8 @@
 .switcher nav form { margin: 6px 7px 3px; }
 
 @media (max-width: 560px) {
+  .themeToggle { width: 36px; padding: 0; }
+  .themeToggle span { display: none; }
   .switcher summary {
     width: 36px;
     min-height: 34px;
@@ -74,3 +95,27 @@
   }
   .switcher summary b { display: none; }
 }
+
+:global(html[data-theme="dark"]) .themeToggle,
+:global(html[data-theme="dark"]) .switcher summary {
+  border-color: var(--theme-border);
+  background: var(--theme-raised);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) .themeToggle:hover,
+:global(html[data-theme="dark"]) .switcher[open] summary,
+:global(html[data-theme="dark"]) .switcher nav a:hover {
+  background: var(--theme-hover);
+}
+
+:global(html[data-theme="dark"]) .switcher nav {
+  border-color: var(--theme-border);
+  background: var(--theme-panel);
+  box-shadow: 0 20px 55px #0006;
+}
+
+:global(html[data-theme="dark"]) .switcher nav a { color: var(--theme-text); }
+:global(html[data-theme="dark"]) .switcher nav p,
+:global(html[data-theme="dark"]) .switcher nav a small { color: var(--theme-muted); }
+:global(html[data-theme="dark"]) .switcher nav a[aria-current="page"] { background: var(--theme-positive-bg); color: var(--theme-positive); }
