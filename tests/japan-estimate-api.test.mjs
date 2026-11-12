@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('independent Japan panel uses cash anchors and real FX, with contract quotes isolated to comparison', async () => {
+test('legacy Japan API retains its cash anchors after its page is replaced by funding rankings', async () => {
   const {default:worker}=await import('../dist/server/index.js');
   const ctx={waitUntil(){},passThroughOnException(){}};
   const page=await worker.fetch(new Request('http://localhost/japan-estimate'),{ASSETS:{fetch:async()=>new Response('',{status:404})}},ctx);
-  assert.equal(page.status,200); assert.match(await page.text(),/Japanese stock estimates/);
+  assert.equal(page.status,200); assert.match(await page.text(),/TradFi funding rates/);
   const protectedApi=await worker.fetch(new Request('http://localhost/api/japan-estimate'),{SITE_PASSWORD:'test-password'},ctx);
   assert.equal(protectedApi.status,401);
   const original={fetch:globalThis.fetch,now:Date.now,snapshot:globalThis.__FUTU_PUSH_SNAPSHOT__,state:globalThis.__JAPAN_ESTIMATE__,fx:globalThis.__JAPAN_SPOT_FX__,pts:globalThis.__JAPAN_PTS_CASH__};

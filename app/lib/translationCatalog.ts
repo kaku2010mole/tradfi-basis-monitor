@@ -1,6 +1,67 @@
 // Locally reviewed UI vocabulary, lazy-loaded only when Chinese is selected.
 // Keep symbols, venue brands, numbers, user input and external source text intact.
 const catalog = `
+TradFi funding rates	TradFi 资金费率
+BITGET · FUNDING RATES	BITGET · 资金费率
+BITGET · USDT-M TRADFI PERPETUALS	BITGET · USDT 本位传统资产永续
+Bitget top / bottom 10 · settlement and 8h rates	Bitget 最高／最低十名 · 单次及八小时费率
+Bitget TradFi funding rates · top / bottom 10 ↗	Bitget 传统资产资金费率 · 最高／最低十名 ↗
+The 10 highest and 10 lowest current Bitget rates.	Bitget 当前资金费率最高与最低的各十个合约。
+Highest 10	最高十名
+Lowest 10	最低十名
+Positive rates: shorts receive	正费率：空头收取
+Negative rates: longs receive	负费率：多头收取
+Ranked by 8h equivalent	按八小时等效费率排序
+Ranked per settlement	按单次结算费率排序
+Contract / underlying	合约／标的
+Current rate	当前费率
+Cycle	结算周期
+8h equivalent	八小时等效
+Next funding	下次结算
+CONTRACTS IN VIEW	当前范围内合约
+HIGHEST RATE	最高费率
+LOWEST RATE	最低费率
+NEXT FUNDING	下次结算
+TradFi perpetual contracts	传统资产永续合约
+per-contract times below	各合约时间见下表
+Awaiting schedule update	等待结算时间更新
+Funding ranking basis	资金费率排序口径
+Per settlement	单次结算
+8-hour equivalent	八小时等效
+Search symbols or names	搜索代码或标的名称
+Filter TradFi asset type	筛选传统资产类别
+All assets	全部资产
+Stocks	股票
+ETFs	ETF
+Indices	指数
+Metals	贵金属
+Energy	能源
+Forex	外汇
+Other TradFi	其他传统资产
+Auto refresh · 20s	自动刷新 · 20 秒
+Snapshot	快照
+Last snapshot	最近快照
+Paused	已暂停
+Dividend event	股息事件
+Loading live funding rates…	正在加载实时资金费率…
+Funding rates are temporarily unavailable.	资金费率暂不可用。
+No contracts match these filters.	没有符合筛选条件的合约。
+Contracts without a valid current funding rate:	缺少有效当前费率的合约：
+This snapshot is stale. Rates and original timestamps are retained.	该快照已过期，已保留费率及原始时间。
+Bitget could not refresh. The last snapshot and its original time are retained.	Bitget 刷新失败，已保留上次快照及原始时间。
+Funding rates could not refresh. The last snapshot is retained.	资金费率刷新失败，已保留上次快照。
+Session expired. Sign in again to refresh funding rates.	登录已过期，请重新登录以刷新资金费率。
+How to read this panel	如何阅读此面板
+Positive funding: longs pay shorts. Negative funding: shorts pay longs. The displayed rate can change before settlement.	正费率由多头支付给空头，负费率由空头支付给多头。显示费率在结算前仍会变化。
+Per settlement ranks the original rate. The 8-hour equivalent is rate × 8 ÷ settlement interval; it is a comparison, not a forecast of future payments. Contracts with an unknown interval are excluded from the 8-hour ranking.	单次结算按原始费率排序。八小时等效费率＝原始费率×8÷结算间隔，仅供比较，不预测未来实际支付金额；结算周期未知的合约不参与八小时排序。
+Only online Bitget TradFi perpetuals are included, using Bitget’s RWA classification. Stocks, ETFs, indices, metals, energy, forex and pre-IPO products may be included. Delivery futures are excluded.	仅纳入 Bitget 标记为 RWA 且正常交易的永续合约，涵盖股票、ETF、指数、贵金属、能源、外汇及上市前产品，不含交割合约。
+Stock dividends can create funding adjustments. Dividend events are flagged when Bitget supplies the event. This ranking does not include trading fees or hedge costs.	股票股息可能产生资金费用调整。Bitget 返回股息事件时会单独标注。此排名不含交易手续费和对冲成本。
+Refreshes every 20 seconds while visible. All times are Hong Kong time. Failed refreshes retain the original snapshot time.	页面可见时每 20 秒刷新，所有时间为香港时间。刷新失败时保留原始快照时间。
+Bitget funding data	Bitget 资金费率数据
+Funding and settlement rules	资金费率及结算规则
+BITGET PUBLIC MARKET DATA	BITGET 公开市场数据
+Current estimates · not settled funding history	当前预估费率 · 非历史已结算费率
+Original snapshot time retained	保留原始快照时间
 TradFi Basis Monitor	TradFi 基差监控
 TradFi Monitor	TradFi 监控
 JLP Research	JLP 研究
