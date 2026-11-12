@@ -36,6 +36,23 @@
 .navInputsTable th { color:#315a49; font-weight:750; }
 .navInputsTable td { font-variant-numeric:tabular-nums; }
 .navInputsTable small { display:block; margin-top:2px; color:#698075; font-size:10px; }
+.constituentHedge { padding:16px 20px; border-top:1px solid #d9e5e0; background:#fcfefd; }
+.constituentHedgeHeader { display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px 24px; }
+.constituentHedgeHeader label { display:grid; gap:6px; color:#315a49; font-size:11px; font-weight:750; }
+.constituentHedgeHeader input { width:160px; height:38px; padding:0 10px; border:1px solid #a5cbb9; border-radius:7px; background:#fff; color:#103e31; font:750 14px monospace; }
+.constituentHedgeHeader input:focus-visible { outline:2px solid #087f5b; outline-offset:2px; }
+.constituentHedgeHeader>div { display:grid; gap:5px; padding-bottom:3px; }
+.constituentHedgeHeader strong { color:#103e31; font-size:14px; }
+.constituentHedgeHeader small { color:#698075; font-size:10px; line-height:1.5; }
+.constituentHedgeScroll { margin-top:12px; overflow-x:auto; }
+.constituentHedgeTable { width:100%; min-width:570px; border-collapse:collapse; text-align:left; font-size:11px; font-variant-numeric:tabular-nums; }
+.constituentHedgeTable th,.constituentHedgeTable td { padding:8px 10px; border-bottom:1px solid #e1ebe5; }
+.constituentHedgeTable th { color:#315a49; font-weight:750; }
+.constituentHedgeTable :is(th,td):not(:first-child) { text-align:right; }
+.constituentHedgeTable td:first-child { font-weight:750; }
+.constituentHedgeTable small { display:block; margin-top:2px; color:#698075; font-size:9px; font-weight:400; }
+.constituentHedgeTable tfoot { background:#f5f9f7; font-weight:750; }
+.constituentHedgeNote,.constituentHedgeEmpty { margin:9px 0 0; color:#698075; font-size:10px; line-height:1.5; }
 .hedgeHeader { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; padding:18px 20px; background:linear-gradient(110deg,#eaf8f0,#f7fbf8 68%); }
 .hedgeHeader>div>span,.hedgeGrid span { display:block; color:#587f6f; font:850 9px/1.2 monospace; letter-spacing:.11em; }
 .hedgeHeader h2 { margin:6px 0 5px; font-size:clamp(21px,3vw,30px); letter-spacing:-.04em; }

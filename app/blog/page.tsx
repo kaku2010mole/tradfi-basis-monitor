@@ -35,6 +35,7 @@ import { leveragedKoreanHedge } from "../lib/leveragedKoreanHedge";
 import { bitgetBooks, bitgetLivePrice, bitgetMidpoint, bitgetSeries, relativeUniverse, type BitgetBook } from "../lib/bitgetRelativeMarket";
 import type { DiskCashSnapshot } from "../lib/diskCashModel";
 import { DISK_SYNTHETIC_NAV_MAX_SNAPSHOT_AGE, diskSyntheticNavDiscount } from "../lib/diskSyntheticNav";
+import { calculateDiskConstituentHedge } from "../lib/diskConstituentHedge";
 import styles from "./page.module.css";
 
 type Analysis = {
@@ -612,6 +613,7 @@ function DiskFairPanel() {
   const [snapshot, setSnapshot] = useState<DiskCashSnapshot | null>(null);
   const [delayed, setDelayed] = useState(false);
   const [checkedAt, setCheckedAt] = useState(() => Date.now());
+  const [diskUnitsInput, setDiskUnitsInput] = useState("");
   useEffect(() => {
     let controller: AbortController | null = null;
     const refresh = async () => {
@@ -627,7 +629,7 @@ function DiskFairPanel() {
         const data: DiskCashSnapshot = await response.json();
         if (!request.signal.aborted) { setSnapshot(data); setCheckedAt(Date.now()); setDelayed(false); }
       } catch {
-        if (controller === request) setDelayed(true);
+        if (controller === request) { setCheckedAt(Date.now()); setDelayed(true); }
       } finally {
         window.clearTimeout(timeout);
         if (controller === request) controller = null;
@@ -670,6 +672,9 @@ function DiskFairPanel() {
     : syntheticNav.status === "partial" ? "Constituent inputs incomplete"
     : !navReady ? "Waiting for complete valuations" : "Synthetic NAV estimate · indicative";
   const discountStatus = navReady && !bookCurrent ? "Waiting for fresh Bitget BBO" : navStatus;
+  const diskUnits = diskUnitsInput.trim() ? Number(diskUnitsInput) : null;
+  const validDiskUnits = diskUnits !== null && Number.isFinite(diskUnits) && diskUnits >= 0;
+  const constituentHedge = calculateDiskConstituentHedge(diskUnits, syntheticNav, checkedAt);
   const source = reference?.source === "futu" ? "Futu DRAM cash BBO"
     : reference?.source === "yahoo" ? "Yahoo DRAM cash print · indicative"
     : reference ? "Bitget DRAM proxy · indicative" : "Waiting for DRAM reference";
@@ -684,7 +689,6 @@ function DiskFairPanel() {
         <span>BETA MODEL DISCOUNT</span>
         <strong className={betaDiscount == null ? "" : betaDiscount >= 0 ? styles.navDiscount : styles.navPremium}>{betaDiscount == null ? "—" : formatPct(betaDiscount, 3)}</strong>
         <small>{betaAskDiscount != null && betaBidDiscount != null ? `Buy at ask ${formatPct(betaAskDiscount, 3)} · Bid ${formatPct(betaBidDiscount, 3)}` : betaDiscountStatus}</small>
-        <small>Positive = discount; negative = premium.</small>
       </div>
       <div><span>DISK MODEL FAIR VALUE · USD</span><strong>{fair == null ? "—" : `$${fair.toFixed(3)}`}</strong><small>{reference ? `DRAM ${reference.price.toFixed(3)} vs. ${reference.base.toFixed(3)} at anchor · ${formatPct((reference.price / reference.base - 1) * 100)} · ${formatTime(reference.at, true)} HKT` : "A current DRAM reference is required"}</small></div>
       <div><span>BITGET DISK BID / ASK · USDT</span><strong>{book ? `${book.bid.toFixed(3)} / ${book.ask.toFixed(3)}` : "—"}</strong><small>{book ? `Mid ${book.mid.toFixed(3)} · ${formatTime(book.at, true)} HKT` : "A fresh two-sided quote is required"}</small></div>
@@ -694,7 +698,6 @@ function DiskFairPanel() {
         <span>SYNTHETIC NAV DISCOUNT</span>
         <strong className={navDiscount == null ? "" : navDiscount >= 0 ? styles.navDiscount : styles.navPremium}>{navDiscount == null ? "—" : formatPct(navDiscount, 3)}</strong>
         <small>{navAskDiscount != null && navBidDiscount != null ? `Buy at ask ${formatPct(navAskDiscount, 3)} · Bid ${formatPct(navBidDiscount, 3)}` : discountStatus}</small>
-        <small>Positive = discount; negative = premium.</small>
       </div>
       <div>
         <span>SYNTHETIC NAV · USD</span>
@@ -709,21 +712,38 @@ function DiskFairPanel() {
         <small>{navInputsCurrent ? `Cash balance ${(syntheticNav.coverage.cashBalance * 100).toFixed(1)}%` : navStatus}</small>
       </div>
     </div>
+    <div className={styles.constituentHedge} aria-label="DISK constituent hedge calculator">
+      <div className={styles.constituentHedgeHeader}>
+        <label>DISK units<input type="number" inputMode="decimal" min="0" step="any" placeholder="10000" aria-invalid={diskUnitsInput.trim() !== "" && !validDiskUnits} value={diskUnitsInput} onChange={(event) => { setDiskUnitsInput(event.target.value); setCheckedAt(Date.now()); }} /></label>
+        <div><strong>Short perp basket</strong><small>{constituentHedge.baseDate ? `Mapped weight ${(constituentHedge.mappedWeight * 100).toFixed(2)}% · Unhedged remainder ${(constituentHedge.unmappedWeight * 100).toFixed(2)}%` : "Waiting for constituent inputs"}</small></div>
+      </div>
+      {validDiskUnits && constituentHedge.rows.length > 0 ? <div className={styles.constituentHedgeScroll}>
+        <table className={styles.constituentHedgeTable}>
+          <thead><tr><th>Perp</th><th>Weight</th><th>Short target · units</th><th>Notional · USDT</th></tr></thead>
+          <tbody>{constituentHedge.rows.map((row) => <tr key={row.perpSymbol}>
+            <td>{row.perpSymbol}<small>{row.name}</small></td>
+            <td>{(row.weight * 100).toFixed(2)}%</td>
+            <td>{row.quantity == null ? "—" : row.quantity.toLocaleString("en-US", { minimumFractionDigits: 6, maximumFractionDigits: 6 })}</td>
+            <td title={row.quoteAt ? `${formatTime(row.quoteAt, true)} HKT` : undefined}>{row.notional == null ? "—" : row.notional.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          </tr>)}</tbody>
+          <tfoot><tr><th>Mapped total</th><td>{(constituentHedge.mappedWeight * 100).toFixed(2)}%</td><td>—</td><td>{constituentHedge.notional == null ? "—" : constituentHedge.notional.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr></tfoot>
+        </table>
+      </div> : validDiskUnits ? <p className={styles.constituentHedgeEmpty}>Waiting for constituent inputs</p> : null}
+      <p className={styles.constituentHedgeNote}>{validDiskUnits ? "Raw weights; uncovered holdings remain unhedged." : "Enter positive DISK units."}</p>
+    </div>
     <div className={styles.constituentProvenance}>
-      <p>{navStatus}{syntheticNav?.oldestQuoteAt ? ` · Oldest constituent quote ${formatTime(syntheticNav.oldestQuoteAt, true)} HKT` : ""}{syntheticNav?.calculatedAt ? ` · Calculated ${formatTime(syntheticNav.calculatedAt, true)} HKT` : ""}</p>
+      <p>Positive = discount; negative = premium.{syntheticNav?.oldestQuoteAt ? ` · Oldest constituent quote ${formatTime(syntheticNav.oldestQuoteAt, true)} HKT` : ""}{syntheticNav?.calculatedAt ? ` · Calculated ${formatTime(syntheticNav.calculatedAt, true)} HKT` : ""}</p>
       <details>
-        <summary>Synthetic NAV inputs and timing</summary>
-        <p>Synthetic NAV = base NAV × [cash weight + Σ(stock weight × current USD price / NAV-date cash valuation price)], divided by the total disclosed weight.</p>
-        <p>Foreign holdings start from their local cash valuation marks at the NAV date, converted using NAV-time FX. Current perpetual prices revalue those older marks directly.</p>
-        <p>This is a synthetic NAV estimate, not an official intraday NAV. Perpetual prices and stock proxies for swaps can differ from the fund&apos;s valuation.</p>
-        <p>Published holdings are a dated proxy for the NAV portfolio. Holdings dates and valuation dates may differ.</p>
-        <p>Discount = (1 − Bitget price / synthetic NAV) × 100. Buy-at-ask and bid comparisons exclude fees, funding and slippage. USD ≈ USDT.</p>
-        <p>Quote times are preserved. Verified closed-market references keep their reported time; the calculation time does not make them new trades.</p>
+        <summary>Valuation details</summary>
+        <p>Estimated NAV revalues dated cash marks using current USD constituent prices; actual fund marks may differ.</p>
+        <p>Short target = DISK units × base NAV × raw weight / NAV-date USD price.</p>
+        <p>Targets are in perp base units, before order-step rounding.</p>
         {syntheticNav?.base && <p className={styles.constituentHoldings}>
           <a href={syntheticNav.base.source} target="_blank" rel="noreferrer">Published NAV · {syntheticNav.base.date}</a>
           <a href={syntheticNav.base.holdingsSource} target="_blank" rel="noreferrer">DISK holdings · {syntheticNav.base.holdingsAsOf}</a>
           <span>Base valuation {formatTime(syntheticNav.base.at, true)} HKT</span>
         </p>}
+        <p>{anchor ? `U.S. cash close ${anchor.date} · DISK $${anchor.disk.toFixed(2)} · DRAM $${anchor.dram.toFixed(2)}. ` : ""}β {DISK_DRAM_BETA.toFixed(4)} · 60 cash sessions through {DISK_DRAM_SAMPLE_END}.</p>
         {navInputsCurrent && syntheticNav.rows.length > 0 && <div className={styles.navInputsScroll}>
           <table className={styles.navInputsTable}>
             <thead><tr><th>Stock / weight</th><th>NAV-date cash valuation · USD</th><th>Current value · USD</th><th>Quote time · HKT</th><th>Source / session</th></tr></thead>
@@ -739,7 +759,6 @@ function DiskFairPanel() {
         {syntheticNav && syntheticNav.reasons.length > 0 && <p>{syntheticNav.reasons.join(" · ")}</p>}
       </details>
     </div>
-    <p className={styles.hedgeCaveat}>{anchor ? `U.S. cash close ${anchor.date} · DISK $${anchor.disk.toFixed(2)} · DRAM $${anchor.dram.toFixed(2)}. ` : ""}β {DISK_DRAM_BETA.toFixed(4)} from 60 cash sessions through {DISK_DRAM_SAMPLE_END}. The model measures DRAM&apos;s move from the latest completed U.S. cash close. Bitget proxy returns use the perpetual&apos;s price at the same close time. USD ≈ USDT. Off-hours estimates are indicative.</p>
   </section>;
 }
 

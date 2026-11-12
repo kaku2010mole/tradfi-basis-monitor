@@ -1253,6 +1253,22 @@ HKEX pre-open / cross-venue basis	港交所盘前 / 跨市场基差
 Ten-second relative value	每十秒更新的相对价值
 Beta model discount	β 模型折价
 DISK synthetic NAV comparison	DISK 合成净值比较
+DISK constituent hedge calculator	DISK 成分股对冲计算器
+DISK units	DISK 份额
+Short perp basket	成分股永续空头
+Mapped weight	对应永续权重
+Unhedged remainder	未对冲部分
+Short target · units	做空目标数量
+Weight	权重
+Notional · USDT	名义金额 · USDT
+Mapped total	对应合约合计
+Enter positive DISK units.	请输入正数 DISK 份额。
+Raw weights; uncovered holdings remain unhedged.	按原始权重计算，未覆盖持仓保留敞口。
+Valuation details	估值详情
+Estimated NAV revalues dated cash marks using current USD constituent prices; actual fund marks may differ.	合成净值用当前成分股美元价格重估历史现货估值，可能与基金实际净值不同。
+Short target = DISK units × base NAV × raw weight / NAV-date USD price.	做空目标数量 = DISK 份额 × 基准净值 × 原始权重 / 净值日美元价格。
+Targets are in perp base units, before order-step rounding.	基础单位目标数量，尚未按下单步长取整。
+cash sessions through	个现货交易日，数据截至
 Synthetic NAV discount	合成净值折价
 Synthetic NAV · USD	合成净值 · 美元
 Buy at ask	按卖价买入
@@ -1276,7 +1292,6 @@ Waiting for constituent inputs	等待成分股数据
 Waiting for current aligned references	等待当前对齐的参考报价
 Oldest constituent quote	最早成分股报价
 Calculated	计算于
-Synthetic NAV inputs and timing	合成净值输入与时间
 Published NAV	已公布净值
 DISK holdings	DISK 持仓
 Base valuation	基准估值时点
@@ -1287,12 +1302,6 @@ Quote time · HKT	报价时间 · 香港时间
 Source / session	来源 / 时段
 NAV FX	净值基准汇率
 Holdings dates	持仓日期
-Synthetic NAV = base NAV × [cash weight + Σ(stock weight × current USD price / NAV-date cash valuation price)], divided by the total disclosed weight.	合成净值 = 基准净值 × [现金权重 + Σ(股票权重 × 当前美元价格 / 净值日现货美元估值)] ÷ 披露权重合计。
-Foreign holdings start from their local cash valuation marks at the NAV date, converted using NAV-time FX. Current perpetual prices revalue those older marks directly.	海外持仓以净值日当地现货估值及净值时点汇率为基准，再用当前永续价格直接重估这些旧估值。
-This is a synthetic NAV estimate, not an official intraday NAV. Perpetual prices and stock proxies for swaps can differ from the fund's valuation.	此为合成净值估计，并非官方盘中净值。永续价格及互换的标的股票代理估值可能与基金估值不同。
-Published holdings are a dated proxy for the NAV portfolio. Holdings dates and valuation dates may differ.	公布的持仓用于近似净值投资组合，持仓日期与估值日期可能不同。
-Discount = (1 − Bitget price / synthetic NAV) × 100. Buy-at-ask and bid comparisons exclude fees, funding and slippage. USD ≈ USDT.	折价 =（1 − Bitget 价格 / 合成净值）× 100。按卖价买入及买价比较均未计手续费、资金费和滑点。USD ≈ USDT。
-Quote times are preserved. Verified closed-market references keep their reported time; the calculation time does not make them new trades.	保留原始报价时间。经核实的休市参考价仍显示其原有时间，计算时间不代表新的成交时间。
 Bitget stock perpetual bid/ask midpoint · USD(T)	Bitget 股票永续买卖中间价 · USD(T)
 Naver Korean after-hours cash trade	Naver 韩国盘后现货成交价
 Naver KRX cash trade	Naver 韩国现货成交价
