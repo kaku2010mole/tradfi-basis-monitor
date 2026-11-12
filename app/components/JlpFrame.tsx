@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getDisplayTheme, subscribeTheme } from "../lib/themePreference";
 
 export default function JlpFrame() {
   const frame = useRef<HTMLIFrameElement>(null);
@@ -10,6 +11,10 @@ export default function JlpFrame() {
     const iframe = frame.current;
     if (!iframe) return;
     let observer: ResizeObserver | undefined;
+    const syncTheme = () => {
+      const root = iframe.contentDocument?.documentElement;
+      if (root) root.dataset.theme = getDisplayTheme();
+    };
     const resize = () => {
       const doc = iframe.contentDocument;
       const content = doc?.querySelector("main");
@@ -20,6 +25,7 @@ export default function JlpFrame() {
     };
     const attach = () => {
       observer?.disconnect();
+      syncTheme();
       const doc = iframe.contentDocument;
       const content = doc?.querySelector("main");
       if (!content) return;
@@ -28,14 +34,16 @@ export default function JlpFrame() {
       observer.observe(content);
     };
     iframe.addEventListener("load", attach);
+    const unsubscribeTheme = subscribeTheme(syncTheme);
     if (iframe.contentDocument?.readyState === "complete") attach();
     window.addEventListener("resize", resize);
     return () => {
       iframe.removeEventListener("load", attach);
+      unsubscribeTheme();
       window.removeEventListener("resize", resize);
       observer?.disconnect();
     };
   }, []);
 
-  return <iframe ref={frame} title="JLP Research dashboard" src="/jlp-app/index.html?v=20261109-3" style={{ display: "block", width: "100%", height, border: 0 }} />;
+  return <iframe ref={frame} title="JLP Research dashboard" src="/jlp-app/index.html?v=20261112-theme" style={{ display: "block", width: "100%", height, border: 0 }} />;
 }

@@ -14,3 +14,8 @@
 @media (max-width: 680px) {
   .shell { padding: 0 10px 28px; }
 }
+
+:global(html[data-theme="dark"]) .shell {
+  background: var(--theme-bg);
+  color: var(--theme-text);
+}

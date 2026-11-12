@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: light;
   --ink: #17231e;
   --muted: #6c7771;
   --line: #dfe6e0;
@@ -10,6 +11,45 @@
   --red: #d24b43;
   --acid: #dfff45;
   --navy: #153b4b;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #e6edf3;
+  --muted: #9babb7;
+  --line: #2a3a46;
+  --paper: #0b1117;
+  --card: #111c25;
+  --green: #69d6ad;
+  --red: #ff938d;
+  --navy: #d9e6f2;
+  --theme-bg: #0b1117;
+  --theme-panel: #111c25;
+  --theme-raised: #16232d;
+  --theme-hover: #1b2b36;
+  --theme-text: #e6edf3;
+  --theme-muted: #9babb7;
+  --theme-border: #2a3a46;
+  --theme-positive: #69d6ad;
+  --theme-positive-bg: #12382d;
+  --theme-negative: #ff938d;
+  --theme-negative-bg: #3b2228;
+  --theme-warning: #efc175;
+  --theme-warning-bg: #392d1b;
+  --theme-blue: #8fc8ff;
+  --theme-blue-bg: #172d42;
+  --theme-purple: #c2aeff;
+  --theme-purple-bg: #2b2442;
+}
+
+.jlp-shell { background: var(--paper); color: var(--ink); padding-bottom: 0; }
+.jlp-navigation {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px clamp(20px, 3vw, 40px);
+  border-bottom: 1px solid var(--line);
 }
 
 * { box-sizing: border-box; }
@@ -429,4 +469,50 @@ tbody tr:hover { background: #f5f8f2; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; }
+}
+
+html[data-theme="dark"] body { background: var(--paper); }
+html[data-theme="dark"] ::selection { background: #285644; color: #f4fff9; }
+html[data-theme="dark"] { scrollbar-color: #455968 var(--paper); }
+
+html[data-theme="dark"] :is(.topbar, .mobile-board-switch) {
+  background: #111c25ed;
+}
+html[data-theme="dark"] :is(.brand-mark, .anchor-card, .link-monitor, .tabs button.active) {
+  background: var(--theme-raised);
+}
+html[data-theme="dark"] .anchor-control button { color: #17231e; }
+html[data-theme="dark"] :is(.search, .threshold-control > div, .anchor-control input, .yield-contract input, .yield-estimator-head button, .alert-card, .news-toggle, .pair-news-head button, .mobile-board-switch button) {
+  background: var(--theme-panel);
+  color: var(--theme-text);
+  color-scheme: dark;
+}
+html[data-theme="dark"] :is(th, .panel-footer, .alert-card dl, .yield-estimator footer, .deviation-side > header, .yield-estimator-head code) {
+  background: var(--theme-raised);
+  color: var(--theme-muted);
+}
+html[data-theme="dark"] :is(td, .news-control, .pair-news, .pair-news-head, .news-sources, .news-list a, .yield-result) {
+  border-color: var(--theme-border);
+}
+html[data-theme="dark"] :is(.pair-news, .news-list a:hover, tbody tr:hover) {
+  background: var(--theme-hover);
+}
+html[data-theme="dark"] :is(.news-list h4, .mid, .pair-news-head span) { color: var(--theme-text); }
+html[data-theme="dark"] :is(.news-list strong, .news-empty strong) { color: var(--theme-muted); }
+html[data-theme="dark"] :is(.release-badge, .news-toggle.active, .pair-news-head button.has-update, .mobile-board-switch .positive-tab.active, .venue-pill.hl, .symbol > span.hl) {
+  background: var(--theme-positive-bg);
+  color: var(--theme-positive);
+}
+html[data-theme="dark"] :is(.notice, .yield-notice, .news-retained, .venue-pill.bn, .symbol > span.bn) {
+  background: var(--theme-warning-bg);
+  color: var(--theme-warning);
+  border-color: var(--theme-border);
+}
+html[data-theme="dark"] .mobile-board-switch .negative-tab.active {
+  background: var(--theme-negative-bg);
+  color: var(--theme-negative);
+}
+html[data-theme="dark"] .bar { background: var(--theme-border); }
+html[data-theme="dark"] .shimmer {
+  background: linear-gradient(90deg, var(--theme-panel), var(--theme-hover), var(--theme-panel));
 }

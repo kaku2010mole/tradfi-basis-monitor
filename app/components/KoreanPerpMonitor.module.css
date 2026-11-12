@@ -73,3 +73,250 @@
   .perpOnlySummaryKrw{grid-column:auto}
   .perpOnlySummary>b{position:absolute;right:10px;top:10px;font-size:14px}
 }
+
+:global(html[data-theme="dark"]) .monitor {
+  --ink: var(--theme-text);
+  --muted: var(--theme-muted);
+  --line: var(--theme-border);
+  background: var(--theme-bg);
+  box-shadow: none;
+}
+
+:global(html[data-theme="dark"]) :is(.monitorHeader, .toolRow, .signalItem, .perpOnlyCard, .assetRow, .assetSummary, .referenceCard) {
+  background: var(--theme-panel);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.groupHead, .assetDetails, .japanRow .assetDetails, .monitor > footer, .perpOnlyBlock) {
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .marketGroup + .marketGroup {
+  border-color: var(--theme-bg);
+}
+
+:global(html[data-theme="dark"]) .signalDeck {
+  background: var(--theme-positive-bg);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.signalIntro > span, .groupHead span, .signalItem strong b) {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) :is(.monitorHeader > div > p, .perpOnlyHead span, .identity em, .mapping, .perpOnlyNote) {
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) :is(.signalIntro small, .signalList > p, .signalItem small, .signalItem span, .filters button, .fxGroup small, .perpOnlyHead p, .perpOnlyIdentity small, .perpOnlyIdentity span, .perpOnlyPrices > span, .perpOnlyFoot, .groupHead > small, .identity > small, .sessionLabel, .referenceTag, .referenceFoot, .summaryIdentity small, .summaryIdentity em, .summaryToggle, .monitor > footer) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.status, .livePill) {
+  background: var(--theme-positive-bg);
+  border-color: var(--theme-border);
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) :is(.filters, .indicativePill) {
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .filters .activeFilter {
+  background: var(--theme-hover);
+  color: var(--theme-text);
+  box-shadow: none;
+}
+
+:global(html[data-theme="dark"]) :is(.fxGroup > span, .perpOnlyHead > small, .perpOnlySummary) {
+  background: var(--theme-warning-bg);
+  border-color: var(--theme-border);
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) :is(.fxGroup b, .perpOnlyPrices b, .referenceHead strong, .referencePrices b, .referenceEdges b, .perpOnlySummary strong) {
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.notice, .taiwanWarning) {
+  background: var(--theme-warning-bg);
+  border-color: var(--theme-border);
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) :is(.signalList > p, .perpOnlyIdentity, .perpOnlyDetail, .referenceHead) {
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.perpOnlyPrices, .referencePrices, .referenceEdges) {
+  background: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.perpOnlyPrices > span, .referencePrices span, .referenceEdges span) {
+  background: var(--theme-panel);
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .adrCard {
+  background: var(--theme-blue-bg);
+  border-color: var(--theme-blue);
+}
+
+:global(html[data-theme="dark"]) .adrCard .referenceTag {
+  color: var(--theme-blue);
+}
+
+:global(html[data-theme="dark"]) :is(.adrCard .referencePrices span, .adrCard .referenceEdges span) {
+  background: var(--theme-blue-bg);
+}
+
+:global(html[data-theme="dark"]) :is(.assetSummary:hover, .japanRow .assetSummary:hover) {
+  background: var(--theme-hover);
+}
+
+:global(html[data-theme="dark"]) .japanRow {
+  border-left-color: var(--theme-blue);
+}
+
+:global(html[data-theme="dark"]) .cashSignal {
+  background: var(--theme-positive-bg);
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .summarySignals .adrSignal {
+  background: var(--theme-blue-bg);
+  color: var(--theme-blue);
+}
+
+:global(html[data-theme="dark"]) :is(.perpOnlySummary small, .perpOnlySummary > b, .perpOnlySummaryKrw strong) {
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .perpOnlySummary em {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .perpOnlySummary:hover {
+  background: var(--theme-hover);
+}
+
+:global(html[data-theme="dark"]) .signalItem.spreadQuiet strong b {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.signalItem.spreadMedium, .referenceCard.spreadMedium) {
+  background: var(--theme-positive-bg);
+  border-color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .signalItem.spreadMedium strong b {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) :is(.signalItem.spreadHigh, .referenceCard.spreadHigh) {
+  background: var(--theme-warning-bg);
+  border-color: var(--theme-warning);
+  box-shadow: none;
+}
+
+:global(html[data-theme="dark"]) .signalItem.spreadHigh strong b {
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .perpPairCard {
+  border-color: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) .perpPairCard .referenceTag {
+  color: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) :is(.summarySignals .spreadQuiet, .summarySignals .adrSignal.spreadQuiet) {
+  background: var(--theme-raised);
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .summarySignals .perpSignal.spreadQuiet {
+  background: var(--theme-purple-bg);
+  color: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) .summarySignals .spreadMedium {
+  background: var(--theme-positive-bg);
+  color: var(--theme-positive);
+  box-shadow: inset 0 0 0 1px var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .summarySignals .spreadHigh {
+  background: var(--theme-warning-bg);
+  color: var(--theme-warning);
+  box-shadow: inset 0 0 0 1px var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .assetRow.mediumSpreadRow {
+  border-left-color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .assetRow.highSpreadRow {
+  border-left-color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .mediumSpreadRow > .assetSummary {
+  background: var(--theme-positive-bg);
+}
+
+:global(html[data-theme="dark"]) .highSpreadRow > .assetSummary {
+  background: var(--theme-warning-bg);
+}
+
+:global(html[data-theme="dark"]) :is(.mediumSpreadRow > .assetSummary:hover, .highSpreadRow > .assetSummary:hover) {
+  background: var(--theme-hover);
+}
+
+:global(html[data-theme="dark"]) .referenceCard .referenceEdges .spreadQuiet {
+  background: var(--theme-raised);
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .referenceCard .referenceEdges .spreadQuiet b {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .referenceCard .referenceEdges .spreadMedium {
+  background: var(--theme-positive-bg);
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .referenceCard .referenceEdges .spreadMedium b {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .referenceCard .referenceEdges .spreadHigh {
+  background: var(--theme-warning-bg);
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .referenceCard .referenceEdges .spreadHigh b {
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .referenceEdges .positive {
+  background: var(--theme-positive-bg);
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .referenceEdges .positive b {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) :is(.taiwanGroup .groupHead, .taiwanIntro) {
+  background: var(--theme-purple-bg);
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .taiwanRow {
+  border-left-color: var(--theme-purple);
+}

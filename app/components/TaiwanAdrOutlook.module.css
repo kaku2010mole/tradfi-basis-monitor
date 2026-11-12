@@ -11,3 +11,68 @@
 .method{border-top:1px solid #e2e7ed;background:#f8fafc}.method summary{padding:12px 16px;color:#758597;cursor:pointer;font-size:10px;font-weight:700}.method>div{padding:0 16px 8px}.method p{font-size:11px;line-height:1.65;color:#74808b;margin:0 0 8px}
 @media(max-width:1050px){.overview{grid-template-columns:1fr 1.2fr;gap:12px;padding:14px}.tableHead,.tableRow{grid-template-columns:minmax(130px,1fr) repeat(2,minmax(160px,1.2fr))}.result{padding:10px 12px;gap:4px;grid-template-columns:1fr}.result>span{display:flex;align-items:baseline;justify-content:space-between;gap:6px}.result strong{font-size:13px}.researchBadge{font-size:8px}}
 @media(max-width:680px){.outlook{margin:10px 8px 14px;border-radius:10px}.heading{padding:12px;align-items:flex-start;flex-direction:column;gap:8px}.heading h4{font-size:18px}.heading p{font-size:10px}.researchBadge{padding:5px 8px;font-size:9px;line-height:1.5}.researchBadge br{display:none}.overview{grid-template-columns:1fr;padding:10px;gap:12px}.liveCard{padding:12px}.liveMove{font-size:29px}.controls{width:100%;align-self:stretch}.controls button{flex:1;padding:6px 4px;font-size:11px}.thresholds{gap:6px}.threshold{padding:10px}.threshold>div{align-items:flex-start;flex-direction:column;gap:5px}.threshold p{font-size:19px}.threshold p small{font-size:9px}.helper{font-size:9px}.tableHead,.tableRow{grid-template-columns:minmax(75px,.9fr) repeat(2,minmax(0,1fr))}.tableHead>div{padding:9px 7px;font-size:9px;line-height:1.4}.tableHead small{font-size:8px}.stock{padding:9px 7px;gap:4px}.stock strong{font-size:10px}.stock small{font-size:8px}.result{padding:9px 7px;gap:8px}.result>span{display:grid;gap:3px}.result small{font-size:8px}.result strong{font-size:12px}.result em{font-size:8px}.method summary{font-size:10px;padding:11px}.method p{font-size:10px}.signal>b{font-size:16px}}
+
+:global(html[data-theme="dark"]) .outlook {
+  background: var(--theme-panel);
+  border-color: var(--theme-border);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.heading, .controls, .tableHead, .method) {
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.heading > div > span, .threshold p) {
+  color: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) .researchBadge {
+  background: var(--theme-purple-bg);
+  border-color: var(--theme-border);
+  color: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) :is(.liveCard, .threshold) {
+  background: var(--theme-panel);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.heading p, .liveLabel > span, .liveLabel > small, .liveCard p, .liveCard > small, .signal > span, .controls button, .selectionNote, .threshold > div > span, .threshold p small, .threshold > small, .helper, .tableHead, .tableHead small, .stock small, .result small, .result em, .method summary, .method p) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .liveLabel > small {
+  background: var(--theme-hover);
+}
+
+:global(html[data-theme="dark"]) :is(.signal, .table, .tableHead > div + div, .tableRow > div + div, .tableRow) {
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .controls button[aria-pressed="true"] {
+  background: var(--theme-hover);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) .tableRow:nth-child(odd) {
+  background: var(--theme-raised);
+}
+
+:global(html[data-theme="dark"]) .matched {
+  background: var(--theme-positive-bg);
+  border-color: var(--theme-positive);
+  box-shadow: none;
+}
+
+:global(html[data-theme="dark"]) :is(.matched > div > span, .positive) {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .negative {
+  color: var(--theme-negative);
+}
+
+:global(html[data-theme="dark"]) .liveCard > .warning {
+  color: var(--theme-warning);
+}

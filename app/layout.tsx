@@ -3,6 +3,8 @@ import "./globals.css";
 import GlobalOracleAlerts from "./components/GlobalOracleAlerts";
 import PosleyOAuthCallback from "./components/PosleyOAuthCallback";
 import GlobalTranslation from "./components/GlobalTranslation";
+import GlobalTheme from "./components/GlobalTheme";
+import { THEME_INIT_SCRIPT } from "./lib/themePreference";
 
 export const metadata: Metadata = {
   title: "TradFi Basis Monitor",
@@ -24,8 +26,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body><GlobalTranslation /><PosleyOAuthCallback /><GlobalOracleAlerts />{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} /></head>
+      <body><GlobalTheme /><GlobalTranslation /><PosleyOAuthCallback /><GlobalOracleAlerts />{children}</body>
     </html>
   );
 }

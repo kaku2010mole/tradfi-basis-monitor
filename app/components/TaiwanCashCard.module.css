@@ -6,3 +6,29 @@
 .book table{min-width:0}.book th,.book td{white-space:normal;min-width:0;width:25%;font-size:10px}
 .note{margin:0;padding:10px 12px;font-size:10px;line-height:1.6;color:#647b73}.auction b{overflow-wrap:anywhere}
 @media(max-width:680px){.prices b,.auction b{font-size:14px}.card small{font-size:10px}.book table{font-size:10px}.card footer{font-size:10px}.auction>span{font-size:10px}}
+
+:global(html[data-theme="dark"]) .card {
+  background: var(--theme-panel);
+  border-color: var(--theme-border);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.card header, .auction, .book, .card footer, .book th, .book td) {
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.card small, .card footer, .book caption, .book th, .note) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.card header > span, .auction) {
+  background: var(--theme-positive-bg);
+}
+
+:global(html[data-theme="dark"]) .prices {
+  background: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .prices > div {
+  background: var(--theme-panel);
+}

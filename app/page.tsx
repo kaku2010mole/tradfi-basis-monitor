@@ -9,8 +9,8 @@ export const metadata: Metadata = {
 
 export default function Home() {
   return (
-    <main style={{ background: "#0b1117", color: "#eaf2f6", paddingBottom: 0 }}>
-      <nav aria-label="Dashboard navigation" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px clamp(20px, 3vw, 40px)", borderBottom: "1px solid #24323d" }}>
+    <main className="jlp-shell">
+      <nav aria-label="Dashboard navigation" className="jlp-navigation">
         <span style={{ font: "700 12px/1.5 monospace", letterSpacing: ".08em" }}>TRADFI MONITOR / JLP RESEARCH</span>
         <PageSwitcher active="jlp" />
       </nav>

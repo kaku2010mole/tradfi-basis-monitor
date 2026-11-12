@@ -245,3 +245,169 @@
   .signalBasis,.signalDirection { border-right:0; border-bottom:1px solid #dfe5e0; }
   .signalMetrics,.adrSignal .signalMetrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
+
+:global(html[data-theme="dark"]) .shell {
+  background: var(--theme-bg);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.clock, .controls, .nightPanel, .board, .card, .signalRow, .signalMetrics>div, .liteReference dl>div, .chartReadout>div) {
+  background: var(--theme-panel);
+  color: var(--theme-text);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.topbar, .formula, .nightHeader, .nightSummary, .nightChart, .boardHead, .tierGroup, .card>header, .cardSummary, .summaryAdr, .signalRow, .signalBasis, .signalDirection, .signalMetrics, .signalMetrics>div, .adrSignal .signalMetrics>div, .liteReference, .liteReference>div, .liteReference dl>div, .cardTabs, .tabPanel, .chartReadout>div, .chart) {
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.topbar p, .topbar small, .controls span, .controls small, .formula span, .formula small, .nightHeader p, .nightPlot>footer, .nightReadout, .nightEmpty, .boardHead span, .boardHead p, .tierGroupHead small, .tierGroupHead b, .card header span, .card header small, .summaryToggle, .signalBasis>span, .signalBasis small, .signalDirection>span, .signalDirection small, .signalMetrics small, .signalMetrics dt, .liteReference small, .cardTabs button, .chartReadout span, .chartWrap>p, .emptyChart, .historyFailure span, .cardDetails>footer, .pageFooter) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.nightReadout b, .tierGroupHead span, .summaryDirection, .signalDirection>strong, .directionLeg>b, .signalMetrics dd, .liteReference dd) {
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.controls input, .manager input, .manager select, .nightHeader select, .boardActions button) {
+  background: var(--theme-raised);
+  color: var(--theme-text);
+  border-color: var(--theme-border);
+  color-scheme: dark;
+}
+
+:global(html[data-theme="dark"]) :is(.nightHeader, .signalMetrics, .cardTabs, .cardSummary) {
+  background: var(--theme-raised);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.boardActions button:hover, .cardSummary:hover) {
+  background: var(--theme-hover);
+}
+
+:global(html[data-theme="dark"]) :is(.manager, .notice) {
+  background: var(--theme-warning-bg);
+  border-color: #725a31;
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) :is(.manager label, .nightHeader>div>span, .nightHeader label>span, .summaryAdr .summaryType, .adrSignal .signalBasis>span) {
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) :is(.manager p, .historyFailure, .cardDetails>footer button) {
+  color: var(--theme-negative);
+}
+
+:global(html[data-theme="dark"]) .tierControl {
+  background: var(--theme-raised);
+  color: var(--theme-muted)!important;
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .tierS {
+  background: var(--theme-warning-bg);
+  color: var(--theme-warning)!important;
+  border-color: #725a31;
+}
+
+:global(html[data-theme="dark"]) .tierA {
+  background: var(--theme-positive-bg);
+  color: var(--theme-positive)!important;
+  border-color: #315c4c;
+}
+
+:global(html[data-theme="dark"]) .tierB {
+  background: var(--theme-blue-bg);
+  color: var(--theme-blue)!important;
+  border-color: #385d7c;
+}
+
+:global(html[data-theme="dark"]) .status {
+  color: var(--theme-negative);
+  border-color: #74434a;
+}
+
+:global(html[data-theme="dark"]) .status.live {
+  background: var(--theme-positive-bg);
+  color: var(--theme-positive);
+  border-color: #315c4c;
+}
+
+:global(html[data-theme="dark"]) .status.stale {
+  background: var(--theme-warning-bg);
+  color: var(--theme-warning);
+  border-color: #725a31;
+}
+
+:global(html[data-theme="dark"]) :is(.positive, .signalMetrics dd.positive, .summaryType, .hkSignal .signalBasis>span, .bitgetVenue, .signalMetrics dt.bitgetMetric, .hyperliquidVenue, .signalMetrics dt.hyperliquidMetric) {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) :is(.negative, .signalMetrics dd.negative) {
+  color: var(--theme-negative);
+}
+
+:global(html[data-theme="dark"]) .hkSignal {
+  background: linear-gradient(100deg, var(--theme-positive-bg), var(--theme-panel) 64%);
+}
+
+:global(html[data-theme="dark"]) .adrSignal {
+  background: var(--theme-warning-bg);
+}
+
+:global(html[data-theme="dark"]) :is(.liteReference, .liteReference dl) {
+  background: var(--theme-blue-bg);
+}
+
+:global(html[data-theme="dark"]) :is(.liteReference>div>span, .liteReference dt, .mexcVenue, .signalMetrics dt.mexcMetric) {
+  color: var(--theme-blue);
+}
+
+:global(html[data-theme="dark"]) :is(.futuVenue, .signalMetrics dt.futuMetric, .binanceVenue, .signalMetrics dt.binanceMetric, .bybitVenue, .signalMetrics dt.bybitMetric) {
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .cardTabs button[aria-selected="true"] {
+  color: var(--theme-text);
+  border-bottom-color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .cardTabs button span {
+  background: var(--theme-hover);
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.nightChart, .chart) {
+  background: var(--theme-bg);
+}
+
+:global(html[data-theme="dark"]) :is(.nightChart text, .chart text) {
+  fill: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.nightZero, .zeroLine) {
+  stroke: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .nightLine {
+  stroke: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .linePath {
+  stroke: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .nightDot {
+  fill: var(--theme-panel);
+  stroke: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .cursorDot {
+  fill: var(--theme-panel);
+  stroke: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .nightCursor {
+  stroke: var(--theme-muted);
+}

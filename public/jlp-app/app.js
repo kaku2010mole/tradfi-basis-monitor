@@ -1,5 +1,5 @@
 'use strict';
-const $=id=>document.getElementById(id),colors=['#b5ee68','#6bb9ee','#ffba7a','#b49bfa'];
+const $=id=>document.getElementById(id),colors=['var(--lime)','var(--blue)','var(--orange)','var(--purple)'];
 let state={},series={},days=7,position=null;
 let stateAvailable=false,positionRequest=null;
 let historyController=null,historyKey='';
@@ -76,9 +76,9 @@ function chart(id,sets,unit,zero=false,rangeDays=days){
  const W=640,H=230,L=62,R=12,T=15,B=30,x=t=>L+(t-start)/(end-start)*(W-L-R),y=v=>T+(ymax-v)/(ymax-ymin)*(H-T-B);
  const nf=v=>unit==='USD'?'$'+fmt(v,4):fmt(v,Math.abs(v)<.01?5:2)+'%';
  let svg=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${el.parentElement.querySelector('h3').textContent} history chart">`;
- for(let i=0;i<5;i++){const yy=T+i*(H-T-B)/4,v=ymax-i*(ymax-ymin)/4;svg+=`<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="#293843" stroke-dasharray="3 5"/><text x="${L-8}" y="${yy+4}" fill="#94a6b5" text-anchor="end" font-size="12">${nf(v)}</text>`;}
- if(zero)svg+=`<line x1="${L}" x2="${W-R}" y1="${y(0)}" y2="${y(0)}" stroke="#62737e"/>`;
- for(let i=0;i<4;i++){const t=start+i*(end-start)/3,xx=x(t);const label=new Date(t).toLocaleString('en-GB',{timeZone:'Asia/Hong_Kong',...(rangeDays<=1?{hour:'2-digit',minute:'2-digit'}:{month:'2-digit',day:'2-digit'}),hour12:false});svg+=`<text x="${xx}" y="${H-4}" fill="#94a6b5" font-size="12" text-anchor="${i===0?'start':i===3?'end':'middle'}">${label}</text>`;}
+ for(let i=0;i<5;i++){const yy=T+i*(H-T-B)/4,v=ymax-i*(ymax-ymin)/4;svg+=`<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="var(--chart-grid)" stroke-dasharray="3 5"/><text x="${L-8}" y="${yy+4}" fill="var(--muted)" text-anchor="end" font-size="12">${nf(v)}</text>`;}
+ if(zero)svg+=`<line x1="${L}" x2="${W-R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--chart-zero)"/>`;
+ for(let i=0;i<4;i++){const t=start+i*(end-start)/3,xx=x(t);const label=new Date(t).toLocaleString('en-GB',{timeZone:'Asia/Hong_Kong',...(rangeDays<=1?{hour:'2-digit',minute:'2-digit'}:{month:'2-digit',day:'2-digit'}),hour12:false});svg+=`<text x="${xx}" y="${H-4}" fill="var(--muted)" font-size="12" text-anchor="${i===0?'start':i===3?'end':'middle'}">${label}</text>`;}
  for(const s of sets){
   let path='',previousTime=null;
   const gap=s.daily?36*3600000:s.settled?5400000:Math.max(150000,rangeDays*86400000/1200*2);
@@ -89,7 +89,7 @@ function chart(id,sets,unit,zero=false,rangeDays=days){
   svg+=`<path d="${path}" fill="none" stroke="${s.color}" stroke-width="2"/>`;
   if(s.points.length<=2)for(const [time,value] of s.points)svg+=`<circle cx="${x(time)}" cy="${y(value)}" r="3" fill="${s.color}"/>`;
  }
- svg+=`<line class="cross" stroke="#69818d" y1="${T}" y2="${H-B}" visibility="hidden"/>`;
+ svg+=`<line class="cross" stroke="var(--chart-crosshair)" y1="${T}" y2="${H-B}" visibility="hidden"/>`;
  svg+=sets.map(s=>`<circle class="chart-point" r="3" fill="${s.color}" visibility="hidden"/>`).join('');
  el.innerHTML=svg+'</svg><div class="tip" hidden></div>';
  const plot=el.querySelector('svg'),tip=el.querySelector('.tip'),cross=el.querySelector('.cross');

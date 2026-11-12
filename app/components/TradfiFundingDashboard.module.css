@@ -8,3 +8,85 @@
 .rankings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:start}.board{background:#fbfcf8;border:1px solid #dce3db;border-radius:8px;min-width:0;overflow:hidden}.boardHeading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:20px 18px}.boardHeading>div{display:flex;align-items:center;gap:11px}.boardHeading h2{font-size:18px;margin:0;letter-spacing:-.02em}.boardHeading p{font-size:10px;color:#7b887e;margin:5px 0 0}.sideIcon{width:35px;height:35px;display:grid;place-items:center;border-radius:6px;font:20px monospace}.positiveIcon{background:#e5f0e6;color:#087552}.negativeIcon{background:#f9eae4;color:#c04f44}.sortLabel{font-size:9px;color:#8a958e;text-align:right;line-height:1.5;max-width:98px}.tableWrap{overflow-x:auto}.tableWrap table{border-collapse:collapse;width:100%;min-width:620px;table-layout:fixed}.tableWrap th{background:#edf2e8;font-size:9px;color:#78867b;font-weight:500;text-align:right;border-bottom:1px solid #dce3db;padding:12px 8px;line-height:1.65}.tableWrap th:first-child{width:35px;text-align:center}.tableWrap th:nth-child(2){width:31%;text-align:left}.tableWrap th:nth-child(3),.tableWrap th:nth-child(5){width:17%}.tableWrap th:nth-child(4){width:8%}.tableWrap th:nth-child(6){width:13%}.tableWrap th small{display:block;color:#8b968d;font-size:8px}.tableWrap th.selectedColumn{color:#254b37;font-weight:700}.tableWrap td{padding:17px 8px;text-align:right;border-bottom:1px solid #e6ebe2;font:11px/1.5 monospace;white-space:nowrap}.tableWrap tbody tr:last-child td{border-bottom:0}.tableWrap tbody tr:hover{background:#f2f6ed}.tableWrap .rank{text-align:center;color:#98a398;font-size:9px}.tableWrap .identity{text-align:left;white-space:normal;min-width:0}.identity a{display:block;color:inherit;text-decoration:none}.identity a:hover b{text-decoration:underline}.identity b{display:block;font:700 11px/1.5 monospace;overflow-wrap:anywhere}.identity small{display:block;font:9px/1.6 Arial,sans-serif;color:#8a958e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px}.tableWrap .emphasis{font-size:13px;font-weight:700}.positive{color:#087552}.negative{color:#c04f44}.neutral{color:#7b887e}.tableWrap .cycle,.tableWrap .fundingTime{font-size:10px;color:#6c7771}.dividend{display:inline-block;font:8px Arial,sans-serif;color:#98691b;background:#fbefd4;padding:2px 4px;border-radius:3px;margin-top:3px}.tableWrap .empty{height:350px;text-align:center;white-space:normal;font:12px/1.8 Arial,sans-serif;color:#8a958e;padding:30px}.coverage{font-size:11px;color:#98691b;margin:12px 0}.method{margin-top:18px;border:1px solid #dce3db;border-radius:7px;background:#fbfcf8}.method summary{padding:15px 18px;cursor:pointer;font-size:11px;font-weight:600}.method>div{padding:0 18px 10px}.method p{font-size:11px;line-height:1.85;color:#6c7771;margin:0 0 10px}.method a{color:#087552}.footer{display:flex;justify-content:space-between;gap:12px;margin-top:22px;color:#8a958e;font:9px/1.7 monospace;flex-wrap:wrap}
 @media(max-width:1240px){.rankings{grid-template-columns:1fr}.tableWrap table{min-width:620px}.boardHeading{padding:18px 22px}.tableWrap td{padding:15px 14px}.tableWrap th{padding:12px 14px}.tableWrap .identity b{font-size:12px}.summary article{padding:18px}.summary strong{font-size:26px}.filters{justify-content:flex-start}}
 @media(max-width:700px){.topbar{height:58px;padding:0 12px}.brand span{font-size:10px}.brand small{font-size:8px}.topActions{gap:10px}.status{font-size:9px}.content{padding:24px 12px}.heading{align-items:flex-start;flex-direction:column;gap:18px}.heading h1{font-size:32px}.heading>div>p:last-child{font-size:12px;line-height:1.7}.refreshBlock{width:100%;flex-direction:row;justify-content:space-between;align-items:center;gap:10px}.refresh{font-size:11px;padding:8px 12px}.refreshBlock>span{font-size:8px;max-width:180px;line-height:1.8;text-align:right}.summary{grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}.summary article{padding:15px 13px}.summary article>span{font-size:8px}.summary strong{font-size:23px;margin-top:10px}.summary strong>small{font-size:9px;margin-left:6px}.summary p{font-size:9px}.toolbar{gap:12px}.basisControl{flex:1}.basisControl button{flex:1;padding:8px 9px;font-size:10px}.filters{order:3;flex-basis:100%;gap:8px}.search{max-width:none}.filters select{max-width:130px;font-size:10px}.autoRefresh{font-size:9px}.rankings{gap:14px}.boardHeading{padding:17px 14px}.boardHeading h2{font-size:16px}.boardHeading p{font-size:9px}.sortLabel{font-size:8px}.tableWrap th,.tableWrap td{padding-left:9px;padding-right:9px}.notice{font-size:11px}.footer{font-size:8px}.method summary{font-size:11px}}
+
+:global(html[data-theme="dark"]) .page {
+  background: var(--theme-bg);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.topbar, .summary article, .refresh, .search, .filters select, .board, .method) {
+  background: var(--theme-panel);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) :is(.brand small, .heading > div > p:last-child, .refreshBlock > span, .summary article > span, .summary strong > small, .summary p, .summary p > span, .basisControl button, .search > span, .autoRefresh, .boardHeading p, .sortLabel, .tableWrap th, .tableWrap th small, .tableWrap .rank, .identity small, .tableWrap .cycle, .tableWrap .fundingTime, .tableWrap .empty, .neutral, .method p, .footer) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.statusLive, .eyebrow, .refresh, .positive, .method a) {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .negative {
+  color: var(--theme-negative);
+}
+
+:global(html[data-theme="dark"]) :is(.statusWaiting, .coverage) {
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) :is(.notice, .dividend) {
+  background: var(--theme-warning-bg);
+  border-color: var(--theme-warning);
+  color: var(--theme-warning);
+}
+
+:global(html[data-theme="dark"]) .summary .settlement {
+  background: var(--theme-positive-bg);
+  border-color: var(--theme-positive);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) .settlement > span {
+  color: var(--theme-positive) !important;
+}
+
+:global(html[data-theme="dark"]) .settlement strong {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) :is(.settlement p, .settlement strong > small) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.basisControl, .tableWrap th) {
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .basisControl .active {
+  background: var(--theme-hover);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.search input, .filters select, .tableWrap th.selectedColumn) {
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) :is(.refresh:hover, .tableWrap tbody tr:hover) {
+  background: var(--theme-hover);
+}
+
+:global(html[data-theme="dark"]) .positiveIcon {
+  background: var(--theme-positive-bg);
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) .negativeIcon {
+  background: var(--theme-negative-bg);
+  color: var(--theme-negative);
+}
+
+:global(html[data-theme="dark"]) .tableWrap td {
+  border-color: var(--theme-border);
+}

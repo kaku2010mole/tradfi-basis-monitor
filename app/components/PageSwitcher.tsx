@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import LanguageToggle from "./LanguageToggle";
+import ThemeToggle from "./ThemeToggle";
 import styles from "./PageSwitcher.module.css";
 
 type PageSwitcherProps = {
@@ -10,7 +11,7 @@ type PageSwitcherProps = {
 
 export default function PageSwitcher({ active }: PageSwitcherProps) {
   return (
-    <div className={styles.tools}><LanguageToggle /><details className={styles.switcher}>
+    <div className={styles.tools}><ThemeToggle /><LanguageToggle /><details className={styles.switcher}>
       <summary aria-label="Open dashboard settings">
         <span aria-hidden="true">⚙</span>
         <b>Settings</b>

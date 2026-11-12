@@ -112,3 +112,63 @@
   .adrPanel { padding: 12px 10px; }
   .adrCards { grid-template-columns: minmax(0, 1fr); gap: 6px; }
 }
+
+:global(html[data-theme="dark"]) :is(.tabs, .adrCard) {
+  background: var(--theme-panel);
+  border-color: var(--theme-border);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) .tabs button {
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .tabs button[aria-selected="true"] {
+  background: var(--theme-positive-bg);
+  border-color: var(--theme-positive);
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) :is(.context, .adrPanel, .adrCard[data-focus="secondary"], .adrMetrics) {
+  background: var(--theme-raised);
+  border-color: var(--theme-border);
+  color: var(--theme-text);
+}
+
+:global(html[data-theme="dark"]) .adrCard[data-focus="primary"] {
+  border-color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) :is(.context b, .adrQuote dt) {
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) :is(.context span, .context > small, .adrHeader span, .adrQuoteLabel, .adrHeader p, .adrNote, .adrCardHeader small, .adrMetrics dt, .adrQuote small, .adrQuote time) {
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) .study {
+  background: var(--theme-purple-bg);
+  border-color: var(--theme-border);
+}
+
+:global(html[data-theme="dark"]) .study > summary {
+  color: var(--theme-purple);
+}
+
+:global(html[data-theme="dark"]) :is(.adrStatus, .adrOpportunity) {
+  background: var(--theme-hover);
+  color: var(--theme-muted);
+}
+
+:global(html[data-theme="dark"]) :is(.adrStatus[data-state="live"], .adrOpportunity[data-state="quoted"]) {
+  background: var(--theme-positive-bg);
+  color: var(--theme-positive);
+}
+
+:global(html[data-theme="dark"]) :is(.adrStatus[data-state="stale"], .adrStatus[data-state="unsynced"], .adrStatus[data-state="reference"], .adrOpportunity[data-state="reference"]) {
+  background: var(--theme-warning-bg);
+  color: var(--theme-warning);
+}
