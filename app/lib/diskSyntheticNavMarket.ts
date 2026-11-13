@@ -2,7 +2,7 @@ import reviewed from "../data/diskSyntheticNavSeed.json";
 import { parseDiskHoldings, type BasketHolding, type FundHoldings } from "./diskDramHoldings";
 import { closedConstituentReference } from "./diskConstituentMarket";
 import { dayKey, usClose, zonedTime } from "./smicOpening";
-import { calculateDiskSyntheticNav, DISK_SYNTHETIC_NAV_PERP_MAX_AGE,
+import { calculateDiskSyntheticNav, navDateFxReference, validNavDateFxTime, DISK_SYNTHETIC_NAV_PERP_MAX_AGE,
   type DiskSyntheticNavBase, type DiskSyntheticNavRowInput, type DiskSyntheticNavSnapshot } from "./diskSyntheticNav";
 
 const DAY = 86_400_000, MINUTE = 60_000;
@@ -104,7 +104,9 @@ export function syntheticNavHistoricalFx(chart: Chart, currency: string, at: num
   let answer: Observation | null = null;
   for (const [i, stamp] of (chart.timestamp ?? []).entries()) {
     const end = stamp * 1000 + 5 * MINUTE, price = chart.indicators?.quote?.[0]?.close?.[i];
-    if (Number.isFinite(end) && isPrice(price) && end <= at && at - end <= 90 * MINUTE && (!answer || end > answer.at)) answer = { price, at: end, source: "Yahoo completed FX close at/before NAV calculation (up to 90 minutes)" };
+    if (Number.isFinite(end) && isPrice(price) && validNavDateFxTime(currency, end, at) && (!answer || end > answer.at)) answer = {
+      price, at: end, source: navDateFxReference(currency, end, at) ?? "Yahoo completed FX close at/before NAV calculation (up to 90 minutes)",
+    };
   }
   return answer;
 }
@@ -117,7 +119,9 @@ export function createDiskSyntheticNavMarketClient(options: { fetcher?: typeof f
   let meta: Meta | null = null, metaNext = 0, cashNext = 0, perpNext = 0;
   let metaPending: Promise<void> | null = null, cashPending: Promise<void> | null = null, perpPending: Promise<void> | null = null;
   let calculatedAt: number | null = null, activeKey = "";
+  let candidateNotice: string | null = null;
   const bases = new Map<string, Baseline>(), sessions = new Map<string, Session>();
+  const chartPending = new Map<string, Promise<Chart | null>>();
   const cash = new Map<string, Map<string, Observation>>(), fx = new Map<string, Observation>(), perps = new Map<string, Observation>();
   const reasons = new Set<string>();
   async function request(url: string, format: "text" | "json" = "json") {
@@ -126,14 +130,20 @@ export function createDiskSyntheticNavMarketClient(options: { fetcher?: typeof f
     return format === "json" ? response.json() : response.text();
   }
   async function chart(symbol: string, query: string): Promise<Chart | null> {
-    for (const host of ["query2.finance.yahoo.com", "query1.finance.yahoo.com"]) {
-      try {
-        const data = await request(`https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}?${query}`);
-        const value = data.chart?.result?.[0] as Chart | undefined;
-        if (value?.meta?.symbol === symbol || /^[A-Z]{3}=X$/.test(symbol) && value?.meta?.symbol === `USD${symbol}`) return value;
-      } catch { /* Try the independent Yahoo host; retain original clocks. */ }
-    }
-    return null;
+    const key = `${symbol}:${query}`, existing = chartPending.get(key);
+    if (existing) return existing;
+    const pending = (async () => {
+      for (const host of ["query2.finance.yahoo.com", "query1.finance.yahoo.com"]) {
+        try {
+          const data = await request(`https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}?${query}`);
+          const value = data.chart?.result?.[0] as Chart | undefined;
+          if (value?.meta?.symbol === symbol || /^[A-Z]{3}=X$/.test(symbol) && value?.meta?.symbol === `USD${symbol}`) return value;
+        } catch { /* Try the independent Yahoo host; retain original clocks. */ }
+      }
+      return null;
+    })();
+    chartPending.set(key, pending);
+    try { return await pending; } finally { chartPending.delete(key); }
   }
   function retain(symbol: string, quote: Observation) {
     if (!isPrice(quote.price) || future(quote.at, clock())) return;
@@ -176,8 +186,24 @@ export function createDiskSyntheticNavMarketClient(options: { fetcher?: typeof f
       }
       else if (meta && Math.abs(Date.parse(meta.holdings.asOf)-Date.parse(nav.date)) <= 7 * DAY) holdings = meta.holdings;
       else throw new Error("Comparable published portfolio unavailable");
-      adopt({ nav, holdings, reasons: ["Published portfolio weights are an estimate; fund valuation marks can differ.",
-        ...(holdings.asOf !== nav.date ? ["Portfolio date differs from official NAV date."] : [])] });
+      const candidate = { nav, holdings, reasons: ["Published portfolio weights are an estimate; fund valuation marks can differ.",
+        ...(holdings.asOf !== nav.date ? ["Portfolio date differs from official NAV date."] : [])] };
+      const candidatePrefix = `${nav.date}:${signature(holdings)}:`, activePrefix = meta ? `${meta.nav.date}:${signature(meta.holdings)}:` : null;
+      for (const key of bases.keys()) if (!key.startsWith(candidatePrefix) && (!activePrefix || !key.startsWith(activePrefix))) bases.delete(key);
+      // Prepare all cash/FX anchors under the candidate's own dated key before
+      // replacing the complete active basket. A delayed history provider must
+      // not turn an otherwise live estimate into a permanently partial basket.
+      await Promise.allSettled(holdings.holdings.map(holding => baseline(holding, candidate)));
+      const missing = holdings.holdings.filter(holding => !bases.has(baseKey(nav, holdings, holding.symbol)));
+      if (missing.length) {
+        candidateNotice = `Published NAV ${nav.date} is awaiting complete cash/FX baselines (${missing.map(h => h.symbol).join(", ")}).` +
+          (meta ? ` Retaining the complete ${meta.nav.date} NAV basket; current prices continue to refresh.` : "");
+        metaNext = clock() + MINUTE;
+        reasons.delete("Issuer NAV temporarily unavailable; last dated reference retained.");
+        return;
+      }
+      adopt(candidate);
+      candidateNotice = null;
       metaNext = now + 60 * MINUTE;
       reasons.delete("Issuer NAV temporarily unavailable; last dated reference retained.");
     } catch {
@@ -288,6 +314,7 @@ export function createDiskSyntheticNavMarketClient(options: { fetcher?: typeof f
     return { symbol: holding.symbol, name: holding.name, currency: holding.currency, weight: holding.weight,
       baseNative: baseline?.native ?? null, baseUsd: baseline ? baseline.native / baseline.fx : null,
       baseAt: baseline?.at ?? null, baseFxPrice: baseline?.fx ?? null, baseFxAt: baseline?.fxAt ?? null,
+      baseFxReference: baseline ? navDateFxReference(holding.currency, baseline.fxAt, selected.nav.at) : null,
       currentNative: !perp ? quote?.price ?? null : null,
       currentUsd: perp ? quote?.price ?? null : quote && rate ? quote.price / rate.price : null,
       fxPrice: !perp ? rate?.price ?? null : null, fxAt: !perp && holding.currency !== "USD" ? rate?.at ?? null : null,
@@ -302,7 +329,7 @@ export function createDiskSyntheticNavMarketClient(options: { fetcher?: typeof f
     const base: DiskSyntheticNavBase | null = selected ? { ...selected.nav, holdingsAsOf: selected.holdings.asOf, holdingsSource: selected.holdings.source } : null;
     return calculateDiskSyntheticNav({ now, calculatedAt, base, rows: selected ? selected.holdings.holdings.map(h => row(h, selected, now)) : [],
       cashBalanceWeight: selected?.holdings.cashWeight ?? 0,
-      reasons: [...(selected?.reasons ?? []), ...reasons] });
+      reasons: [...(selected?.reasons ?? []), ...reasons, ...(candidateNotice ? [candidateNotice] : [])] });
   };
 }
 

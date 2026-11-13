@@ -81,8 +81,8 @@ test("constituent adjustment removes the basket difference without adding the be
 });
 
 test("the Blog quote uses a fresh DRAM cash book from the existing office relay", async () => {
-  const now = Date.parse("2026-11-10T01:50:00Z");
-  const at = Date.parse("2026-11-09T21:00:00Z");
+  const now = Date.parse("2026-11-11T01:50:00Z");
+  const at = Date.parse("2026-11-10T21:00:00Z");
   const env = { SITE_PASSWORD: "", FUTU_PUSH_TOKEN: "fixture-token" };
   const ctx = { waitUntil() {}, passThroughOnException() {} };
   const originalFetch = globalThis.fetch;
@@ -125,7 +125,7 @@ test("the Blog quote uses a fresh DRAM cash book from the existing office relay"
     assert.ok(quote.book, `No Bitget book from requests: ${requests.join(", ")}`);
     assert.equal(quote.deviation.toFixed(3), "1.192");
     assert.ok(quote.syntheticNav, "The NAV estimate is returned independently alongside the DRAM model");
-    assert.equal(quote.syntheticNav.base.date, "2026-11-09");
+    assert.equal(quote.syntheticNav.base.date, "2026-11-10");
     assert.equal(quote.constituentFair, null, "The superseded DRAM-relative constituent estimate is no longer fetched");
   } finally {
     globalThis.__FUTU_PUSH_SNAPSHOT__ = priorPush;
