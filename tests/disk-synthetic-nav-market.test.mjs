@@ -69,6 +69,22 @@ test('historical baselines are native CASH levels completed before the official 
   assert.equal(fx.at, nav.at - 60 * 60000, 'the explicitly dated CNY04:00 reference remains one hour old');
 });
 
+test('historical FX accepts the genuine CNY session close without widening other reference windows', () => {
+  const nav = parseTemaSyntheticNav(html('November 10, 2026', '24.00', '43,200,000'), now);
+  const chart = (currency, minutesBefore) => ({ meta: { currency },
+    timestamp: [(nav.at - (minutesBefore + 5) * 60000) / 1000],
+    indicators: { quote: [{ close: [6.67] }] } });
+  const closed = syntheticNavHistoricalFx(chart('CNY', 125), 'CNY', nav.at);
+  assert.equal(closed.price, 6.67);
+  assert.equal(closed.at, at('2026-11-11T02:55:00+08:00'), 'the original completed close timestamp is preserved');
+  assert.equal(syntheticNavHistoricalFx(chart('CNY', 145), 'CNY', nav.at), null,
+    'an older intraday CNY observation cannot impersonate the closing window');
+  assert.equal(syntheticNavHistoricalFx(chart('JPY', 125), 'JPY', nav.at), null,
+    'the CNY session exception does not extend the general 90-minute FX window');
+  const future = chart('CNY', -5);
+  assert.equal(syntheticNavHistoricalFx(future, 'CNY', nav.at), null);
+});
+
 test('issuer stock count and weight completeness reject a truncated low-weight final holding', () => {
   assert.equal(syntheticNavHoldingsComplete(fundSeed.DISK, html()), true);
   assert.equal(syntheticNavHoldingsComplete({ ...fundSeed.DISK, holdings: fundSeed.DISK.holdings.slice(0, -1) }, html()), false);
@@ -114,11 +130,98 @@ test('shared background refresh uses cached NAV cash levels and expires failed p
   offline = false; navDate = 'November 10, 2026'; clock += 3600001;
   get(); await settle(); get(); await settle();
   const rolled = get();
-  assert.equal(rolled.base.date, '2026-11-10');
-  assert.equal(rolled.nav, null);
-  assert.ok(rolled.rows.every(row => row.baseUsd === null), 'prior NAV-date baseline must not leak across rollover');
+  assert.equal(rolled.base.date, '2026-11-09');
+  assert.equal(rolled.status, 'ready');
+  assert.ok(Math.abs(rolled.nav - nav.nav * 1.1) < 1e-10);
+  assert.ok(rolled.rows.every(row => row.baseUsd === 100), 'a newer incomplete NAV cannot replace the coherent previous baseline');
+  assert.match(rolled.reasons.join(' '), /pending|awaiting|incomplete|waiting/i);
   const tickerRequests = calls.filter(path => path.includes('/tickers?'));
   assert.ok(new Set(tickerRequests).size > 1, 'each live refresh bypasses upstream edge cache');
+});
+
+test('a newer NAV is adopted atomically after every matching stock and FX baseline is complete', async () => {
+  let clock = now, newNav = false, offline = false, cnyLag = 145;
+  const symbols = ['MU', 'SNDK', 'WDC', 'AEHR', '688825.SS'];
+  const usdAvailable = new Set(['MU', 'SNDK']);
+  const weights = [.1, .2, .3, .25, .15];
+  const nav = parseTemaSyntheticNav(html(), clock);
+  const nextNav = parseTemaSyntheticNav(html('November 10, 2026', '24.00', '43,200,000'), clock);
+  const holdings = { asOf: nav.date, source: 'issuer', cashWeight: 0,
+    holdings: symbols.map(symbol => ({ symbol, name: symbol, currency: symbol === '688825.SS' ? 'CNY' : 'USD', weight: .2, quantity: 1 })) };
+  const seed = { nav, holdings, baselines: Object.fromEntries(holdings.holdings.map(h => [h.symbol,
+    { currency: h.currency, native: h.currency === 'CNY' ? 600 : 100,
+      at: h.currency === 'CNY' ? at('2026-11-09T15:00:00+08:00') : nav.at, fx: h.currency === 'CNY' ? 6 : 1, fxAt: nav.at }])) };
+  const csv = date => ['holdings_date,ticker,cusip,proper_name,shares,market_value,percent_of_nav,is_cash,country,sector',
+    ...symbols.map((symbol, i) => `${date},${symbol === '688825.SS' ? '688825 C1' : symbol},,${symbol === '688825.SS' ? 'CXMT' : symbol},1,100,${newNav ? weights[i] : .2},0,,IT`)].join('\n');
+  const fetcher = async input => {
+    if (offline) throw Error('offline');
+    const path = String(input);
+    if (path.includes('/tickers?')) return Response.json({ code: '00000', data: symbols.map(symbol => ({
+      symbol: symbol === '688825.SS' ? 'CXMTUSDT' : `${symbol}USDT`, bidPr: 109, askPr: 111, bidSz: 2, askSz: 2, ts: clock,
+    })) });
+    if (path === 'https://temaetfs.com/disk') return new Response((newNav
+      ? html('November 10, 2026', '24.00', '43,200,000', 5) : html(undefined, undefined, undefined, 5)) +
+      `<a href="https://temaetfs.com/hubfs/Website/Holdings/DISK-holdings-${newNav ? '11102026' : '11092026'}.csv">CSV</a>`);
+    if (path.includes('DISK-holdings-')) return new Response(csv(newNav ? nextNav.date : nav.date));
+    const symbol = decodeURIComponent(/\/chart\/([^?]+)/.exec(path)?.[1] ?? '');
+    if (symbol === 'CNY=X') return Response.json({ chart: { result: [{ meta: { symbol, currency: 'CNY' },
+      timestamp: [(nextNav.at - (cnyLag + 5) * 60000) / 1000], indicators: { quote: [{ close: [6] }] } }] } });
+    if (symbols.includes(symbol) && (symbol === '688825.SS' || usdAvailable.has(symbol))) {
+      const chinese = symbol === '688825.SS';
+      return Response.json({ chart: { result: [{ meta: { symbol, currency: chinese ? 'CNY' : 'USD' },
+        timestamp: [(chinese ? at('2026-11-10T09:30:00+08:00') : nextNav.at) / 1000],
+        indicators: { quote: [{ close: [chinese ? 1200 : 200] }] } }] } });
+    }
+    throw Error('Candidate historical baseline not available yet');
+  };
+  const get = createDiskSyntheticNavMarketClient({ seed, fetcher, clock: () => clock });
+  const snapshots = [];
+  const settle = async () => { for (let i = 0; i < 16; i++) {
+    await new Promise(resolve => setImmediate(resolve)); snapshots.push(get());
+  } };
+  get(); await settle();
+  const initial = get();
+  assert.equal(initial.status, 'ready');
+  assert.equal(initial.base.date, nav.date);
+  newNav = true; clock += 3600001;
+  get(); await settle();
+  const missingStocks = get();
+  assert.equal(missingStocks.status, 'ready');
+  assert.equal(missingStocks.base.date, nav.date);
+  assert.ok(missingStocks.rows.every(row => row.baseUsd === 100 && row.weight === .2));
+  assert.match(missingStocks.reasons.join(' '), /pending|awaiting|incomplete|waiting/i);
+  usdAvailable.add('WDC'); usdAvailable.add('AEHR'); clock += 61000;
+  get(); await settle();
+  const invalidFx = get();
+  assert.equal(invalidFx.base.date, nav.date, 'having all native stock prices cannot adopt an invalid FX baseline');
+  assert.equal(invalidFx.status, 'ready');
+  assert.ok(invalidFx.rows.every(row => row.baseUsd === 100 && row.weight === .2));
+  offline = true; clock += 46000;
+  const expiredPerps = get();
+  assert.equal(expiredPerps.base.date, nav.date);
+  assert.equal(expiredPerps.status, 'partial');
+  assert.equal(expiredPerps.nav, null, 'retaining a coherent baseline cannot revive expired live quotes');
+  assert.ok(expiredPerps.rows.every(row => row.quoteAt === clock - 46000));
+  await settle();
+  offline = false; cnyLag = 125; clock += 61000;
+  get(); await settle();
+  const adopted = get();
+  assert.equal(adopted.status, 'ready', adopted.reasons.join('; '));
+  assert.equal(adopted.base.date, nextNav.date);
+  assert.equal(adopted.base.holdingsAsOf, nextNav.date);
+  assert.equal(adopted.base.nav, 24);
+  assert.ok(Math.abs(adopted.nav - 13.2) < 1e-10);
+  assert.deepEqual(adopted.rows.map(row => row.weight), weights);
+  assert.ok(adopted.rows.every(row => row.baseUsd === 200));
+  assert.equal(adopted.rows.find(row => row.currency === 'CNY').baseFxAt, nextNav.at - 125 * 60000);
+  for (const snapshot of snapshots) {
+    if (snapshot.base.date === nav.date) assert.ok(snapshot.rows.every(row => row.baseUsd === 100 && row.weight === .2));
+    else {
+      assert.equal(snapshot.base.date, nextNav.date);
+      assert.ok(snapshot.rows.every(row => row.baseUsd === 200));
+      assert.deepEqual(snapshot.rows.map(row => row.weight), weights);
+    }
+  }
 });
 
 test('completed Taiwan cash close stays honestly timestamped and cannot carry into the next active session', async () => {

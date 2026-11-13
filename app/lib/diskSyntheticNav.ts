@@ -17,6 +17,7 @@ export type DiskSyntheticNavRowInput = {
   baseAt: number | null;
   baseFxPrice: number | null;
   baseFxAt: number | null;
+  baseFxReference?: string | null;
   currentNative: number | null;
   currentUsd: number | null;
   fxPrice: number | null;
@@ -72,6 +73,29 @@ const isDate = (value: string) => {
 };
 const samePrice = (a: number, b: number) => Math.abs(a - b) <= Math.max(1e-8, Math.abs(b) * 1e-8);
 
+/** CFETS onshore CNY closes at 03:00 Beijing time, before the U.S. NAV close.
+ * Recognize only a completed quote from the final 15 minutes of that exact
+ * session. This is a dated closing reference, never a freshly stamped quote.
+ * https://www.chinamoney.com.cn/english/rarfmrrudrgl/20221230/2526819.html
+ */
+export function navDateFxReference(currency: string, quoteAt: number, navAt: number): string | null {
+  if (currency !== "CNY" || !isTime(quoteAt) || !isTime(navAt) || quoteAt > navAt) return null;
+  const localNav = new Date(navAt + 8 * 3_600_000);
+  if (![4, 5].includes(localNav.getUTCHours()) || localNav.getUTCMinutes() !== 0
+    || localNav.getUTCSeconds() !== 0 || localNav.getUTCMilliseconds() !== 0) return null;
+  const midnight = Date.UTC(localNav.getUTCFullYear(), localNav.getUTCMonth(), localNav.getUTCDate());
+  const tradingDay = new Date(midnight - 86_400_000).getUTCDay();
+  if (tradingDay === 0 || tradingDay === 6) return null;
+  const closeAt = midnight - 5 * 3_600_000;
+  return quoteAt <= closeAt && closeAt - quoteAt <= 15 * 60_000
+    ? "Onshore CNY closed-session FX · original quote time retained" : null;
+}
+
+export function validNavDateFxTime(currency: string, quoteAt: number, navAt: number) {
+  return isTime(quoteAt) && isTime(navAt) && quoteAt <= navAt
+    && (navAt - quoteAt <= MAX_BASE_FX_LAG || navDateFxReference(currency, quoteAt, navAt) !== null);
+}
+
 function verifiedClosedCashReference(row: DiskSyntheticNavRowInput) {
   return row.sourceKind === "cash" && (
     row.reference === "Local market closed · verified completed-session reference"
@@ -86,7 +110,7 @@ function rowIssue(row: DiskSyntheticNavRowInput, base: DiskSyntheticNavBase, now
   if (!isPrice(row.baseNative) || !isPrice(row.baseUsd) || !isPrice(row.baseFxPrice)) return "NAV-date native cash valuation or FX unavailable";
   if (!isTime(row.baseAt) || row.baseAt > base.at + CLOCK_SKEW || base.at - row.baseAt > MAX_BASE_AGE) return "NAV-date cash valuation timestamp is invalid";
   if (row.currency !== "USD") {
-    if (!isTime(row.baseFxAt) || row.baseFxAt > base.at + CLOCK_SKEW || base.at - row.baseFxAt > MAX_BASE_FX_LAG) return "NAV-date FX timestamp is invalid";
+    if (!isTime(row.baseFxAt) || !validNavDateFxTime(row.currency, row.baseFxAt, base.at)) return "NAV-date FX timestamp is invalid";
   } else if (row.baseFxPrice !== 1) return "USD NAV-date cash valuation must not be converted again";
   if (!samePrice(row.baseUsd, row.baseNative / row.baseFxPrice)) return "NAV-date USD valuation disagrees with native cash price and FX";
   if (!isPrice(row.currentUsd) || !row.source?.trim()) return "Current USD price level or source unavailable";

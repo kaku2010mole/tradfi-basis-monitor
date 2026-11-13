@@ -111,6 +111,55 @@ test("perpetual, cash, FX and calculation clocks are gated independently", () =>
   assert.equal(model.calculateDiskSyntheticNav(withinWindow).status, "ready");
 });
 
+test("the completed CNY session close can anchor NAV without weakening live-quote or other FX freshness", () => {
+  const input = sample();
+  for (const row of input.rows.filter(row => row.currency === "CNY")) row.baseFxAt = input.base.at - 125 * 60_000;
+  const closed = model.calculateDiskSyntheticNav(input);
+  assert.equal(closed.status, "ready", closed.reasons.join("; "));
+  near(closed.nav, model.calculateDiskSyntheticNav(sample()).nav);
+  assert.ok(closed.rows.filter(row => row.currency === "CNY").every(row => row.baseFxAt === input.base.at - 125 * 60_000),
+    "historical close references keep their real provider timestamps");
+  const outsideClosingWindow = structuredClone(input);
+  outsideClosingWindow.rows.find(row => row.currency === "CNY").baseFxAt = input.base.at - 145 * 60_000;
+  assert.equal(model.calculateDiskSyntheticNav(outsideClosingWindow).nav, null);
+  const otherCurrency = structuredClone(input);
+  otherCurrency.rows.find(row => row.currency === "JPY").baseFxAt = input.base.at - 125 * 60_000;
+  assert.equal(model.calculateDiskSyntheticNav(otherCurrency).nav, null);
+  const stalePerp = structuredClone(input);
+  const perp = stalePerp.rows.find(row => row.currency === "CNY" && row.sourceKind === "perp");
+  perp.quoteAt = input.now - 45_001;
+  assert.equal(model.calculateDiskSyntheticNav(stalePerp).nav, null);
+  const staleLiveFx = structuredClone(input);
+  staleLiveFx.rows.find(row => row.currency === "CNY" && row.sourceKind === "cash").fxAt = input.now - 35 * 60_000 - 1;
+  assert.equal(model.calculateDiskSyntheticNav(staleLiveFx).nav, null);
+  const staleBase = structuredClone(input);
+  staleBase.base.at = staleBase.now - 7 * 86_400_000 - 1;
+  assert.equal(model.calculateDiskSyntheticNav(staleBase).nav, null);
+});
+
+test("the CNY overnight close exception is bounded by currency, session time and the prior trading weekday", () => {
+  const at = value => Date.parse(value);
+  const close = at("2026-11-12T05:00:00+08:00");
+  const quote = at("2026-11-12T02:55:00+08:00");
+  assert.ok(model.navDateFxReference("CNY", quote, close));
+  assert.equal(model.validNavDateFxTime("CNY", quote, close), true);
+  assert.ok(model.navDateFxReference("CNY", at("2026-11-12T02:45:00+08:00"), close));
+  assert.ok(model.navDateFxReference("CNY", at("2026-11-12T03:00:00+08:00"), close));
+  for (const [currency, quoteAt, navAt] of [
+    ["JPY", quote, close],
+    ["CNY", at("2026-11-12T02:44:59+08:00"), close],
+    ["CNY", at("2026-11-12T03:00:01+08:00"), close],
+    ["CNY", quote, at("2026-11-12T06:00:00+08:00")],
+    ["CNY", at("2026-11-11T02:55:00+08:00"), close],
+    ["CNY", at("2026-11-16T02:55:00+08:00"), at("2026-11-16T05:00:00+08:00")],
+  ]) {
+    assert.equal(model.navDateFxReference(currency, quoteAt, navAt), null);
+    assert.equal(model.validNavDateFxTime(currency, quoteAt, navAt), false);
+  }
+  assert.equal(model.validNavDateFxTime("JPY", close - 90 * 60_000, close), true);
+  assert.equal(model.validNavDateFxTime("JPY", close - 90 * 60_000 - 1, close), false);
+});
+
 test("verified closed cash references keep their actual times and cannot excuse stale FX or perps", () => {
   const input = sample();
   const closed = input.rows.find((r) => r.symbol === "2337.TW");
